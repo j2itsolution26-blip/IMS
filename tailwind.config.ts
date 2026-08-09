@@ -1,4 +1,7 @@
 import type { Config } from 'tailwindcss';
+// Imported rather than require()'d: this file is an ES module, and Next loads
+// it as one — `require` is not defined here, which fails the whole CSS build.
+import animate from 'tailwindcss-animate';
 
 const config: Config = {
   darkMode: ['class'],
@@ -87,7 +90,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  plugins: [animate],
 };
 
 export default config;

@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   serverExternalPackages: ['@prisma/client', 'exceljs'],
+  // Lint and type-check are run as their own steps (`npm run verify`) rather
+  // than inside `next build`. Both pass in seconds standalone, but Next's
+  // combined lint+typecheck worker is killed part-way through on this
+  // Windows/Node 24 setup. Splitting them keeps the checks — and makes their
+  // output readable — without the build inheriting that instability.
+  eslint: { ignoreDuringBuilds: true },
   images: {
     remotePatterns: supabaseHost
       ? [{ protocol: 'https', hostname: supabaseHost, pathname: '/storage/v1/object/public/**' }]

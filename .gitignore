@@ -20,3 +20,6 @@ next-env.d.ts
 .idea/
 .vscode/*
 !.vscode/extensions.json
+build.log
+dev.log
+probe.log
