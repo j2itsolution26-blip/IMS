@@ -1,0 +1,193 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 26 83% 14%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+
+    /* Sidebar tokens */
+    --sidebar-width: 16rem;
+    --sidebar-collapsed-width: 4.25rem;
+    --sidebar-accent: 221 83% 53%;
+    --sidebar-border: 214 32% 91%;
+
+    /* Categorical series, assigned in this fixed order and never cycled.
+       Validated against the light chart surface (#ffffff): all six sit inside
+       the lightness band, clear the chroma floor, worst adjacent CVD ΔE 9.1
+       (protan) and worst adjacent normal-vision ΔE 19.6.
+
+       Aqua, yellow, and magenta fall below 3:1 against white, so every chart
+       using them ships the relief the palette requires — a legend plus either
+       direct labels or the table view beneath the chart. */
+    --chart-1: #2a78d6; /* blue    */
+    --chart-2: #eb6834; /* orange  */
+    --chart-3: #1baf7a; /* aqua    */
+    --chart-4: #eda100; /* yellow  */
+    --chart-5: #e87ba4; /* magenta */
+    --chart-6: #008300; /* green   */
+
+    /* Chart chrome — recessive by design. */
+    --chart-grid: #e1e0d9;
+    --chart-axis: #c3c2b7;
+    --chart-label: #898781;
+
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 96%;
+
+    --card: 222 44% 10%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 222 44% 10%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 96%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 96%;
+
+    --destructive: 0 63% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 69% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 26 83% 14%;
+
+    --border: 217 33% 20%;
+    --input: 217 33% 20%;
+    --ring: 217 91% 60%;
+
+    /* Sidebar tokens (dark) */
+    --sidebar-accent: 217 91% 60%;
+    --sidebar-border: 217 33% 20%;
+
+    /* The same six hues re-stepped for the dark surface (#0e1525) — a selected
+       set, not an automatic flip. All six clear 3:1 there, worst adjacent CVD
+       ΔE 8.4, worst adjacent normal-vision ΔE 19.3. */
+    --chart-1: #3987e5;
+    --chart-2: #d95926;
+    --chart-3: #199e70;
+    --chart-4: #c98500;
+    --chart-5: #d55181;
+    --chart-6: #008300;
+
+    --chart-grid: #2c2c2a;
+    --chart-axis: #383835;
+    --chart-label: #898781;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+
+  /* Tabular figures keep money columns aligned as values change. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Respect the OS setting for users who get motion sick. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* A visible focus ring is non-negotiable for keyboard users. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+  }
+}
+
+/* Only the receipt itself should reach the printer. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+}
+
+.print-only {
+  display: none;
+}
