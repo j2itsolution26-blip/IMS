@@ -235,3 +235,17 @@ the whole workflow for extending the catalogue.
 - **Alerts are raised on page load**, not by a scheduler. Opening the dashboard
   or the purchases list refreshes late-delivery detection. A cron job hitting
   those paths would make it fully autonomous.
+
+## Deployment region
+
+`vercel.json` pins Serverless Functions to `sin1` (Singapore) to sit beside the
+Supabase project in `ap-southeast-1`.
+
+This is not a micro-optimisation. Vercel defaults to `iad1` (Washington DC); with
+the database in Singapore every query paid a ~250ms round trip, and pages issuing
+several queries took 10–19 seconds and intermittently exceeded the function
+timeout, returning 500. Co-locating removes that entirely.
+
+**If you move the Supabase project to another region, change this to match.**
+The two must stay together — a mismatch is slow in a way that looks like an
+application bug rather than a configuration one.
