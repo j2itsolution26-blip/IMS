@@ -23,3 +23,8 @@ next-env.d.ts
 build.log
 dev.log
 probe.log
+
+# local dev server scratch log
+devlog.txt
+prodprobe.log
+probe.log

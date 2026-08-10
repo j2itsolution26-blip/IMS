@@ -21,7 +21,13 @@ const SESSION_COOKIES = ['better-auth.session_token', '__Secure-better-auth.sess
 // `/api/health` must stay reachable without a session: its whole purpose is
 // diagnosing a deployment where authentication is broken, and gating it behind
 // the thing it diagnoses would make it useless. It returns no secret values.
-const PUBLIC_PATHS = ['/sign-in', '/sign-up', '/api/auth', '/api/health'];
+// `/api/health` must stay reachable without a session: its whole purpose is
+// diagnosing a deployment where authentication is broken, and gating it behind
+// the thing it diagnoses would make it useless. It returns no secret values.
+//
+// `/api/session/reset` must be reachable with a *broken* session, since that is
+// precisely when it is needed.
+const PUBLIC_PATHS = ['/sign-in', '/sign-up', '/api/auth', '/api/health', '/api/session'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

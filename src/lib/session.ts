@@ -25,7 +25,24 @@ export interface CurrentUser {
  * header, and three server components still issues one query per request.
  */
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
-  const session = await auth.api.getSession({ headers: await headers() });
+  let session: Awaited<ReturnType<typeof auth.api.getSession>> = null;
+
+  try {
+    session = await auth.api.getSession({ headers: await headers() });
+  } catch (error) {
+    // A cookie that cannot be verified is an unauthenticated request, not a
+    // server fault. The usual cause is BETTER_AUTH_SECRET changing (or being
+    // set for the first time) while browsers still hold cookies signed under
+    // the previous value — every one of those sessions becomes unverifiable at
+    // once. Letting this propagate turns a routine "sign in again" into a 500
+    // on every authenticated page.
+    //
+    // The error is logged rather than swallowed: it is a real signal when it
+    // appears for any other reason.
+    console.error('[auth] session could not be verified; treating as signed out', error);
+    return null;
+  }
+
   if (!session?.user?.id) return null;
 
   const user = await prisma.user.findUnique({
@@ -71,10 +88,20 @@ export function userCanAny(user: CurrentUser | null, permissions: PermissionKey[
   return permissions.some((p) => userCan(user, p));
 }
 
-/** For pages: sends the visitor to sign-in instead of throwing. */
+/**
+ * For pages: sends the visitor to sign-in instead of throwing.
+ *
+ * Routes through `/api/session/reset` rather than straight to `/sign-in`
+ * because reaching here means a session cookie was *present* but did not
+ * resolve to a usable account — stale signature, deleted user, or a
+ * deactivated one. Middleware only tests whether the cookie exists, so
+ * redirecting to `/sign-in` while that cookie is still set would bounce
+ * straight back to the dashboard and loop. The reset route clears it first.
+ * Server components cannot write cookies, which is why this needs a handler.
+ */
 export async function requireUser(): Promise<CurrentUser> {
   const user = await getCurrentUser();
-  if (!user) redirect('/sign-in');
+  if (!user) redirect('/api/session/reset');
   return user;
 }
 

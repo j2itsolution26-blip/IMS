@@ -26,9 +26,13 @@ async function countUsers(): Promise<number | null> {
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; reason?: string }>;
 }) {
-  const [{ next }, userCount] = await Promise.all([searchParams, countUsers()]);
+  const [{ next, reason }, userCount] = await Promise.all([searchParams, countUsers()]);
+
+  // Set by /api/session/reset after clearing a cookie that could no longer be
+  // verified. Saying so beats letting the user wonder why they were signed out.
+  const sessionExpired = reason === 'session-expired';
 
   return (
     <div className="space-y-8">
@@ -48,6 +52,20 @@ export default async function SignInPage({
           Sign in to access your inventory dashboard.
         </p>
       </div>
+
+      {/* ── Signed-out notice ── */}
+      {sessionExpired && (
+        <div
+          role="status"
+          className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning"
+        >
+          <p className="font-medium">Your session has ended</p>
+          <p className="mt-1 opacity-90">
+            You have been signed out because your session could no longer be verified. Signing in
+            again will fix it.
+          </p>
+        </div>
+      )}
 
       {/* ── Sign-in form ── */}
       <SignInForm redirectTo={next ?? '/dashboard'} />

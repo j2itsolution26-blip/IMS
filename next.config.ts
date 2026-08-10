@@ -13,7 +13,12 @@ const supabaseHost = (() => {
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  serverExternalPackages: ['@prisma/client', 'exceljs'],
+  // Server-only packages that must not be bundled. `recharts` is deliberately
+  // absent: it is a client-only charting library used solely from 'use client'
+  // components, and Next already lists it internally for transpilation, so
+  // naming it here is both wrong and a hard startup error ("the packages
+  // specified in 'transpilePackages' conflict with 'serverExternalPackages'").
+  serverExternalPackages: ['@prisma/client', 'exceljs', 'better-auth', 'kysely'],
   // Lint and type-check are run as their own steps (`npm run verify`) rather
   // than inside `next build`. Both pass in seconds standalone, but Next's
   // combined lint+typecheck worker is killed part-way through on this
