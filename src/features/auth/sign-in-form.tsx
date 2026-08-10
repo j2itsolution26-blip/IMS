@@ -42,10 +42,19 @@ export function SignInForm({ redirectTo }: { redirectTo: string }) {
     if (error) {
       // Never distinguish "no such user" from "wrong password" — that turns the
       // login form into an account enumeration oracle.
+      if (error.status === 401 || error.status === 403) {
+        setFormError('Those credentials are not valid.');
+        return;
+      }
+
+      // Anything else is a server-side fault, not the user's mistake. Surfacing
+      // the status makes a misconfigured deployment diagnosable instead of
+      // looking like a rejected password. This leaks nothing about the account.
+      const status = error.status ? ` (HTTP ${error.status})` : '';
       setFormError(
-        error.status === 401 || error.status === 403
-          ? 'Those credentials are not valid.'
-          : error.message || 'Sign in failed. Please try again.',
+        error.message
+          ? `${error.message}${status}`
+          : `The server could not process the sign-in${status}. This usually means the deployment is misconfigured rather than a problem with your credentials.`,
       );
       return;
     }

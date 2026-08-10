@@ -25,12 +25,63 @@ export type ServerEnv = z.infer<typeof serverSchema>;
 
 let cached: ServerEnv | null = null;
 
+const onVercel = () => Boolean(process.env.VERCEL);
+const isLocalhost = (url: string) => /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(url);
+
+/**
+ * Resolves the canonical origin the app is served from.
+ *
+ * Order matters. Vercel exposes three different hostnames per deployment and
+ * picking the wrong one breaks authentication, because Better Auth validates
+ * the request's Origin header against this value:
+ *
+ *   VERCEL_PROJECT_PRODUCTION_URL  the stable production domain
+ *   VERCEL_BRANCH_URL              the branch alias (…-git-main-…)
+ *   VERCEL_URL                     unique per deployment (…-pcctzhaq5-…)
+ *
+ * `VERCEL_URL` changes on every push, so it is the last resort rather than the
+ * first choice. An explicitly configured localhost value is ignored in a Vercel
+ * environment — that only ever comes from a `.env` copied into the dashboard by
+ * mistake, and honouring it would break sign-in on every deployment.
+ */
 function resolveBaseUrl(): string | undefined {
-  if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
-  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL;
-  // Vercel injects this for every deployment, including previews.
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return undefined;
+  const configured = process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (configured && !(onVercel() && isLocalhost(configured))) return configured;
+
+  const host =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    process.env.VERCEL_BRANCH_URL ||
+    process.env.VERCEL_URL;
+
+  return host ? `https://${host}` : undefined;
+}
+
+/**
+ * Every origin the app may legitimately be reached on.
+ *
+ * A Vercel deployment answers on all three hostnames at once, so all three must
+ * be trusted or signing in works on one URL and fails on the others.
+ */
+export function getTrustedOrigins(): string[] {
+  const origins = new Set<string>();
+
+  for (const value of [process.env.BETTER_AUTH_URL, process.env.NEXT_PUBLIC_APP_URL]) {
+    if (value && !(onVercel() && isLocalhost(value))) origins.add(value.replace(/\/$/, ''));
+  }
+
+  for (const host of [
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    process.env.VERCEL_BRANCH_URL,
+    process.env.VERCEL_URL,
+  ]) {
+    if (host) origins.add(`https://${host}`);
+  }
+
+  if (!onVercel()) {
+    origins.add('http://localhost:3000');
+  }
+
+  return [...origins];
 }
 
 export function getEnv(): ServerEnv {

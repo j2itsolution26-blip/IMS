@@ -2,7 +2,7 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { nextCookies } from 'better-auth/next-js';
 import { prisma } from '@/lib/prisma';
-import { getAppUrl } from '@/lib/env';
+import { getAppUrl, getTrustedOrigins } from '@/lib/env';
 import { isProvisioning } from '@/lib/provisioning-context';
 import { APIError } from 'better-auth/api';
 
@@ -46,6 +46,11 @@ async function resolveRoleIdForNewUser(): Promise<string> {
 export const auth = betterAuth({
   appName: 'Inventory Management System',
   baseURL: getAppUrl(),
+  // A Vercel deployment is reachable on its production domain, its branch
+  // alias, and a unique per-deployment URL simultaneously. Trusting only
+  // `baseURL` means sign-in works on one of them and fails on the other two
+  // with a CSRF rejection that surfaces as a generic error.
+  trustedOrigins: getTrustedOrigins(),
   secret: process.env.BETTER_AUTH_SECRET,
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
 
