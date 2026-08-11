@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getAppUrl, getTrustedOrigins } from '@/lib/env';
+import { getAppUrl, getTrustedOrigins, isStorageConfigured } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +41,16 @@ export async function GET() {
     };
   }
 
+  // Product image upload is optional, so it is reported separately and does
+  // not affect `healthy`. Presence only — never the value, and never a prefix
+  // or length that would narrow a guess at the secret.
+  const storage = {
+    NEXT_PUBLIC_SUPABASE_URL: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()),
+    SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
+    bucket: process.env.SUPABASE_STORAGE_BUCKET?.trim() || 'product-images',
+    uploadEnabled: isStorageConfigured(),
+  };
+
   const missing = required.filter((key) => !env[key]);
   const healthy = missing.length === 0 && secretLooksValid && database.reachable && (database.roles ?? 0) > 0;
 
@@ -58,6 +68,7 @@ export async function GET() {
         trustedOrigins: getTrustedOrigins(),
       },
       database,
+      storage,
       // Actionable next step rather than a bare boolean.
       diagnosis: healthy
         ? 'All checks passed.'

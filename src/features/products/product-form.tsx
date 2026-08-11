@@ -465,12 +465,15 @@ export function ProductForm({
                   )}
                 </div>
               ) : (
+                {/* Deliberately says nothing about environment variables or
+                    bucket names. This is shown to whoever is adding a product —
+                    usually a shop-floor user who cannot act on any of that, and
+                    for whom naming server configuration is noise at best. The
+                    administrator's version of this lives in /api/health. */}
                 <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
-                  <p className="font-medium">Upload is not configured yet</p>
+                  <p className="font-medium">Image upload is temporarily unavailable</p>
                   <p className="mt-1 opacity-90">
-                    Set <code className="font-mono">SUPABASE_SERVICE_ROLE_KEY</code> (Supabase → Settings
-                    → API Keys) and create a public <code className="font-mono">product-images</code>{' '}
-                    bucket. Until then you can paste a direct image URL below.
+                    You can still add a picture by pasting a direct image link below.
                   </p>
                 </div>
               )}
