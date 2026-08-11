@@ -77,17 +77,46 @@ export async function uploadProductImage(file: File, productSku: string): Promis
   return data.publicUrl;
 }
 
-/** Best-effort cleanup — a stale object costs pennies, a failed save costs the user their work. */
-export async function deleteProductImage(publicUrl: string): Promise<void> {
-  if (!publicUrl || !isStorageConfigured()) return;
+export type DeleteImageResult =
+  | { status: 'deleted'; path: string }
+  /** Not a storage object — an externally hosted URL we do not own. */
+  | { status: 'skipped'; reason: string }
+  | { status: 'failed'; path: string; error: string };
+
+/**
+ * Removes a previously uploaded image.
+ *
+ * Returns a result rather than throwing, and never reports success it did not
+ * achieve. Callers delete an old image *after* the replacement has been saved,
+ * so a failure here must not roll back the user's work — but it must also not
+ * be swallowed, or orphaned objects accumulate invisibly. The outcome is
+ * logged with the path so it can be cleaned up.
+ *
+ * Note the public URL may keep serving a cached copy through Supabase's CDN
+ * for a while after the object is gone. That is harmless here because uploads
+ * are UUID-named, so a replacement never reuses the old URL.
+ */
+export async function deleteProductImage(publicUrl: string): Promise<DeleteImageResult> {
+  if (!publicUrl) return { status: 'skipped', reason: 'no image to remove' };
+  if (!isStorageConfigured()) return { status: 'skipped', reason: 'storage not configured' };
 
   const marker = `/object/public/${bucket()}/`;
   const index = publicUrl.indexOf(marker);
-  if (index === -1) return;
+  if (index === -1) {
+    // An externally hosted image. Clearing the product's reference is all we
+    // can do — the file is not ours to delete.
+    return { status: 'skipped', reason: 'externally hosted image' };
+  }
 
   const path = decodeURIComponent(publicUrl.slice(index + marker.length));
   const { error } = await getClient().storage.from(bucket()).remove([path]);
-  if (error) console.error('[storage] failed to remove image', path, error.message);
+
+  if (error) {
+    console.error(`[storage] FAILED to remove "${path}": ${error.message} — object is now orphaned`);
+    return { status: 'failed', path, error: error.message };
+  }
+
+  return { status: 'deleted', path };
 }
 
 export { isStorageConfigured };

@@ -173,8 +173,13 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
     await Promise.all(stockRows.map((row) => evaluateStockAlerts([id], row.warehouseId)));
 
     // A replaced image leaves the old object orphaned in the bucket.
+    // Only after the new image has been saved, so a failure here can never
+    // leave the product pointing at a file that no longer exists.
     if (before.imageUrl && before.imageUrl !== values.imageUrl) {
-      await deleteProductImage(before.imageUrl).catch(() => undefined);
+      const removal = await deleteProductImage(before.imageUrl);
+      if (removal.status === 'failed') {
+        console.error(`[products] replaced image for ${id} but could not remove the old object`, removal);
+      }
     }
 
     invalidate(id);
@@ -222,7 +227,10 @@ export async function deleteProduct(id: string): Promise<ActionResult<void>> {
     await prisma.product.delete({ where: { id } });
 
     if (product.imageUrl) {
-      await deleteProductImage(product.imageUrl).catch(() => undefined);
+      const removal = await deleteProductImage(product.imageUrl);
+      if (removal.status === 'failed') {
+        console.error(`[products] deleted product ${id} but could not remove its image`, removal);
+      }
     }
 
     await recordAudit({

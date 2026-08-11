@@ -17,7 +17,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
-    "db:bootstrap": "tsx prisma/bootstrap.ts"
+    "db:bootstrap": "tsx prisma/bootstrap.ts",
+    "verify:images": "cross-env NODE_OPTIONS=--conditions=react-server tsx scripts/upload-test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
