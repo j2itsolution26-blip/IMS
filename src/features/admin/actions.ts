@@ -191,12 +191,31 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
       userId: admin.id,
     });
 
-    await notify({
-      type: 'NEW_USER',
-      title: `New user: ${values.name}`,
-      message: `${values.email} was added with the ${role.name} role.`,
-      link: '/settings/users',
+    // Addressed to the people who administer accounts, not broadcast.
+    //
+    // `notify` with no userId is visible to every signed-in user, so a
+    // broadcast here put a colleague's email address and role in the
+    // notification bell of every cashier on the shop floor. The audience for
+    // "an account was created" is exactly whoever can view accounts.
+    const administrators = await prisma.user.findMany({
+      where: {
+        isActive: true,
+        role: { permissions: { some: { permission: { key: 'users.view' } } } },
+      },
+      select: { id: true },
     });
+
+    await Promise.all(
+      administrators.map((administrator) =>
+        notify({
+          type: 'NEW_USER',
+          title: `New user: ${values.name}`,
+          message: `${values.email} was added with the ${role.name} role.`,
+          link: '/settings/users',
+          userId: administrator.id,
+        }),
+      ),
+    );
 
     revalidatePath('/settings/users');
     return { id: userId };
