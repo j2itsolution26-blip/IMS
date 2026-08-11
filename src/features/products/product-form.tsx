@@ -431,6 +431,11 @@ export function ProductForm({
                 showFailureText
               />
 
+              {/* The unavailable message below deliberately says nothing about
+                  environment variables or bucket names. It is shown to whoever
+                  is adding a product — usually a shop-floor user who cannot act
+                  on server configuration. The administrator's version of this
+                  lives in /api/health. */}
               {storageEnabled ? (
                 <div className="flex gap-2">
                   <input
@@ -465,11 +470,6 @@ export function ProductForm({
                   )}
                 </div>
               ) : (
-                {/* Deliberately says nothing about environment variables or
-                    bucket names. This is shown to whoever is adding a product —
-                    usually a shop-floor user who cannot act on any of that, and
-                    for whom naming server configuration is noise at best. The
-                    administrator's version of this lives in /api/health. */}
                 <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                   <p className="font-medium">Image upload is temporarily unavailable</p>
                   <p className="mt-1 opacity-90">
