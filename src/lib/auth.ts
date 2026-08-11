@@ -56,7 +56,20 @@ export const auth = betterAuth({
 
   emailAndPassword: {
     enabled: true,
-    autoSignIn: true,
+    // Creating an account must never mint a session as a side effect.
+    //
+    // `signUpEmail` is also called server-side when an administrator creates a
+    // staff account. With autoSignIn on, the `nextCookies` plugin wrote the new
+    // user's session cookie into that Server Action's response — silently
+    // replacing the administrator's own session with one for the account they
+    // had just created. The admin became the new user mid-request, and the
+    // following re-render of /settings/users then failed their permission
+    // check.
+    //
+    // Sign-in is now always explicit. The first-run sign-up form signs itself
+    // in from the browser, which is the only place a session cookie should be
+    // established.
+    autoSignIn: false,
     minPasswordLength: 10,
     maxPasswordLength: 128,
     requireEmailVerification: false,

@@ -12,6 +12,7 @@
     "postinstall": "prisma generate",
     "diagnose": "cross-env NODE_OPTIONS=--conditions=react-server tsx scripts/diagnose.ts",
     "probe": "cross-env NODE_OPTIONS=--conditions=react-server tsx scripts/probe-routes.ts",
+    "verify:users": "cross-env NODE_OPTIONS=--conditions=react-server tsx scripts/verify-user-creation.ts",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",

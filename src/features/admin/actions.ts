@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
+import { APIError } from 'better-auth/api';
 import { authorize, getCurrentUser } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
@@ -97,26 +98,90 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     const values = parseInput(createUserSchema, input);
 
     const role = await prisma.role.findUnique({ where: { id: values.roleId } });
-    if (!role) throw new NotFoundError('Role');
+    if (!role) {
+      throw new ValidationError('That role no longer exists.', {
+        roleId: ['Pick a role from the list.'],
+      });
+    }
+
+    // Checked up front so a duplicate reports against the email field rather
+    // than surfacing as a generic failure from inside Better Auth.
+    const existing = await prisma.user.findUnique({
+      where: { email: values.email },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ValidationError('That email address already has an account.', {
+        email: ['This email is already registered.'],
+      });
+    }
 
     // Better Auth owns password hashing, so the account is created through it
     // rather than by writing to the table directly. `runAsProvisioning` is what
     // tells the sign-up hook this is an authorised admin creation, not a public
     // registration.
-    const created = await runAsProvisioning(async () =>
-      auth.api.signUpEmail({
-        body: { name: values.name, email: values.email, password: values.password },
-      }),
-    );
+    //
+    // This creates no session: `emailAndPassword.autoSignIn` is off precisely
+    // so that calling this from a Server Action cannot overwrite the
+    // administrator's own session cookie with one for the new account.
+    let created: Awaited<ReturnType<typeof auth.api.signUpEmail>>;
+    try {
+      created = await runAsProvisioning(async () =>
+        auth.api.signUpEmail({
+          body: { name: values.name, email: values.email, password: values.password },
+        }),
+      );
+    } catch (error) {
+      // Better Auth signals rejections (duplicate account, password policy) as
+      // APIError. Translating it keeps a real reason in front of the admin
+      // instead of collapsing to "something went wrong".
+      if (error instanceof APIError) {
+        const message =
+          (error.body as { message?: string } | undefined)?.message ?? error.message;
+        throw /exist/i.test(message)
+          ? new ValidationError('That email address already has an account.', {
+              email: ['This email is already registered.'],
+            })
+          : new ValidationError(message || 'The account could not be created.');
+      }
+      throw error;
+    }
 
     const userId = created?.user?.id;
     if (!userId) throw new ConflictError('The account could not be created.');
 
-    // The sign-up hook assigns the default role; apply the chosen one.
-    await prisma.user.update({
+    // Better Auth reports success on a duplicate email, returning a generated
+    // id that was never inserted — the row is silently dropped by the unique
+    // constraint. The pre-check above catches the ordinary case, but two admins
+    // submitting the same address at once would both pass it, and the loser
+    // would otherwise carry a phantom id into the update below and fail with an
+    // unhelpful "record no longer exists".
+    //
+    // Confirming the row is really there closes that race against the database
+    // rather than against a read that has already gone stale.
+    const persisted = await prisma.user.findUnique({
       where: { id: userId },
-      data: { roleId: values.roleId, phone: values.phone || null },
+      select: { id: true },
     });
+    if (!persisted) {
+      throw new ValidationError('That email address already has an account.', {
+        email: ['This email is already registered.'],
+      });
+    }
+
+    // The sign-up hook assigns the default role; apply the chosen one. If this
+    // fails the account would be left half-provisioned on the wrong role, so
+    // the new user is removed rather than left in that state. Better Auth owns
+    // the insert, so this compensating delete is the equivalent of a rollback.
+    try {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { roleId: values.roleId, phone: values.phone || null },
+      });
+    } catch (error) {
+      await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
+      throw error;
+    }
 
     await recordAudit({
       action: 'CREATE',
