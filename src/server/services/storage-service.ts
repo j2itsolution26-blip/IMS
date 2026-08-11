@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { isStorageConfigured } from '@/lib/env';
 import { AppError, ValidationError } from '@/lib/errors';
@@ -12,12 +13,13 @@ import { AppError, ValidationError } from '@/lib/errors';
  */
 
 const MAX_BYTES = 5 * 1024 * 1024;
-const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif']);
+// Exactly the formats the UI advertises. SVG is deliberately excluded: it can
+// carry script, and it is never needed for a product photograph.
+const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const EXTENSION_BY_MIME: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
-  'image/avif': 'avif',
 };
 
 let client: SupabaseClient | null = null;
@@ -48,15 +50,20 @@ export async function uploadProductImage(file: File, productSku: string): Promis
     throw new ValidationError('Image must be 5 MB or smaller.', { image: ['Image must be 5 MB or smaller.'] });
   }
   if (!ALLOWED_MIME.has(file.type)) {
-    throw new ValidationError('Image must be JPEG, PNG, WebP, or AVIF.', {
+    throw new ValidationError('Image must be a JPG, PNG, or WEBP file.', {
       image: ['Unsupported image format.'],
     });
   }
 
   const supabase = getClient();
   const extension = EXTENSION_BY_MIME[file.type];
-  const safeSku = productSku.replace(/[^a-zA-Z0-9._-]/g, '-').toLowerCase();
-  const path = `products/${safeSku}-${Date.now()}.${extension}`;
+  const safeSku = productSku.replace(/[^a-zA-Z0-9._-]/g, '-').toLowerCase().slice(0, 40);
+
+  // A UUID rather than a timestamp: two uploads for the same SKU inside the
+  // same millisecond would otherwise collide, and `upsert: false` would reject
+  // the second one. The SKU is kept only as a human-readable prefix — never as
+  // the sole filename, so a user-supplied name can never determine the path.
+  const path = `products/${safeSku}-${randomUUID()}.${extension}`;
 
   const { error } = await supabase.storage
     .from(bucket())

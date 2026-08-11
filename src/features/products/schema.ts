@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateImageUrl } from '@/lib/image-url';
 
 /**
  * Product validation. Shared by the client form and the server action so the
@@ -40,9 +41,18 @@ export const productSchema = z
       .max(2000)
       .transform((value) => (value === '' ? null : value))
       .nullable(),
+    // Validated on the server as well as in the browser: a client-only check
+    // would be bypassed by posting the form directly, and a page URL saved here
+    // renders as a broken image everywhere the product appears.
     imageUrl: z
       .string()
       .trim()
+      .superRefine((value, ctx) => {
+        const result = validateImageUrl(value);
+        if (!result.ok) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: result.reason });
+        }
+      })
       .transform((value) => (value === '' ? null : value))
       .nullable(),
 

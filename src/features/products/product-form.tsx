@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useForm, Controller } from 'react-hook-form';
@@ -18,6 +17,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FormField, FormError, applyServerErrors } from '@/components/form';
 import { Label } from '@/components/ui/label';
 import { formatCurrency } from '@/lib/format';
+import { ProductImage } from '@/components/product-image';
+import { validateImageUrl } from '@/lib/image-url';
 
 export interface ProductFormOptions {
   categories: { id: string; name: string }[];
@@ -83,6 +84,9 @@ export function ProductForm({
   });
 
   const imageUrl = watch('imageUrl');
+  // Same rule the server applies, so the field cannot look accepted here
+  // and then be rejected on submit.
+  const imageCheck = React.useMemo(() => validateImageUrl(imageUrl), [imageUrl]);
   const costPrice = Number(watch('costPrice')) || 0;
   const sellingPrice = Number(watch('sellingPrice')) || 0;
   const isTrackable = watch('isTrackable');
@@ -417,26 +421,22 @@ export function ProductForm({
               <CardDescription>Shown in the POS grid and product lists.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex h-36 items-center justify-center overflow-hidden rounded-md border bg-muted">
-                {imageUrl ? (
-                  <Image
-                    src={imageUrl}
-                    alt="Product preview"
-                    width={300}
-                    height={144}
-                    className="h-full w-full object-contain"
-                  />
-                ) : (
-                  <span className="text-xs text-muted-foreground">No image</span>
-                )}
-              </div>
+              {/* Only a URL that passes validation is previewed — otherwise a
+                  rejected address would still render (and fail) below the very
+                  error explaining why it is not usable. */}
+              <ProductImage
+                src={imageCheck.ok && imageUrl ? imageUrl : null}
+                alt={watch('name') || 'Product'}
+                size="lg"
+                showFailureText
+              />
 
               {storageEnabled ? (
                 <div className="flex gap-2">
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    accept="image/jpeg,image/png,image/webp"
                     onChange={onUpload}
                     className="hidden"
                     id="product-image"
@@ -465,15 +465,38 @@ export function ProductForm({
                   )}
                 </div>
               ) : (
-                <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                  Image upload is unavailable — Supabase Storage is not configured. You can still paste an
-                  image URL below.
-                </p>
+                <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+                  <p className="font-medium">Upload is not configured yet</p>
+                  <p className="mt-1 opacity-90">
+                    Set <code className="font-mono">SUPABASE_SERVICE_ROLE_KEY</code> (Supabase → Settings
+                    → API Keys) and create a public <code className="font-mono">product-images</code>{' '}
+                    bucket. Until then you can paste a direct image URL below.
+                  </p>
+                </div>
               )}
 
-              <FormField id="imageUrl" label="Image URL" error={errors.imageUrl}>
-                <Input id="imageUrl" placeholder="https://…" {...register('imageUrl')} />
+              <FormField
+                id="imageUrl"
+                label="Image URL"
+                error={errors.imageUrl}
+                description="Must link directly to an image file, not to a page showing one."
+              >
+                <Input
+                  id="imageUrl"
+                  placeholder="https://example.com/photo.jpg"
+                  aria-invalid={Boolean(imageUrl) && !imageCheck.ok}
+                  {...register('imageUrl')}
+                />
               </FormField>
+
+              {/* Immediate feedback while typing, before the form is submitted. */}
+              {imageUrl && !imageCheck.ok && !errors.imageUrl && (
+                <p className="text-xs text-destructive">{imageCheck.reason}</p>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                Supported formats: JPG, PNG, WEBP · Maximum size: 5 MB
+              </p>
             </CardContent>
           </Card>
         </div>

@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import Image from 'next/image';
 import { notFound } from 'next/navigation';
 import { ArrowDownLeft, ArrowUpRight, Package, Pencil } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
+import { ProductImage } from '@/components/product-image';
 import { getProduct, getProductHistory } from '@/features/products/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { toNum } from '@/lib/decimal';
@@ -107,19 +107,13 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
               <CardTitle className="text-base">Overview</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex h-40 items-center justify-center overflow-hidden rounded-md border bg-muted">
-                {product.imageUrl ? (
-                  <Image
-                    src={product.imageUrl}
-                    alt=""
-                    width={400}
-                    height={160}
-                    className="h-full w-full object-contain"
-                  />
-                ) : (
-                  <Package className="h-8 w-8 text-muted-foreground/40" aria-hidden="true" />
-                )}
-              </div>
+              <ProductImage
+                src={product.imageUrl}
+                alt={product.name}
+                size="lg"
+                className="h-40"
+                showFailureText
+              />
 
               <dl className="space-y-2 text-sm">
                 <Row label="Status">

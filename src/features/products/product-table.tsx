@@ -2,12 +2,12 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Package, Pencil, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ProductStatus } from '@prisma/client';
 import type { ProductListRow } from '@/features/products/queries';
+import { ProductImage } from '@/components/product-image';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -87,19 +87,7 @@ export function ProductTable({
               <TableRow key={row.id}>
                 <TableCell>
                   <div className="flex items-center gap-2.5">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
-                      {row.imageUrl ? (
-                        <Image
-                          src={row.imageUrl}
-                          alt=""
-                          width={36}
-                          height={36}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <Package className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                      )}
-                    </span>
+                    <ProductImage src={row.imageUrl} alt={row.name} size="sm" />
                     <div className="min-w-0">
                       <Link href={`/products/${row.id}`} className="block truncate font-medium hover:underline">
                         {row.name}

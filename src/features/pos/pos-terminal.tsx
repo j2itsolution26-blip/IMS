@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
   Banknote,
@@ -21,6 +20,7 @@ import {
 import { toast } from 'sonner';
 import type { PaymentMethod } from '@prisma/client';
 import type { SellableProduct } from '@/features/products/queries';
+import { ProductImage } from '@/components/product-image';
 import { checkout, lookupProducts } from '@/features/pos/actions';
 import { quickCreateCustomer } from '@/features/catalogue/actions';
 import { Button } from '@/components/ui/button';
@@ -457,18 +457,13 @@ export function PosTerminal({
                         : 'hover:border-primary/50 hover:bg-accent/40',
                     )}
                   >
-                    <span className="flex h-20 w-full items-center justify-center bg-muted">
-                      {product.imageUrl ? (
-                        <Image
-                          src={product.imageUrl}
-                          alt=""
-                          width={200}
-                          height={80}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <Package className="h-6 w-6 text-muted-foreground/40" aria-hidden="true" />
-                      )}
+                    <span className="flex h-20 w-full items-center justify-center">
+                      <ProductImage
+                        src={product.imageUrl}
+                        alt={product.name}
+                        size="fill"
+                        className="rounded-none border-0"
+                      />
                     </span>
                     <span className="flex flex-1 flex-col gap-0.5 p-2.5">
                       <span className="line-clamp-2 text-sm font-medium leading-snug">{product.name}</span>

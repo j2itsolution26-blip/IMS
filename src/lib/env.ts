@@ -109,11 +109,18 @@ export function getEnv(): ServerEnv {
 }
 
 /** True when Supabase Storage is configured; image upload degrades gracefully without it. */
+/**
+ * Whether product image upload can work.
+ *
+ * Uploads happen server-side with the service-role key, so only the project URL
+ * and that key are required. The anon key was previously demanded here too,
+ * which gated upload off for deployments that were in fact perfectly capable of
+ * it — the anon key is for browser-side Supabase clients, and this application
+ * has none.
+ */
 export function isStorageConfigured(): boolean {
   return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-      process.env.SUPABASE_SERVICE_ROLE_KEY &&
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
   );
 }
 
