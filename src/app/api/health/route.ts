@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getAppUrl, getTrustedOrigins, isStorageConfigured } from '@/lib/env';
+import { getAppUrl, getSupabaseUrl, getTrustedOrigins, isStorageConfigured } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,10 +45,15 @@ export async function GET() {
   // not affect `healthy`. Presence only — never the value, and never a prefix
   // or length that would narrow a guess at the secret.
   const storage = {
-    NEXT_PUBLIC_SUPABASE_URL: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()),
+    supabaseUrl: Boolean(getSupabaseUrl()),
     SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
     bucket: process.env.SUPABASE_STORAGE_BUCKET?.trim() || 'product-images',
     uploadEnabled: isStorageConfigured(),
+    // Names what is missing, so "upload unavailable" is never a dead end.
+    missing: [
+      ...(getSupabaseUrl() ? [] : ['NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL)']),
+      ...(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ? [] : ['SUPABASE_SERVICE_ROLE_KEY']),
+    ],
   };
 
   const missing = required.filter((key) => !env[key]);

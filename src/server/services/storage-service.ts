@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { isStorageConfigured } from '@/lib/env';
+import { getSupabaseUrl, isStorageConfigured } from '@/lib/env';
 import { AppError, ValidationError } from '@/lib/errors';
 
 /**
@@ -34,7 +34,7 @@ function getClient(): SupabaseClient {
   }
   if (!client) {
     client = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      getSupabaseUrl()!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false, autoRefreshToken: false } },
     );

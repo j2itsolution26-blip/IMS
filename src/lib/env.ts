@@ -119,9 +119,20 @@ export function getEnv(): ServerEnv {
  * has none.
  */
 export function isStorageConfigured(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
-  );
+  return Boolean(getSupabaseUrl() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+}
+
+/**
+ * The Supabase project URL.
+ *
+ * `NEXT_PUBLIC_SUPABASE_URL` is the established name — `next.config.ts` reads
+ * it to allow the storage host in `images.remotePatterns`. A plain
+ * `SUPABASE_URL` is accepted as well, because nothing on the server needs the
+ * NEXT_PUBLIC_ prefix and it is an easy variable to add under the shorter name.
+ * Neither value is secret: it appears in every public image URL.
+ */
+export function getSupabaseUrl(): string | undefined {
+  return process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || process.env.SUPABASE_URL?.trim() || undefined;
 }
 
 export function getAppUrl(): string {
