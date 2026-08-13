@@ -25,7 +25,9 @@ import { cn } from '@/lib/utils';
  *   Change by — "write off 3 broken units". The delta is entered directly.
  *
  * The delta is previewed per line before anything is submitted, so the operator
- * can see the consequence of what they typed.
+ * can see the consequence of what they typed. On-hand is read for the selected
+ * warehouse — the same one the server measures the counted difference against,
+ * so the previewed difference is the one that gets applied.
  */
 
 interface Line {
@@ -40,11 +42,12 @@ interface Line {
 
 export function AdjustmentForm({
   warehouses,
-  products,
+  productsByWarehouse,
   currency,
 }: {
   warehouses: { id: string; name: string; isDefault: boolean }[];
-  products: StockPickerProduct[];
+  /** On-hand per warehouse, keyed by warehouse id. */
+  productsByWarehouse: Record<string, StockPickerProduct[]>;
   currency: string;
 }) {
   const router = useRouter();
@@ -57,6 +60,14 @@ export function AdjustmentForm({
   const [reason, setReason] = React.useState('');
   const [lines, setLines] = React.useState<Line[]>([]);
   const [submitting, setSubmitting] = React.useState(false);
+
+  const products = productsByWarehouse[warehouseId] ?? [];
+  const selectedWarehouse = warehouses.find((w) => w.id === warehouseId);
+
+  // Switching warehouse invalidates every on-hand figure already on screen.
+  React.useEffect(() => {
+    setLines([]);
+  }, [warehouseId]);
 
   const addLine = (product: StockPickerProduct) =>
     setLines((current) => [
@@ -199,7 +210,10 @@ export function AdjustmentForm({
           <CardDescription>
             {mode === 'ABSOLUTE'
               ? 'Enter the quantity you actually counted. The change is worked out for you.'
-              : 'Enter how much to add (positive) or remove (negative).'}
+              : 'Enter how much to add (positive) or remove (negative).'}{' '}
+            {selectedWarehouse
+              ? `On hand is what ${selectedWarehouse.name} currently holds.`
+              : 'On hand is what the selected warehouse currently holds.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

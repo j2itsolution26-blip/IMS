@@ -11,6 +11,19 @@ import { getSettings, readNumber } from '@/server/services/settings-service';
 
 export type StockStatus = 'OUT_OF_STOCK' | 'CRITICAL' | 'LOW' | 'HEALTHY' | 'OVERSTOCK';
 
+/**
+ * Where one product's stock actually sits. An aggregate row says how much
+ * exists; this says whether any of it is somewhere a till can sell it from.
+ */
+export interface WarehouseStockRow {
+  warehouseId: string;
+  warehouseName: string;
+  /** Stock in a deactivated warehouse counts toward totals but cannot be sold. */
+  isActive: boolean;
+  quantity: number;
+  reserved: number;
+}
+
 export interface StockLevelRow {
   productId: string;
   name: string;
@@ -30,6 +43,8 @@ export interface StockLevelRow {
   status: StockStatus;
   lastSoldAt: Date | null;
   lastReceivedAt: Date | null;
+  /** Per-warehouse split behind `onHand`, holdings only. */
+  warehouseBreakdown: WarehouseStockRow[];
 }
 
 interface StockLevelSqlRow {
@@ -48,6 +63,13 @@ interface StockLevelSqlRow {
   sellingPrice: string;
   lastSoldAt: Date | null;
   lastReceivedAt: Date | null;
+  warehouseBreakdown: {
+    warehouseId: string;
+    warehouseName: string;
+    isActive: boolean;
+    quantity: string;
+    reserved: string;
+  }[];
 }
 
 function classify(available: number, threshold: number, maxStock: number, criticalRatio: number): StockStatus {
@@ -92,10 +114,16 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
   const conditions: string[] = [`p.status = 'ACTIVE'`, `p."isTrackable" = true`];
   const params: unknown[] = [];
 
+  // Scoping to a warehouse belongs in the JOIN, not the WHERE. In the WHERE it
+  // silently turns the LEFT JOIN below into an inner one, so a product holding
+  // no stock at that location vanishes from the register instead of reporting
+  // zero — which reads as "no such product" when it means "none of it here".
+  let inventoryJoin = `LEFT JOIN inventory i ON i."productId" = p.id`;
   if (query.warehouseId) {
     params.push(query.warehouseId);
-    conditions.push(`i."warehouseId" = $${params.length}`);
+    inventoryJoin += ` AND i."warehouseId" = $${params.length}`;
   }
+
   if (query.categoryId) {
     params.push(query.categoryId);
     conditions.push(`p."categoryId" = $${params.length}`);
@@ -131,6 +159,18 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         COALESCE(SUM(i.quantity), 0)                            AS on_hand,
         COALESCE(SUM(i.reserved), 0)                            AS reserved,
         COALESCE(SUM(i.quantity), 0) - COALESCE(SUM(i.reserved), 0) AS available,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'warehouseId',   w.id,
+              'warehouseName', w.name,
+              'isActive',      w."isActive",
+              'quantity',      i.quantity::text,
+              'reserved',      i.reserved::text
+            ) ORDER BY w.name
+          ) FILTER (WHERE w.id IS NOT NULL AND i.quantity <> 0),
+          '[]'::json
+        )                                                       AS warehouse_breakdown,
         COALESCE(NULLIF(p."reorderLevel", 0), p."minStock")     AS threshold,
         p."reorderLevel"                                        AS reorder_level,
         p."minStock"                                            AS min_stock,
@@ -141,7 +181,7 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         MAX(i."lastReceivedAt")                                 AS last_received_at
       FROM products p
       JOIN categories c ON c.id = p."categoryId"
-      LEFT JOIN inventory i ON i."productId" = p.id
+      ${inventoryJoin}
       LEFT JOIN warehouses w ON w.id = i."warehouseId"
       WHERE ${conditions.join(' AND ')}
       GROUP BY p.id, c.name
@@ -167,7 +207,8 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
       cost_price::text       AS "costPrice",
       selling_price::text    AS "sellingPrice",
       last_sold_at           AS "lastSoldAt",
-      last_received_at       AS "lastReceivedAt"
+      last_received_at       AS "lastReceivedAt",
+      warehouse_breakdown    AS "warehouseBreakdown"
     FROM (${base}) AS filtered
     ORDER BY available ASC, "name" ASC
     LIMIT ${pageSize} OFFSET ${offset}
@@ -207,6 +248,13 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         status: classify(available, threshold, maxStock, criticalRatio),
         lastSoldAt: r.lastSoldAt,
         lastReceivedAt: r.lastReceivedAt,
+        warehouseBreakdown: (r.warehouseBreakdown ?? []).map((w) => ({
+          warehouseId: w.warehouseId,
+          warehouseName: w.warehouseName,
+          isActive: w.isActive,
+          quantity: Number(w.quantity),
+          reserved: Number(w.reserved),
+        })),
       };
     }),
     total,

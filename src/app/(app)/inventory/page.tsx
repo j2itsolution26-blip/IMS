@@ -56,11 +56,16 @@ export default async function InventoryPage({
 
   const canAdjust = userCan(user, 'inventory.create');
 
+  // Unfiltered, the quantities below are company-wide totals. A product can read
+  // "Healthy" here while a till sells from a warehouse holding none of it, so the
+  // split is shown wherever the total spans locations or sits somewhere unsellable.
+  const warehouseFiltered = Boolean(params.warehouse);
+
   return (
     <>
       <PageHeader
         title="Stock levels"
-        description="Live on-hand quantities. Available is on-hand minus anything reserved for unfulfilled orders."
+        description="Live on-hand quantities, totalled across every warehouse unless you filter to one. Available is on-hand minus anything reserved for unfulfilled orders."
         actions={
           canAdjust && (
             <>
@@ -154,6 +159,10 @@ export default async function InventoryPage({
               <TableBody>
                 {result.rows.map((row) => {
                   const meta = STATUS_META[row.status];
+                  const showSplit =
+                    !warehouseFiltered &&
+                    (row.warehouseBreakdown.length > 1 ||
+                      row.warehouseBreakdown.some((entry) => !entry.isActive));
                   return (
                     <TableRow key={row.productId}>
                       <TableCell>
@@ -165,7 +174,30 @@ export default async function InventoryPage({
                       <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
                         {row.categoryName}
                       </TableCell>
-                      <TableCell className="tabular text-right">{formatQuantity(row.onHand)}</TableCell>
+                      <TableCell className="tabular text-right">
+                        {formatQuantity(row.onHand)}
+                        {showSplit && (
+                          <span className="mt-1 block text-xs font-normal">
+                            {row.warehouseBreakdown.map((entry) => (
+                              <span
+                                key={entry.warehouseId}
+                                className={cn(
+                                  'block truncate',
+                                  entry.isActive ? 'text-muted-foreground' : 'text-warning',
+                                )}
+                                title={
+                                  entry.isActive
+                                    ? undefined
+                                    : `${entry.warehouseName} is deactivated — this stock cannot be sold.`
+                                }
+                              >
+                                {formatQuantity(entry.quantity)} · {entry.warehouseName}
+                                {!entry.isActive && ' (inactive)'}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell
                         className={cn(
                           'tabular text-right font-medium',

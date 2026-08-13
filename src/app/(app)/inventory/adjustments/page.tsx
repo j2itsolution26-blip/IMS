@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { requirePermission } from '@/lib/session';
 import { getStockPickerProducts, listActiveWarehouses } from '@/features/inventory/queries';
+import type { StockPickerProduct } from '@/features/inventory/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { PageHeader } from '@/components/page-header';
 import { AdjustmentForm } from '@/features/inventory/adjustment-form';
@@ -12,8 +13,16 @@ export default async function AdjustmentsPage() {
   await requirePermission('inventory.create');
 
   const [warehouses, currency] = await Promise.all([listActiveWarehouses(), getCurrency()]);
-  const defaultWarehouse = warehouses.find((w) => w.isDefault) ?? warehouses[0];
-  const products = defaultWarehouse ? await getStockPickerProducts(defaultWarehouse.id) : [];
+
+  // On-hand is per warehouse, and a counted adjustment is applied as the
+  // difference against it — so every warehouse is loaded up front. Loading only
+  // the default one lets the operator switch warehouse and approve a difference
+  // measured against a location they are not adjusting.
+  const perWarehouse = await Promise.all(
+    warehouses.map(async (warehouse) => [warehouse.id, await getStockPickerProducts(warehouse.id)] as const),
+  );
+
+  const productsByWarehouse: Record<string, StockPickerProduct[]> = Object.fromEntries(perWarehouse);
 
   return (
     <>
@@ -22,7 +31,11 @@ export default async function AdjustmentsPage() {
         description="Correct stock after a count, write off damage, or load opening balances."
         breadcrumbs={[{ label: 'Stock levels', href: '/inventory' }, { label: 'Adjustments' }]}
       />
-      <AdjustmentForm warehouses={warehouses} products={products} currency={currency} />
+      <AdjustmentForm
+        warehouses={warehouses}
+        productsByWarehouse={productsByWarehouse}
+        currency={currency}
+      />
     </>
   );
 }
