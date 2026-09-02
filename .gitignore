@@ -29,3 +29,6 @@ devlog.txt
 prodprobe.log
 probe.log
 startlog.txt
+scripts/_tmp*
+scripts/tmp*
+
