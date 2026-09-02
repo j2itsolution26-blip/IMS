@@ -44,7 +44,7 @@ async function resolveRoleIdForNewUser(): Promise<string> {
 }
 
 export const auth = betterAuth({
-  appName: 'Inventory Management System',
+  appName: 'Point of Sale',
   baseURL: getAppUrl(),
   // A Vercel deployment is reachable on its production domain, its branch
   // alias, and a unique per-deployment URL simultaneously. Trusting only

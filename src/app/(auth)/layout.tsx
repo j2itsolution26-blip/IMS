@@ -30,7 +30,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               <Boxes className="h-5 w-5" />
             </span>
             <span className="text-lg font-semibold tracking-tight text-white">
-              Inventory Management System
+              Point of Sale
             </span>
           </div>
         </div>
@@ -87,7 +87,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         {/* Secure footer */}
         <div className="flex items-center justify-center gap-1.5 pb-6 text-xs text-muted-foreground">
           <ShieldCheck className="h-3.5 w-3.5" />
-          <span>Secure access &bull; Inventory Management System</span>
+          <span>Secure access &bull; Point of Sale</span>
         </div>
       </div>
     </div>

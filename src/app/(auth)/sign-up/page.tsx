@@ -29,7 +29,7 @@ export default async function SignUpPage() {
               <Boxes className="h-4.5 w-4.5" />
             </span>
             <span className="text-base font-semibold tracking-tight">
-              Inventory Management System
+              Point of Sale
             </span>
           </div>
 
@@ -75,7 +75,7 @@ export default async function SignUpPage() {
               <Boxes className="h-4.5 w-4.5" />
             </span>
             <span className="text-base font-semibold tracking-tight">
-              Inventory Management System
+              Point of Sale
             </span>
           </div>
 
@@ -107,7 +107,7 @@ export default async function SignUpPage() {
             <Boxes className="h-4.5 w-4.5" />
           </span>
           <span className="text-base font-semibold tracking-tight">
-            Inventory Management System
+            Point of Sale
           </span>
         </div>
 

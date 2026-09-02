@@ -12,11 +12,10 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Inventory Management System',
-    template: '%s · IMS',
+    default: 'Point of Sale',
+    template: '%s · POS',
   },
-  description:
-    'Stock control, point of sale, purchasing, and business analytics in one place.',
+  description: 'Simple point of sale and inventory for a small store.',
   robots: { index: false, follow: false },
 };
 

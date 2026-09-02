@@ -1,13 +1,13 @@
-# Inventory Management System
+# Sari-Sari POS
 
-Stock control, point of sale, purchasing, and business analytics for a real
-trading business. Built with Next.js 15, React 19, TypeScript, Prisma, and
-PostgreSQL, and deployable to Vercel.
+A simple point-of-sale and inventory system for a small convenience store,
+built with Next.js 15, React 19, TypeScript, Prisma, and PostgreSQL, and
+deployable to Vercel.
 
-**Every number in this application is calculated from your own database.** There
-is no seed data, no sample catalogue, no mock API, and no placeholder statistic.
-A fresh install shows zeros and empty states, and fills in as you trade — that
-is the intended behaviour, not a bug.
+**Every number in this application is calculated from your own database.**
+There is no seed data, no sample catalogue, no mock API, and no placeholder
+statistic. A fresh install shows zeros and empty states, and fills in as you
+trade — that is the intended behaviour, not a bug.
 
 ---
 
@@ -15,15 +15,13 @@ is the intended behaviour, not a bug.
 
 | Area | Capability |
 |---|---|
-| **Point of sale** | Barcode scan, product search, quantity and line discounts, split payments (cash, GCash, Maya, card, bank transfer, on-account), change calculation, printable receipt. Stock is deducted the instant a sale completes. |
-| **Inventory** | Per-warehouse stock, reservations, adjustments (stock count or delta), inter-warehouse transfers, and a complete append-only movement ledger with running balances. |
-| **Purchasing** | Purchase orders, partial receiving, landed-cost correction, moving-average cost recalculation, supplier payments, and automatic late-delivery detection. |
-| **Sales** | Invoice history, per-line profit, void with stock reversal, partial and full returns with optional restock. |
-| **Products** | SKU, barcode, images, category / brand / unit / supplier, cost and selling price, tax rate, min / max / reorder levels, price-change history. |
-| **Dashboard** | Live revenue, profit, transactions, units sold, inventory value, available and reserved stock, low / critical / out-of-stock / dead-stock counts, reorder suggestions with days-of-cover, and generated insights. |
-| **Analytics** | Time series, sales by category / brand / supplier / employee / hour, payment-method split, inventory turnover and ageing, best customers, supplier scorecards, most-returned products. |
-| **Reports** | 15 reports, each exportable to CSV, Excel, and PDF from the same definition that renders on screen. |
-| **Security** | Better Auth sessions, database-backed RBAC with 22 resources, per-page and per-action permission checks, rate limiting, and a full audit trail. |
+| **Point of sale** | Search or scan a product, adjust quantity, apply a discount, pay by cash/GCash/card/other, see change, print a compact receipt. Stock is deducted the instant a sale completes. Every sale is a walk-in sale — there is no customer to select. |
+| **Cashier shifts** | Open a shift with a counted starting float, sell through the day, close it with a counted cash amount — the app tells you the expected cash and the difference. |
+| **Inventory** | Product name, barcode, SKU, category, cost/selling price, unit (piece, pack, bottle, can, sachet, box, or any you add), current stock, low-stock level, image. Stock In for receiving goods, Stock Adjustment for counts and write-offs, Archive instead of delete. A full append-only movement ledger with running balances. |
+| **Sales & refunds** | Invoice history with cashier, payment method, and status (Paid / Refunded / Voided). A refund always ties back to its original sale, restores stock, and records who processed it and when — it never creates a fake new sale. |
+| **Dashboard** | Today's sales, transactions, total products, low-stock and out-of-stock counts, today's cash sales, and a daily sales chart. |
+| **Reports** | Daily/weekly/monthly sales, best-selling products, sales by payment method, stock report, low-stock report, plus a few more — each exportable to CSV, Excel, and PDF from the same definition that renders on screen. |
+| **Security** | Better Auth sessions, database-backed RBAC (Owner / Cashier), per-page and per-action permission checks, rate limiting, and a full audit trail. |
 
 ---
 
@@ -59,12 +57,8 @@ Fill in `.env`:
 ### 4. Create the schema
 
 ```bash
-npx prisma migrate dev --name init   # first time — creates prisma/migrations
+npx prisma migrate dev   # applies prisma/migrations
 ```
-
-This project ships without a migrations folder because migrations must be
-generated against your own database. Run the command above once, then **commit
-`prisma/migrations/`** so `prisma migrate deploy` can run in CI and on Vercel.
 
 ### 5. Install system reference data
 
@@ -72,10 +66,11 @@ generated against your own database. Run the command above once, then **commit
 npm run db:bootstrap
 ```
 
-This installs the permission catalogue, the five system roles, and the default
-settings. It creates **no business records** — no products, customers,
-suppliers, sales, or users. It is safe to re-run, and it never overwrites a
-setting you have changed.
+This installs the permission catalogue, the Owner and Cashier roles, the
+default settings, the store's single default location, and six starter units
+(Piece, Pack, Bottle, Can, Sachet, Box). It creates **no business records** —
+no products or sales. It is safe to re-run, and it never overwrites a setting
+you have changed.
 
 ### 6. Create the owner account
 
@@ -92,15 +87,14 @@ rejects public sign-ups — every subsequent account is created from
 
 In this order:
 
-1. **Warehouses** — you need at least one to hold stock or sell anything.
-2. **Units** — how products are counted (pieces, kg, cases).
-3. **Categories** — every product needs one.
-4. **Products** — with cost, selling price, and reorder level.
-5. **Suppliers** — so you can raise purchase orders.
-6. Load opening stock via **Stock levels → Adjust stock** (tick *Opening
-   balance*), or receive it through a purchase order.
+1. **Products** — add a product and its category/unit inline (there's a "+"
+   next to each picker), with cost, selling price, and a low-stock level.
+2. Load opening stock via **Inventory → Stock In**, or an opening-balance
+   **Stock Adjustment**.
+3. **Settings** — store name, address, contact, logo, receipt footer,
+   currency (defaults to ₱ PHP), and tax rate.
 
-The dashboard becomes meaningful as soon as real transactions exist.
+Open a shift at the POS and you're ready to sell.
 
 ---
 
@@ -127,13 +121,15 @@ under load. Keep `DIRECT_URL` pointed at the unpooled port for migrations only.
 
 ```
 prisma/
-  schema.prisma          Data model — 23 tables, all of them used
-  bootstrap.ts           Roles, permissions, and default settings (no demo data)
+  schema.prisma          Data model
+  bootstrap.ts            Roles, permissions, default settings, default
+                          location and units (no demo data)
 
 src/
   app/
     (auth)/              Sign-in and first-run owner setup
-    (app)/               Authenticated application, one folder per route
+    (app)/               Authenticated application — POS, Dashboard,
+                          Inventory, Sales, Returns, Reports, Settings
     api/                 Better Auth handler, global search, report exports
   components/
     ui/                  Design-system primitives (shadcn-style, on Radix)
@@ -146,9 +142,9 @@ src/
   lib/                   Cross-cutting: auth, permissions, decimals, errors
   server/
     services/            Domain logic — the only place that writes stock
-    analytics/           Aggregation queries (raw SQL where it matters)
+    analytics/           Aggregation queries
     reports/             Report registry and the CSV / Excel / PDF exporters
-    crud/                Shared factory for the six reference entities
+    crud/                Shared factory for categories and units
 ```
 
 ### The rules this system is built on
@@ -158,30 +154,46 @@ src/
 `inventory.quantity`, and it always writes a matching `inventory_transactions`
 row inside the same transaction. The ledger and the balance cannot disagree.
 
+**This is a single-location system.** Exactly one `Warehouse` row is seeded
+by `db:bootstrap` and every operation resolves it silently server-side — there
+is no location picker anywhere in the UI. It is kept as its own table only so
+the stock-ledger engine needs no schema changes if multi-location is ever
+reintroduced.
+
 **Concurrent movements are serialised.** The inventory row is locked with
 `SELECT … FOR UPDATE` before it is read, so two tills selling the last unit at
 the same moment cannot both succeed.
 
 **Prices are never trusted from the client.** The POS sends product ids and
-quantities. Prices, tax rates, and costs are re-read from the database inside
-the checkout transaction.
+quantities. Prices and costs are re-read from the database inside the
+checkout transaction.
 
 **Cost is frozen at the moment of sale.** `sale_items.unitCost` and
 `sales.costOfGoods` are written at checkout, so changing a product's cost later
 never rewrites profit already booked.
+
+**Every sale must be paid in full at checkout.** There is no customer record
+and no credit/on-account path — cash, GCash, card, and other payment lines
+must add up to at least the total before a sale completes.
+
+**A sale requires an open cashier shift.** `createSale` looks up the current
+user's open `CashierShift` and refuses to check out without one.
 
 **Money is `Decimal(18,4)`, never `Float`.** Quantities are `Decimal(18,3)` so
 fractional units work without a second code path.
 
 **Permissions are checked on the server, every time.** The middleware only
 redirects on cookie presence — it decides nothing. `getCurrentUser` and
-`authorize` read the session and role from the database on every page and every
-action, and a deactivated account is rejected even with a valid cookie.
+`authorize` read the session and role from the database on every page and
+every action, and a deactivated account is rejected even with a valid cookie.
 
 **Deleting anything with history is refused, with a reason.** Products with
-sales, suppliers with orders, categories with products, and users with
-transactions cannot be deleted — the UI explains what is in the way and offers
-the correct alternative (discontinue, deactivate, reassign).
+sales cannot be deleted — the UI explains what is in the way and offers
+Archive instead.
+
+**A refund always ties back to its original sale.** It restores stock (unless
+marked as damaged goods), sets the sale's status to Refunded, and records who
+processed it and when via the audit log — it never creates a fake new sale.
 
 ---
 
@@ -190,14 +202,12 @@ the correct alternative (discontinue, deactivate, reassign).
 | Role | Access |
 |---|---|
 | **Owner** | Everything. Cannot be restricted — it is the recovery path if another role is misconfigured. |
-| **Manager** | All operations. No user, role, or settings changes. |
-| **Inventory clerk** | Stock, receiving, adjustments, transfers, catalogue maintenance. |
-| **Cashier** | POS, sales, returns, customer lookup. |
-| **Accountant** | Read access to trading data, full control of expenses and payments, all reports. |
+| **Cashier** | POS, sales history, reports. No refunds, no settings. |
 
 Roles and their permissions are editable at **Settings → Roles**. Adding a
 capability to `src/lib/permissions.ts` and re-running `npm run db:bootstrap` is
-the whole workflow for extending the catalogue.
+the whole workflow for extending the catalogue — for example, adding a third
+role that can process refunds.
 
 ---
 
@@ -213,7 +223,7 @@ the whole workflow for extending the catalogue.
 | `npm run db:migrate` | Create and apply a migration in development |
 | `npm run db:deploy` | Apply migrations in production |
 | `npm run db:push` | Push the schema without a migration (prototyping only) |
-| `npm run db:bootstrap` | Install roles, permissions, and default settings |
+| `npm run db:bootstrap` | Install roles, permissions, default settings, default location, and units |
 | `npm run db:studio` | Prisma Studio |
 
 ---
@@ -227,25 +237,13 @@ the whole workflow for extending the catalogue.
   memory, so on Vercel each serverless instance throttles independently. That is
   enough to blunt credential stuffing and request storms; swap the store in
   `src/lib/rate-limit.ts` for Redis/Upstash if you need a hard global guarantee.
-- **Moving-average cost is company-wide.** `Product.costPrice` is a single
-  figure weighted across all warehouses, not a per-location cost.
 - **Password reset is not implemented.** An administrator creates accounts with
   a starting password at Settings → Users. Adding Better Auth's email flow is
   the natural next step.
-- **Alerts are raised on page load**, not by a scheduler. Opening the dashboard
-  or the purchases list refreshes late-delivery detection. A cron job hitting
-  those paths would make it fully autonomous.
 
 ## Deployment region
 
 `vercel.json` pins Serverless Functions to `sin1` (Singapore) to sit beside the
-Supabase project in `ap-southeast-1`.
-
-This is not a micro-optimisation. Vercel defaults to `iad1` (Washington DC); with
-the database in Singapore every query paid a ~250ms round trip, and pages issuing
-several queries took 10–19 seconds and intermittently exceeded the function
-timeout, returning 500. Co-locating removes that entirely.
-
-**If you move the Supabase project to another region, change this to match.**
-The two must stay together — a mismatch is slow in a way that looks like an
-application bug rather than a configuration one.
+Supabase project in `ap-southeast-1`. If you move the Supabase project to
+another region, change this to match — a mismatch shows up as slow pages
+rather than an obvious error.
