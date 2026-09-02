@@ -4,10 +4,10 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Boxes,
   ChevronLeft,
   ChevronRight,
   LogOut,
+  ScanBarcode,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -31,7 +31,6 @@ export interface UserInfo {
 interface SidebarProps {
   permissions: string[];
   lowStockCount: number;
-  unreadCount: number;
   companyName: string;
   user?: UserInfo;
   open: boolean;
@@ -43,7 +42,6 @@ interface SidebarProps {
 export function Sidebar({
   permissions,
   lowStockCount,
-  unreadCount,
   companyName,
   user,
   open,
@@ -104,7 +102,7 @@ export function Sidebar({
 
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex flex-col border-r bg-card transition-all duration-300 ease-in-out',
+          'fixed inset-y-0 left-0 z-50 flex flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-300 ease-in-out',
           'lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
           collapsed ? 'lg:w-[4.25rem]' : 'lg:w-64',
@@ -115,7 +113,7 @@ export function Sidebar({
         {/* Brand Header */}
         <div
           className={cn(
-            'flex h-14 items-center border-b px-3 shrink-0 transition-all duration-200',
+            'flex h-14 items-center border-b border-sidebar-border px-3 shrink-0 transition-all duration-200',
             collapsed ? 'lg:justify-center' : 'justify-between',
           )}
         >
@@ -126,7 +124,7 @@ export function Sidebar({
             title={companyName}
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-transform hover:scale-105">
-              <Boxes className="h-5 w-5" />
+              <ScanBarcode className="h-5 w-5" />
             </span>
             <div
               className={cn(
@@ -134,11 +132,11 @@ export function Sidebar({
                 collapsed ? 'lg:hidden' : 'block',
               )}
             >
-              <span className="truncate text-sm font-semibold tracking-tight leading-tight text-foreground">
+              <span className="truncate text-sm font-semibold tracking-tight leading-tight text-sidebar-foreground">
                 {companyName}
               </span>
-              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                Enterprise IMS
+              <span className="text-[10px] font-medium text-sidebar-muted-foreground uppercase tracking-wider">
+                Point of Sale
               </span>
             </div>
           </Link>
@@ -146,7 +144,7 @@ export function Sidebar({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 lg:hidden text-muted-foreground hover:text-foreground"
+            className="h-8 w-8 lg:hidden text-sidebar-muted-foreground hover:text-sidebar-foreground"
             onClick={onClose}
             aria-label="Close navigation"
           >
@@ -161,7 +159,7 @@ export function Sidebar({
               {/* Section title (hidden when collapsed on desktop) */}
               <p
                 className={cn(
-                  'px-3 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 transition-opacity duration-200 select-none',
+                  'px-3 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-sidebar-muted-foreground/70 transition-opacity duration-200 select-none',
                   collapsed ? 'lg:hidden' : 'block',
                 )}
               >
@@ -170,14 +168,13 @@ export function Sidebar({
 
               {/* Section divider when collapsed on desktop */}
               {collapsed && sIdx > 0 && (
-                <div className="hidden lg:block my-2 mx-2 h-px bg-border/60" />
+                <div className="hidden lg:block my-2 mx-2 h-px bg-sidebar-border/60" />
               )}
 
               <ul className="space-y-1">
                 {section.items.map((item) => {
                   const active = isActive(item.href, item.exact);
-                  const count =
-                    item.badge === 'lowStock' ? lowStockCount : item.badge === 'notifications' ? unreadCount : 0;
+                  const count = item.badge === 'lowStock' ? lowStockCount : 0;
 
                   const linkContent = (
                     <Link
@@ -188,8 +185,8 @@ export function Sidebar({
                         'relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                         collapsed ? 'lg:justify-center lg:px-2' : 'justify-start',
                         active
-                          ? 'bg-primary/10 text-primary font-semibold shadow-xs'
-                          : 'text-muted-foreground hover:bg-accent/80 hover:text-foreground',
+                          ? 'bg-primary/15 text-primary font-semibold shadow-xs'
+                          : 'text-sidebar-muted-foreground hover:bg-white/5 hover:text-sidebar-foreground',
                       )}
                     >
                       {/* Active indicator bar */}
@@ -200,7 +197,7 @@ export function Sidebar({
                       <item.icon
                         className={cn(
                           'h-4 w-4 shrink-0 transition-colors',
-                          active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
+                          active ? 'text-primary' : 'text-sidebar-muted-foreground group-hover:text-sidebar-foreground',
                         )}
                         aria-hidden="true"
                       />
@@ -217,7 +214,7 @@ export function Sidebar({
                       {/* Badge indicator */}
                       {count > 0 && (
                         <Badge
-                          variant={item.badge === 'lowStock' ? 'warning' : 'destructive'}
+                          variant="warning"
                           className={cn(
                             'px-1.5 py-0 text-[10px] font-bold shadow-xs',
                             collapsed ? 'lg:absolute lg:-top-1 lg:-right-1 lg:h-4 lg:min-w-4 lg:p-0 lg:flex lg:items-center lg:justify-center' : '',
@@ -238,10 +235,7 @@ export function Sidebar({
                             <TooltipContent side="right" className="flex items-center gap-2 font-medium">
                               <span>{item.label}</span>
                               {count > 0 && (
-                                <Badge
-                                  variant={item.badge === 'lowStock' ? 'warning' : 'destructive'}
-                                  className="px-1.5 py-0 text-[10px]"
-                                >
+                                <Badge variant="warning" className="px-1.5 py-0 text-[10px]">
                                   {count}
                                 </Badge>
                               )}
@@ -261,12 +255,12 @@ export function Sidebar({
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="border-t p-2 space-y-2 bg-card/50 shrink-0">
+        <div className="border-t border-sidebar-border p-2 space-y-2 shrink-0">
           {/* User info card */}
           {user && (
             <div
               className={cn(
-                'flex items-center gap-2.5 rounded-lg border bg-background/60 p-2 shadow-2xs transition-all',
+                'flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/5 p-2 shadow-2xs transition-all',
                 collapsed ? 'lg:justify-center lg:p-1.5 lg:border-none lg:bg-transparent' : 'justify-between',
               )}
             >
@@ -282,8 +276,8 @@ export function Sidebar({
                     collapsed ? 'lg:hidden' : 'block',
                   )}
                 >
-                  <p className="truncate text-xs font-semibold text-foreground leading-tight">{user.name}</p>
-                  <span className="mt-0.5 inline-block w-fit rounded-full bg-primary/10 px-1.5 py-0.2 text-[10px] font-medium text-primary">
+                  <p className="truncate text-xs font-semibold text-sidebar-foreground leading-tight">{user.name}</p>
+                  <span className="mt-0.5 inline-block w-fit rounded-full bg-primary/15 px-1.5 py-0.2 text-[10px] font-medium text-primary">
                     {user.roleName}
                   </span>
                 </div>
@@ -298,7 +292,7 @@ export function Sidebar({
                     onClick={handleSignOut}
                     disabled={signingOut}
                     className={cn(
-                      'h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10',
+                      'h-7 w-7 shrink-0 text-sidebar-muted-foreground hover:text-destructive hover:bg-destructive/10',
                       collapsed ? 'lg:hidden' : 'flex',
                     )}
                     aria-label="Sign out"
@@ -317,13 +311,13 @@ export function Sidebar({
           </div>
 
           {/* Collapse/Expand Toggle button (desktop only) */}
-          <div className="hidden lg:flex items-center justify-between pt-1 border-t border-border/40">
+          <div className="hidden lg:flex items-center justify-between pt-1 border-t border-sidebar-border/60">
             <Button
               variant="ghost"
               size="sm"
               onClick={onToggleCollapse}
               className={cn(
-                'w-full text-xs text-muted-foreground hover:text-foreground flex items-center gap-2 h-8',
+                'w-full text-xs text-sidebar-muted-foreground hover:text-sidebar-foreground flex items-center gap-2 h-8',
                 collapsed ? 'justify-center px-0' : 'justify-start px-2.5',
               )}
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}

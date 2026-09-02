@@ -19,33 +19,19 @@ const PASSWORD = 'ProbeAccess1!x';
 
 const ROUTES = [
   '/dashboard',
-  '/analytics',
   '/pos',
   '/products',
   '/products/new',
-  '/categories',
-  '/brands',
-  '/units',
   '/inventory',
   '/inventory/adjustments',
-  '/inventory/transfers',
   '/inventory/movements',
-  '/warehouses',
   '/sales',
-  '/purchases',
-  '/purchases/new',
   '/returns',
-  '/payments',
-  '/expenses',
-  '/suppliers',
-  '/customers',
   '/reports',
   '/reports/sales-summary',
   '/reports/inventory',
   '/reports/profit',
   '/reports/dead-stock',
-  '/notifications',
-  '/audit',
   '/settings',
   '/settings/users',
   '/settings/roles',
@@ -58,21 +44,15 @@ const ROUTES = [
  * state on a fresh install, not a broken route.
  */
 async function dynamicRoutes(): Promise<string[]> {
-  const [product, customer, supplier, sale, purchase, saleReturn] = await Promise.all([
+  const [product, sale, saleReturn] = await Promise.all([
     prisma.product.findFirst({ select: { id: true } }),
-    prisma.customer.findFirst({ select: { id: true } }),
-    prisma.supplier.findFirst({ select: { id: true } }),
     prisma.sale.findFirst({ select: { id: true } }),
-    prisma.purchaseOrder.findFirst({ select: { id: true } }),
     prisma.return.findFirst({ select: { id: true } }),
   ]);
 
   const routes: string[] = [];
   if (product) routes.push(`/products/${product.id}`, `/products/${product.id}/edit`);
-  if (customer) routes.push(`/customers/${customer.id}`);
-  if (supplier) routes.push(`/suppliers/${supplier.id}`);
   if (sale) routes.push(`/sales/${sale.id}`);
-  if (purchase) routes.push(`/purchases/${purchase.id}`);
   if (saleReturn) routes.push(`/returns/${saleReturn.id}`);
   return routes;
 }
@@ -117,9 +97,9 @@ async function main() {
   const detailRoutes = await dynamicRoutes();
   const allRoutes = [...ROUTES, ...detailRoutes];
 
-  if (detailRoutes.length < 6) {
+  if (detailRoutes.length < 3) {
     console.log(
-      `(${6 - detailRoutes.length} detail route(s) skipped — no records exist for them yet)`,
+      `(${3 - detailRoutes.length} detail route(s) skipped — no records exist for them yet)`,
     );
   }
 

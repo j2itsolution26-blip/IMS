@@ -1,53 +1,30 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
-import { Building2, FolderTree, Scale, Truck, Users, Warehouse } from 'lucide-react';
+import { FolderTree, Scale } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Badge } from '@/components/ui/badge';
 import { ResourceManager, type FieldSpec } from '@/features/catalogue/resource-manager';
 import {
-  brandSchema,
   categorySchema,
-  customerSchema,
-  supplierSchema,
   unitSchema,
-  warehouseSchema,
-  type BrandInput,
   type CategoryInput,
-  type CustomerInput,
-  type SupplierInput,
   type UnitInput,
-  type WarehouseInput,
 } from '@/features/catalogue/schemas';
 import {
-  createBrand,
   createCategory,
-  createCustomer,
-  createSupplier,
   createUnit,
-  createWarehouse,
-  deleteBrand,
   deleteCategory,
-  deleteCustomer,
-  deleteSupplier,
   deleteUnit,
-  deleteWarehouse,
-  updateBrand,
   updateCategory,
-  updateCustomer,
-  updateSupplier,
   updateUnit,
-  updateWarehouse,
 } from '@/features/catalogue/actions';
-import { formatCurrency, formatNumber } from '@/lib/format';
+import { formatNumber } from '@/lib/format';
 
 /**
- * Per-entity configuration for the shared `ResourceManager`.
- *
- * Column renderers are functions, so they cannot cross the server/client
- * boundary as props — each entity's table shape is therefore declared here in
- * a client module rather than in its page.
+ * Category and Unit management. These are the only two reference lists a
+ * sari-sari store needs, and they live inside the Inventory page rather than
+ * as their own top-level nav items.
  */
 
 export interface Permissions {
@@ -173,72 +150,6 @@ export function CategoriesManager({
   );
 }
 
-// --- Brands -----------------------------------------------------------------
-
-export interface BrandRow {
-  id: string;
-  name: string;
-  description: string | null;
-  logoUrl: string | null;
-  productCount: number;
-  isActive: boolean;
-}
-
-export function BrandsManager({ rows, permissions }: { rows: BrandRow[]; permissions: Permissions }) {
-  const columns = React.useMemo<ColumnDef<BrandRow, unknown>[]>(
-    () => [
-      { accessorKey: 'name', header: 'Brand', cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
-      {
-        accessorKey: 'description',
-        header: 'Description',
-        cell: ({ row }) => (
-          <span className="line-clamp-1 text-sm text-muted-foreground">{row.original.description ?? '—'}</span>
-        ),
-      },
-      {
-        accessorKey: 'productCount',
-        header: 'Products',
-        cell: ({ row }) => countCell(row.original.productCount, 'product'),
-      },
-      activeBadge<BrandRow>(),
-    ],
-    [],
-  );
-
-  const fields: FieldSpec<BrandInput>[] = [
-    { kind: 'text', name: 'name', label: 'Name', required: true, colSpan: 2 },
-    { kind: 'text', name: 'logoUrl', label: 'Logo URL', placeholder: 'https://…', colSpan: 2 },
-    { kind: 'textarea', name: 'description', label: 'Description', colSpan: 2 },
-    { kind: 'switch', name: 'isActive', label: 'Active' },
-  ];
-
-  return (
-    <ResourceManager<BrandRow, BrandInput>
-      rows={rows}
-      columns={columns}
-      searchKeys={['name', 'description']}
-      schema={brandSchema}
-      fields={fields}
-      emptyValues={{ name: '', description: '', logoUrl: '', isActive: true }}
-      toFormValues={(row) => ({
-        name: row.name,
-        description: row.description ?? '',
-        logoUrl: row.logoUrl ?? '',
-        isActive: row.isActive,
-      })}
-      singular="Brand"
-      plural="Brands"
-      displayName={(row) => row.name}
-      emptyIcon={Building2}
-      emptyDescription="Brands are optional, but they let you break sales down by manufacturer in reports."
-      {...permissions}
-      onCreate={createBrand}
-      onUpdate={updateBrand}
-      onDelete={deleteBrand}
-    />
-  );
-}
-
 // --- Units ------------------------------------------------------------------
 
 export interface UnitRow {
@@ -289,8 +200,8 @@ export function UnitsManager({ rows, permissions }: { rows: UnitRow[]; permissio
   );
 
   const fields: FieldSpec<UnitInput>[] = [
-    { kind: 'text', name: 'name', label: 'Name', placeholder: 'Piece, Kilogram, Case of 24…', required: true },
-    { kind: 'text', name: 'abbreviation', label: 'Abbreviation', placeholder: 'pc, kg, case', required: true },
+    { kind: 'text', name: 'name', label: 'Name', placeholder: 'Piece, Bottle, Sachet…', required: true },
+    { kind: 'text', name: 'abbreviation', label: 'Abbreviation', placeholder: 'pc, btl, sct', required: true },
     {
       kind: 'number',
       name: 'factor',
@@ -328,392 +239,11 @@ export function UnitsManager({ rows, permissions }: { rows: UnitRow[]; permissio
       plural="Units"
       displayName={(row) => row.name}
       emptyIcon={Scale}
-      emptyDescription="Units define how each product is counted — pieces, kilograms, litres, cases. Every product needs one."
+      emptyDescription="Units define how each product is counted — pieces, bottles, sachets. Every product needs one."
       {...permissions}
       onCreate={createUnit}
       onUpdate={updateUnit}
       onDelete={deleteUnit}
-    />
-  );
-}
-
-// --- Warehouses -------------------------------------------------------------
-
-export interface WarehouseRow {
-  id: string;
-  code: string;
-  name: string;
-  address: string | null;
-  isDefault: boolean;
-  isActive: boolean;
-  stockValue: number;
-  productCount: number;
-}
-
-export function WarehousesManager({
-  rows,
-  permissions,
-  currency,
-}: {
-  rows: WarehouseRow[];
-  permissions: Permissions;
-  currency: string;
-}) {
-  const columns = React.useMemo<ColumnDef<WarehouseRow, unknown>[]>(
-    () => [
-      {
-        accessorKey: 'name',
-        header: 'Warehouse',
-        cell: ({ row }) => (
-          <div className="min-w-0">
-            <p className="flex items-center gap-1.5 truncate font-medium">
-              {row.original.name}
-              {row.original.isDefault && <Badge variant="default">Default</Badge>}
-            </p>
-            <p className="truncate text-xs text-muted-foreground">{row.original.code}</p>
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'address',
-        header: 'Address',
-        cell: ({ row }) => (
-          <span className="line-clamp-1 text-sm text-muted-foreground">{row.original.address ?? '—'}</span>
-        ),
-      },
-      {
-        accessorKey: 'productCount',
-        header: 'Stocked lines',
-        cell: ({ row }) => countCell(row.original.productCount, 'line'),
-      },
-      {
-        accessorKey: 'stockValue',
-        header: 'Stock value',
-        cell: ({ row }) => (
-          <span className="tabular font-medium">{formatCurrency(row.original.stockValue, currency)}</span>
-        ),
-      },
-      activeBadge<WarehouseRow>(),
-    ],
-    [currency],
-  );
-
-  const fields: FieldSpec<WarehouseInput>[] = [
-    { kind: 'text', name: 'code', label: 'Code', placeholder: 'MAIN', required: true, uppercase: true },
-    { kind: 'text', name: 'name', label: 'Name', placeholder: 'Main warehouse', required: true },
-    { kind: 'textarea', name: 'address', label: 'Address', rows: 2, colSpan: 2 },
-    {
-      kind: 'switch',
-      name: 'isDefault',
-      label: 'Default warehouse',
-      description: 'Pre-selected at the POS and when receiving stock. Only one can be the default.',
-    },
-    { kind: 'switch', name: 'isActive', label: 'Active' },
-  ];
-
-  return (
-    <ResourceManager<WarehouseRow, WarehouseInput>
-      rows={rows}
-      columns={columns}
-      searchKeys={['name', 'code', 'address']}
-      schema={warehouseSchema}
-      fields={fields}
-      emptyValues={{ code: '', name: '', address: '', isDefault: false, isActive: true }}
-      toFormValues={(row) => ({
-        code: row.code,
-        name: row.name,
-        address: row.address ?? '',
-        isDefault: row.isDefault,
-        isActive: row.isActive,
-      })}
-      singular="Warehouse"
-      plural="Warehouses"
-      displayName={(row) => row.name}
-      emptyIcon={Warehouse}
-      emptyDescription="You need at least one warehouse before you can hold stock or sell anything. Most businesses start with a single 'Main' location."
-      {...permissions}
-      onCreate={createWarehouse}
-      onUpdate={updateWarehouse}
-      onDelete={deleteWarehouse}
-    />
-  );
-}
-
-// --- Suppliers --------------------------------------------------------------
-
-export interface SupplierRow {
-  id: string;
-  code: string;
-  name: string;
-  contactName: string | null;
-  email: string | null;
-  phone: string | null;
-  address: string | null;
-  taxNumber: string | null;
-  leadTimeDays: number;
-  notes: string | null;
-  isActive: boolean;
-  orderCount: number;
-  totalSpend: number;
-  outstanding: number;
-}
-
-export function SuppliersManager({
-  rows,
-  permissions,
-  currency,
-}: {
-  rows: SupplierRow[];
-  permissions: Permissions;
-  currency: string;
-}) {
-  const columns = React.useMemo<ColumnDef<SupplierRow, unknown>[]>(
-    () => [
-      {
-        accessorKey: 'name',
-        header: 'Supplier',
-        cell: ({ row }) => (
-          <div className="min-w-0">
-            <p className="truncate font-medium">{row.original.name}</p>
-            <p className="truncate text-xs text-muted-foreground">
-              {row.original.code}
-              {row.original.contactName ? ` · ${row.original.contactName}` : ''}
-            </p>
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'phone',
-        header: 'Contact',
-        cell: ({ row }) => (
-          <div className="text-sm text-muted-foreground">
-            <p className="truncate">{row.original.phone ?? '—'}</p>
-            {row.original.email && <p className="truncate text-xs">{row.original.email}</p>}
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'leadTimeDays',
-        header: 'Lead time',
-        cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
-            {row.original.leadTimeDays > 0 ? `${row.original.leadTimeDays} days` : '—'}
-          </span>
-        ),
-      },
-      {
-        accessorKey: 'orderCount',
-        header: 'Orders',
-        cell: ({ row }) => countCell(row.original.orderCount, 'order'),
-      },
-      {
-        accessorKey: 'totalSpend',
-        header: 'Total spend',
-        cell: ({ row }) => (
-          <div className="text-right">
-            <p className="tabular font-medium">{formatCurrency(row.original.totalSpend, currency)}</p>
-            {row.original.outstanding > 0 && (
-              <p className="tabular text-xs text-warning">
-                {formatCurrency(row.original.outstanding, currency)} owed
-              </p>
-            )}
-          </div>
-        ),
-      },
-      activeBadge<SupplierRow>(),
-    ],
-    [currency],
-  );
-
-  const fields: FieldSpec<SupplierInput>[] = [
-    { kind: 'text', name: 'code', label: 'Code', placeholder: 'SUP-001', required: true, uppercase: true },
-    { kind: 'text', name: 'name', label: 'Name', required: true },
-    { kind: 'text', name: 'contactName', label: 'Contact person' },
-    { kind: 'text', name: 'phone', label: 'Phone' },
-    { kind: 'text', name: 'email', label: 'Email' },
-    { kind: 'text', name: 'taxNumber', label: 'Tax / VAT number' },
-    {
-      kind: 'number',
-      name: 'leadTimeDays',
-      label: 'Lead time (days)',
-      min: 0,
-      max: 365,
-      description: 'Used to flag late deliveries.',
-    },
-    { kind: 'textarea', name: 'address', label: 'Address', rows: 2, colSpan: 2 },
-    { kind: 'textarea', name: 'notes', label: 'Notes', rows: 2, colSpan: 2 },
-    { kind: 'switch', name: 'isActive', label: 'Active' },
-  ];
-
-  return (
-    <ResourceManager<SupplierRow, SupplierInput>
-      rows={rows}
-      columns={columns}
-      searchKeys={['name', 'code', 'contactName', 'email', 'phone']}
-      schema={supplierSchema}
-      fields={fields}
-      emptyValues={{
-        code: '',
-        name: '',
-        contactName: '',
-        email: '',
-        phone: '',
-        address: '',
-        taxNumber: '',
-        leadTimeDays: 0,
-        notes: '',
-        isActive: true,
-      }}
-      toFormValues={(row) => ({
-        code: row.code,
-        name: row.name,
-        contactName: row.contactName ?? '',
-        email: row.email ?? '',
-        phone: row.phone ?? '',
-        address: row.address ?? '',
-        taxNumber: row.taxNumber ?? '',
-        leadTimeDays: row.leadTimeDays,
-        notes: row.notes ?? '',
-        isActive: row.isActive,
-      })}
-      singular="Supplier"
-      plural="Suppliers"
-      displayName={(row) => row.name}
-      emptyIcon={Truck}
-      emptyDescription="Suppliers are who you buy from. Adding them lets you raise purchase orders and track delivery reliability."
-      {...permissions}
-      onCreate={createSupplier}
-      onUpdate={updateSupplier}
-      onDelete={deleteSupplier}
-    />
-  );
-}
-
-// --- Customers --------------------------------------------------------------
-
-export interface CustomerRow {
-  id: string;
-  code: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  address: string | null;
-  taxNumber: string | null;
-  creditLimit: number;
-  notes: string | null;
-  isActive: boolean;
-  orderCount: number;
-  totalSpent: number;
-  lastPurchase: Date | null;
-}
-
-export function CustomersManager({
-  rows,
-  permissions,
-  currency,
-}: {
-  rows: CustomerRow[];
-  permissions: Permissions;
-  currency: string;
-}) {
-  const columns = React.useMemo<ColumnDef<CustomerRow, unknown>[]>(
-    () => [
-      {
-        accessorKey: 'name',
-        header: 'Customer',
-        cell: ({ row }) => (
-          <div className="min-w-0">
-            <Link href={`/customers/${row.original.id}`} className="truncate font-medium hover:underline">
-              {row.original.name}
-            </Link>
-            <p className="truncate text-xs text-muted-foreground">{row.original.code}</p>
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'phone',
-        header: 'Contact',
-        cell: ({ row }) => (
-          <div className="text-sm text-muted-foreground">
-            <p className="truncate">{row.original.phone ?? '—'}</p>
-            {row.original.email && <p className="truncate text-xs">{row.original.email}</p>}
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'orderCount',
-        header: 'Purchases',
-        cell: ({ row }) => countCell(row.original.orderCount, 'sale'),
-      },
-      {
-        accessorKey: 'totalSpent',
-        header: 'Total spent',
-        cell: ({ row }) => (
-          <span className="tabular font-medium">{formatCurrency(row.original.totalSpent, currency)}</span>
-        ),
-      },
-      activeBadge<CustomerRow>(),
-    ],
-    [currency],
-  );
-
-  const fields: FieldSpec<CustomerInput>[] = [
-    { kind: 'text', name: 'code', label: 'Code', placeholder: 'CUST-00001', required: true, uppercase: true },
-    { kind: 'text', name: 'name', label: 'Name', required: true },
-    { kind: 'text', name: 'phone', label: 'Phone' },
-    { kind: 'text', name: 'email', label: 'Email' },
-    { kind: 'text', name: 'taxNumber', label: 'Tax / VAT number' },
-    {
-      kind: 'number',
-      name: 'creditLimit',
-      label: 'Credit limit',
-      step: '0.01',
-      min: 0,
-      description: 'Reference figure for credit sales.',
-    },
-    { kind: 'textarea', name: 'address', label: 'Address', rows: 2, colSpan: 2 },
-    { kind: 'textarea', name: 'notes', label: 'Notes', rows: 2, colSpan: 2 },
-    { kind: 'switch', name: 'isActive', label: 'Active' },
-  ];
-
-  return (
-    <ResourceManager<CustomerRow, CustomerInput>
-      rows={rows}
-      columns={columns}
-      searchKeys={['name', 'code', 'email', 'phone']}
-      schema={customerSchema}
-      fields={fields}
-      emptyValues={{
-        code: '',
-        name: '',
-        email: '',
-        phone: '',
-        address: '',
-        taxNumber: '',
-        creditLimit: 0,
-        notes: '',
-        isActive: true,
-      }}
-      toFormValues={(row) => ({
-        code: row.code,
-        name: row.name,
-        email: row.email ?? '',
-        phone: row.phone ?? '',
-        address: row.address ?? '',
-        taxNumber: row.taxNumber ?? '',
-        creditLimit: row.creditLimit,
-        notes: row.notes ?? '',
-        isActive: row.isActive,
-      })}
-      singular="Customer"
-      plural="Customers"
-      displayName={(row) => row.name}
-      emptyIcon={Users}
-      emptyDescription="Customers are optional for walk-in sales, but recording them enables credit sales, purchase history, and best-customer reports."
-      {...permissions}
-      onCreate={createCustomer}
-      onUpdate={updateCustomer}
-      onDelete={deleteCustomer}
     />
   );
 }

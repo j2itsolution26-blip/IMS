@@ -38,11 +38,16 @@
     --input: 214 32% 91%;
     --ring: 221 83% 53%;
 
-    /* Sidebar tokens */
+    /* Sidebar tokens — fixed dark navy, deliberately not theme-switching:
+       the POS sidebar reads the same whether the content area is in light
+       or dark mode, so it is defined once here and NOT redefined in .dark. */
     --sidebar-width: 16rem;
     --sidebar-collapsed-width: 4.25rem;
-    --sidebar-accent: 221 83% 53%;
-    --sidebar-border: 214 32% 91%;
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-muted-foreground: 215 20% 65%;
+    --sidebar-accent: 217 91% 60%;
+    --sidebar-border: 217 33% 20%;
 
     /* Categorical series, assigned in this fixed order and never cycled.
        Validated against the light chart surface (#ffffff): all six sit inside
@@ -102,9 +107,7 @@
     --input: 217 33% 20%;
     --ring: 217 91% 60%;
 
-    /* Sidebar tokens (dark) */
-    --sidebar-accent: 217 91% 60%;
-    --sidebar-border: 217 33% 20%;
+    /* Sidebar tokens intentionally NOT redefined here — see :root note above. */
 
     /* The same six hues re-stepped for the dark surface (#0e1525) — a selected
        set, not an automatic flip. All six clear 3:1 there, worst adjacent CVD

@@ -4,11 +4,12 @@ import { Prisma, type PaymentMethod, type SaleChannel } from '@prisma/client';
 import { prisma, type TxClient } from '@/lib/prisma';
 import { D, money, qty as q3, sum, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
-import { applyStockMovement, assertStockAvailable, evaluateStockAlerts } from '@/server/services/inventory-service';
+import { applyStockMovement, assertStockAvailable } from '@/server/services/inventory-service';
 import { nextDocumentNumber } from '@/server/services/numbering-service';
-import { notify } from '@/server/services/notification-service';
 import { recordAudit } from '@/server/services/audit-service';
 import { getSettings, readNumber } from '@/server/services/settings-service';
+import { getDefaultWarehouseId } from '@/server/services/warehouse-service';
+import { requireOpenShift } from '@/server/services/shift-service';
 
 /**
  * Sales / point of sale.
@@ -17,6 +18,9 @@ import { getSettings, readNumber } from '@/server/services/settings-service';
  * movements for every line inside one transaction. If any line cannot be
  * fulfilled the whole checkout rolls back — there is no partial sale that
  * leaves stock deducted for some items and not others.
+ *
+ * Every sale is a walk-in sale — there is no customer record — and must be
+ * paid in full at checkout; there is no credit/on-account path.
  */
 
 export interface SaleLineInput {
@@ -34,8 +38,6 @@ export interface SalePaymentInput {
 }
 
 export interface CreateSaleInput {
-  warehouseId: string;
-  customerId?: string | null;
   channel?: SaleChannel;
   items: SaleLineInput[];
   /** Order-level discount, applied after line discounts. */
@@ -59,10 +61,7 @@ interface PricedLine {
   quantity: Prisma.Decimal;
   unitPrice: Prisma.Decimal;
   unitCost: Prisma.Decimal;
-  taxRate: Prisma.Decimal;
   discount: Prisma.Decimal;
-  lineNet: Prisma.Decimal;
-  lineTax: Prisma.Decimal;
   total: Prisma.Decimal;
 }
 
@@ -84,7 +83,7 @@ async function priceBasket(
 
   const products = await db.product.findMany({
     where: { id: { in: items.map((i) => i.productId) } },
-    select: { id: true, name: true, sellingPrice: true, costPrice: true, taxRate: true, status: true },
+    select: { id: true, name: true, sellingPrice: true, costPrice: true, status: true },
   });
   const byId = new Map(products.map((p) => [p.id, p]));
 
@@ -108,29 +107,22 @@ async function priceBasket(
       throw new ValidationError(`Discount on ${product.name} cannot exceed the line total.`);
     }
 
-    const lineNet = gross.minus(discount);
-    const taxRate = D(product.taxRate);
-    const lineTax = money(lineNet.times(taxRate).dividedBy(100));
-
     return {
       productId: product.id,
       name: product.name,
       quantity,
       unitPrice,
       unitCost: money(product.costPrice),
-      taxRate,
       discount,
-      lineNet: money(lineNet),
-      lineTax,
-      total: money(lineNet.plus(lineTax)),
+      total: money(gross.minus(discount)),
     };
   });
 }
 
-function totalsFor(lines: PricedLine[], orderDiscount: Prisma.Decimal): SaleTotals {
-  const subtotal = money(sum(lines.map((l) => l.lineNet)));
-  const taxAmount = money(sum(lines.map((l) => l.lineTax)));
+function totalsFor(lines: PricedLine[], orderDiscount: Prisma.Decimal, taxRatePercent: Prisma.Decimal): SaleTotals {
+  const subtotal = money(sum(lines.map((l) => l.total)));
   const costOfGoods = money(sum(lines.map((l) => l.unitCost.times(l.quantity))));
+  const taxAmount = money(subtotal.times(taxRatePercent).dividedBy(100));
   const total = money(subtotal.plus(taxAmount).minus(orderDiscount));
 
   if (total.lessThan(0)) {
@@ -144,8 +136,9 @@ function totalsFor(lines: PricedLine[], orderDiscount: Prisma.Decimal): SaleTota
 
 /** Pure pricing pass used by the POS to preview totals without writing anything. */
 export async function quoteSale(items: SaleLineInput[], discount: Numeric = 0) {
-  const lines = await priceBasket(prisma, items);
-  const totals = totalsFor(lines, money(discount));
+  const [lines, settings] = await Promise.all([priceBasket(prisma, items), getSettings()]);
+  const taxRate = D(readNumber(settings, 'sales.defaultTaxRate'));
+  const totals = totalsFor(lines, money(discount), taxRate);
   return {
     lines: lines.map((l) => ({
       productId: l.productId,
@@ -153,7 +146,6 @@ export async function quoteSale(items: SaleLineInput[], discount: Numeric = 0) {
       quantity: toNum(l.quantity),
       unitPrice: toNum(l.unitPrice),
       discount: toNum(l.discount),
-      tax: toNum(l.lineTax),
       total: toNum(l.total),
     })),
     subtotal: toNum(totals.subtotal),
@@ -174,16 +166,22 @@ export interface CompletedSale {
 
 export async function createSale(input: CreateSaleInput): Promise<CompletedSale> {
   const orderDiscount = money(input.discount ?? 0);
+  const [warehouseId, shift, settings] = await Promise.all([
+    getDefaultWarehouseId(),
+    requireOpenShift(input.userId),
+    getSettings(),
+  ]);
+  const taxRate = D(readNumber(settings, 'sales.defaultTaxRate'));
 
   const result = await prisma.$transaction(
     async (tx) => {
       const lines = await priceBasket(tx, input.items);
-      const totals = totalsFor(lines, orderDiscount);
+      const totals = totalsFor(lines, orderDiscount, taxRate);
 
       // Fail fast with one complete message before writing anything.
       await assertStockAvailable(
         tx,
-        input.warehouseId,
+        warehouseId,
         lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
       );
 
@@ -199,12 +197,11 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
       const changeAmount = hasCash && overpaid.greaterThan(0) ? money(overpaid) : money(0);
       const paidAmount = money(tendered.minus(changeAmount));
 
-      // Anything unpaid is credit, and credit needs someone to bill.
-      if (paidAmount.lessThan(totals.total) && !input.customerId) {
-        throw new ValidationError(
-          'A partially paid sale must be assigned to a customer so the balance can be collected.',
-          { customerId: ['Select a customer for a credit sale.'] },
-        );
+      // No customer, no credit — every sale must be paid in full at checkout.
+      if (paidAmount.lessThan(totals.total)) {
+        throw new ValidationError('Amount tendered does not cover the total.', {
+          payments: ['Payment does not cover the total.'],
+        });
       }
 
       const invoiceNumber = await nextDocumentNumber('SALE', tx);
@@ -212,9 +209,9 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
       const sale = await tx.sale.create({
         data: {
           invoiceNumber,
-          customerId: input.customerId ?? null,
-          warehouseId: input.warehouseId,
+          warehouseId,
           userId: input.userId,
+          shiftId: shift.id,
           status: 'COMPLETED',
           channel: input.channel ?? 'POS',
           subtotal: totals.subtotal,
@@ -231,7 +228,6 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
               quantity: l.quantity,
               unitPrice: l.unitPrice,
               unitCost: l.unitCost,
-              taxRate: l.taxRate,
               discount: l.discount,
               total: l.total,
             })),
@@ -245,7 +241,7 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
       for (const line of lines) {
         await applyStockMovement(tx, {
           productId: line.productId,
-          warehouseId: input.warehouseId,
+          warehouseId,
           type: 'SALE',
           quantity: line.quantity.negated(),
           unitCost: line.unitCost,
@@ -290,29 +286,12 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
         paidAmount: toNum(paidAmount),
         changeAmount: toNum(changeAmount),
         profit: toNum(totals.total.minus(totals.taxAmount).minus(totals.costOfGoods)),
-        productIds: lines.map((l) => l.productId),
       };
     },
     { timeout: 20_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
   );
 
-  // Post-commit side effects. These reflect committed state and must not be
-  // able to roll a completed sale back.
-  await evaluateStockAlerts(result.productIds, input.warehouseId);
-
-  const settings = await getSettings();
-  const threshold = readNumber(settings, 'sales.largeSaleThreshold');
-  if (threshold > 0 && result.total >= threshold) {
-    await notify({
-      type: 'LARGE_SALE',
-      title: `Large sale: ${result.invoiceNumber}`,
-      message: `A sale of ${result.total.toFixed(2)} was completed.`,
-      link: `/sales/${result.id}`,
-    });
-  }
-
-  const { productIds: _discard, ...sale } = result;
-  return sale;
+  return result;
 }
 
 /**
@@ -322,7 +301,7 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
  * reversals would double-count. Void the return first.
  */
 export async function voidSale(saleId: string, userId: string, reason: string): Promise<void> {
-  const productIds = await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     const sale = await tx.sale.findUnique({
       where: { id: saleId },
       include: { items: true, returns: { select: { id: true } } },
@@ -362,9 +341,5 @@ export async function voidSale(saleId: string, userId: string, reason: string): 
       },
       tx,
     );
-
-    return { productIds: sale.items.map((i) => i.productId), warehouseId: sale.warehouseId };
   });
-
-  await evaluateStockAlerts(productIds.productIds, productIds.warehouseId);
 }

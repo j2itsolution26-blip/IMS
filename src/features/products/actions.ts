@@ -5,10 +5,8 @@ import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, NotFoundError } from '@/lib/errors';
-import { D, money, toNum } from '@/lib/decimal';
+import { money, toNum } from '@/lib/decimal';
 import { diff, recordAudit } from '@/server/services/audit-service';
-import { notify } from '@/server/services/notification-service';
-import { evaluateStockAlerts } from '@/server/services/inventory-service';
 import { deleteProductImage, uploadProductImage } from '@/server/services/storage-service';
 import { productSchema } from '@/features/products/schema';
 
@@ -20,7 +18,7 @@ function invalidate(id?: string) {
 }
 
 /**
- * Records a price change and raises a notification.
+ * Records a price change.
  *
  * Price movement is one of the few things that silently changes margin across
  * every future sale, so it gets its own history table rather than living only
@@ -28,7 +26,7 @@ function invalidate(id?: string) {
  */
 async function trackPriceChanges(
   productId: string,
-  before: { costPrice: unknown; sellingPrice: unknown; name: string },
+  before: { costPrice: unknown; sellingPrice: unknown },
   after: { costPrice: number; sellingPrice: number },
   userId: string,
 ): Promise<void> {
@@ -55,16 +53,6 @@ async function trackPriceChanges(
       changedBy: userId,
     })),
   });
-
-  for (const change of changes) {
-    const direction = change.newValue > change.oldValue ? 'increased' : 'decreased';
-    await notify({
-      type: 'PRICE_CHANGE',
-      title: `${change.field === 'COST' ? 'Cost' : 'Selling'} price ${direction}: ${before.name}`,
-      message: `Changed from ${change.oldValue.toFixed(2)} to ${change.newValue.toFixed(2)}.`,
-      link: `/products/${productId}`,
-    });
-  }
 }
 
 export async function createProduct(input: unknown): Promise<ActionResult<{ id: string }>> {
@@ -81,15 +69,12 @@ export async function createProduct(input: unknown): Promise<ActionResult<{ id: 
         imageUrl: values.imageUrl,
         categoryId: values.categoryId,
         unitId: values.unitId,
-        brandId: values.brandId,
-        supplierId: values.supplierId,
         costPrice: money(values.costPrice),
         sellingPrice: money(values.sellingPrice),
-        taxRate: D(values.taxRate),
-        minStock: D(values.minStock),
-        maxStock: D(values.maxStock),
-        reorderLevel: D(values.reorderLevel),
-        reorderQty: D(values.reorderQty),
+        minStock: values.minStock,
+        maxStock: values.maxStock,
+        reorderLevel: values.reorderLevel,
+        reorderQty: values.reorderQty,
         status: values.status,
         isTrackable: values.isTrackable,
       },
@@ -127,15 +112,12 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
         imageUrl: values.imageUrl,
         categoryId: values.categoryId,
         unitId: values.unitId,
-        brandId: values.brandId,
-        supplierId: values.supplierId,
         costPrice: money(values.costPrice),
         sellingPrice: money(values.sellingPrice),
-        taxRate: D(values.taxRate),
-        minStock: D(values.minStock),
-        maxStock: D(values.maxStock),
-        reorderLevel: D(values.reorderLevel),
-        reorderQty: D(values.reorderQty),
+        minStock: values.minStock,
+        maxStock: values.maxStock,
+        reorderLevel: values.reorderLevel,
+        reorderQty: values.reorderQty,
         status: values.status,
         isTrackable: values.isTrackable,
       },
@@ -144,7 +126,7 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
 
     await trackPriceChanges(
       id,
-      { costPrice: before.costPrice, sellingPrice: before.sellingPrice, name: before.name },
+      { costPrice: before.costPrice, sellingPrice: before.sellingPrice },
       { costPrice: values.costPrice, sellingPrice: values.sellingPrice },
       user.id,
     );
@@ -165,13 +147,6 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
       userId: user.id,
     });
 
-    // Thresholds may have moved, so re-evaluate the standing stock alerts.
-    const stockRows = await prisma.inventory.findMany({
-      where: { productId: id },
-      select: { warehouseId: true },
-    });
-    await Promise.all(stockRows.map((row) => evaluateStockAlerts([id], row.warehouseId)));
-
     // A replaced image leaves the old object orphaned in the bucket.
     // Only after the new image has been saved, so a failure here can never
     // leave the product pointing at a file that no longer exists.
@@ -188,10 +163,36 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
 }
 
 /**
+ * Archives a product instead of deleting it. Archived products drop out of
+ * the POS and the default product list, but every past sale/return record
+ * that references them stays intact.
+ */
+export async function archiveProductAction(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const user = await authorize('products.update');
+
+    const product = await prisma.product.findUnique({ where: { id }, select: { name: true, sku: true } });
+    if (!product) throw new NotFoundError('Product');
+
+    await prisma.product.update({ where: { id }, data: { status: 'ARCHIVED' } });
+
+    await recordAudit({
+      action: 'UPDATE',
+      entity: 'Product',
+      entityId: id,
+      summary: `Archived product ${product.name} (${product.sku})`,
+      userId: user.id,
+    });
+
+    invalidate(id);
+  });
+}
+
+/**
  * Deletes a product, but only when it has no trading history.
  *
- * Once a product appears on a sale or a purchase order, deleting it would tear
- * a hole in every historical report. Those are discontinued instead.
+ * Once a product appears on a sale, deleting it would tear a hole in every
+ * historical report. Those are archived instead.
  */
 export async function deleteProduct(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
@@ -204,16 +205,16 @@ export async function deleteProduct(id: string): Promise<ActionResult<void>> {
         name: true,
         sku: true,
         imageUrl: true,
-        _count: { select: { saleItems: true, purchaseItems: true, returnItems: true } },
+        _count: { select: { saleItems: true, returnItems: true } },
         inventory: { select: { quantity: true } },
       },
     });
     if (!product) throw new NotFoundError('Product');
 
-    const { saleItems, purchaseItems, returnItems } = product._count;
-    if (saleItems + purchaseItems + returnItems > 0) {
+    const { saleItems, returnItems } = product._count;
+    if (saleItems + returnItems > 0) {
       throw new ConflictError(
-        'This product has trading history and cannot be deleted. Set its status to Discontinued instead — that keeps past reports accurate.',
+        'This product has trading history and cannot be deleted. Archive it instead — that keeps past reports accurate.',
       );
     }
 

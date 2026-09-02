@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 interface SearchHit {
   id: string;
-  type: 'product' | 'customer' | 'supplier' | 'sale' | 'purchase';
+  type: 'product' | 'sale';
   title: string;
   subtitle: string;
   href: string;
@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
           take: 5,
           orderBy: { name: 'asc' },
         })
-        .then((rows) => {
+        .then((rows: { id: string; name: string; sku: string; sellingPrice: unknown }[]) => {
           for (const row of rows) {
             results.push({
               id: row.id,
@@ -66,53 +66,7 @@ export async function GET(request: NextRequest) {
               title: row.name,
               subtitle: `SKU ${row.sku}`,
               href: `/products/${row.id}`,
-              meta: toNum(row.sellingPrice),
-            });
-          }
-        }),
-    );
-  }
-
-  if (user.permissions.has('customers.view')) {
-    tasks.push(
-      prisma.customer
-        .findMany({
-          where: { OR: [{ name: contains }, { code: contains }, { phone: contains }, { email: contains }] },
-          select: { id: true, name: true, code: true },
-          take: 4,
-          orderBy: { name: 'asc' },
-        })
-        .then((rows) => {
-          for (const row of rows) {
-            results.push({
-              id: row.id,
-              type: 'customer',
-              title: row.name,
-              subtitle: `Customer ${row.code}`,
-              href: `/customers/${row.id}`,
-            });
-          }
-        }),
-    );
-  }
-
-  if (user.permissions.has('suppliers.view')) {
-    tasks.push(
-      prisma.supplier
-        .findMany({
-          where: { OR: [{ name: contains }, { code: contains }, { email: contains }] },
-          select: { id: true, name: true, code: true },
-          take: 4,
-          orderBy: { name: 'asc' },
-        })
-        .then((rows) => {
-          for (const row of rows) {
-            results.push({
-              id: row.id,
-              type: 'supplier',
-              title: row.name,
-              subtitle: `Supplier ${row.code}`,
-              href: `/suppliers/${row.id}`,
+              meta: toNum(row.sellingPrice as never),
             });
           }
         }),
@@ -128,7 +82,7 @@ export async function GET(request: NextRequest) {
           take: 4,
           orderBy: { createdAt: 'desc' },
         })
-        .then((rows) => {
+        .then((rows: { id: string; invoiceNumber: string; total: unknown; createdAt: Date }[]) => {
           for (const row of rows) {
             results.push({
               id: row.id,
@@ -136,31 +90,7 @@ export async function GET(request: NextRequest) {
               title: row.invoiceNumber,
               subtitle: `Sale · ${row.createdAt.toLocaleDateString()}`,
               href: `/sales/${row.id}`,
-              meta: toNum(row.total),
-            });
-          }
-        }),
-    );
-  }
-
-  if (user.permissions.has('purchases.view')) {
-    tasks.push(
-      prisma.purchaseOrder
-        .findMany({
-          where: { orderNumber: contains },
-          select: { id: true, orderNumber: true, total: true, supplier: { select: { name: true } } },
-          take: 4,
-          orderBy: { createdAt: 'desc' },
-        })
-        .then((rows) => {
-          for (const row of rows) {
-            results.push({
-              id: row.id,
-              type: 'purchase',
-              title: row.orderNumber,
-              subtitle: `Purchase · ${row.supplier.name}`,
-              href: `/purchases/${row.id}`,
-              meta: toNum(row.total),
+              meta: toNum(row.total as never),
             });
           }
         }),

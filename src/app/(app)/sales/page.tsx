@@ -7,6 +7,7 @@ import { listSales } from '@/features/sales/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { resolveRange, parsePeriod } from '@/server/analytics/date-range';
 import { formatCurrency, formatDateTime, humanizeEnum } from '@/lib/format';
+import { SALE_STATUS_LABEL, SALE_STATUS_BADGE } from '@/lib/sale-status';
 import { PageHeader } from '@/components/page-header';
 import { PeriodPicker } from '@/components/period-picker';
 import { FilterBar, PaginationBar } from '@/components/filter-bar';
@@ -18,14 +19,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 
 export const metadata: Metadata = { title: 'Sales' };
 export const dynamic = 'force-dynamic';
-
-const STATUS_VARIANT: Record<SaleStatus, 'success' | 'secondary' | 'warning' | 'destructive'> = {
-  COMPLETED: 'success',
-  DRAFT: 'secondary',
-  PARTIALLY_RETURNED: 'warning',
-  RETURNED: 'warning',
-  VOIDED: 'destructive',
-};
 
 const STATUSES: SaleStatus[] = ['COMPLETED', 'PARTIALLY_RETURNED', 'RETURNED', 'VOIDED'];
 
@@ -84,14 +77,14 @@ export default async function SalesPage({
       </div>
 
       <FilterBar
-        searchPlaceholder="Search invoice or customer…"
+        searchPlaceholder="Search invoice number…"
         selects={[
           {
             name: 'status',
             label: 'Status',
             allLabel: 'All statuses',
             width: 'w-[180px]',
-            options: STATUSES.map((status) => ({ value: status, label: humanizeEnum(status) })),
+            options: STATUSES.map((status) => ({ value: status, label: SALE_STATUS_LABEL[status] })),
           },
         ]}
       />
@@ -116,10 +109,9 @@ export default async function SalesPage({
               <TableHeader>
                 <TableRow>
                   <TableHead>Invoice</TableHead>
-                  <TableHead className="hidden md:table-cell">Customer</TableHead>
                   <TableHead className="hidden lg:table-cell">Cashier</TableHead>
+                  <TableHead className="hidden md:table-cell">Payment</TableHead>
                   <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="hidden text-right sm:table-cell">Profit</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -135,41 +127,17 @@ export default async function SalesPage({
                         {sale.itemCount === 1 ? '' : 's'}
                       </p>
                     </TableCell>
-                    <TableCell className="hidden text-sm md:table-cell">
-                      {sale.customerId ? (
-                        <Link href={`/customers/${sale.customerId}`} className="hover:underline">
-                          {sale.customerName}
-                        </Link>
-                      ) : (
-                        <span className="text-muted-foreground">{sale.customerName}</span>
-                      )}
-                    </TableCell>
                     <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
                       {sale.cashierName}
                     </TableCell>
+                    <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
+                      {sale.paymentMethod ? humanizeEnum(sale.paymentMethod) : '—'}
+                    </TableCell>
                     <TableCell className="text-right">
                       <span className="tabular font-medium">{formatCurrency(sale.total, currency)}</span>
-                      {sale.balance > 0 && (
-                        <span className="tabular block text-xs text-warning">
-                          {formatCurrency(sale.balance, currency)} due
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden text-right sm:table-cell">
-                      <span
-                        className={`tabular text-sm ${
-                          sale.status === 'VOIDED'
-                            ? 'text-muted-foreground line-through'
-                            : sale.profit < 0
-                              ? 'text-destructive'
-                              : ''
-                        }`}
-                      >
-                        {formatCurrency(sale.profit, currency)}
-                      </span>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_VARIANT[sale.status]}>{humanizeEnum(sale.status)}</Badge>
+                      <Badge variant={SALE_STATUS_BADGE[sale.status]}>{SALE_STATUS_LABEL[sale.status]}</Badge>
                     </TableCell>
                   </TableRow>
                 ))}

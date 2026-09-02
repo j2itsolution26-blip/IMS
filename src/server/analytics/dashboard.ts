@@ -30,9 +30,9 @@ export interface SalesSummary {
   averageOrderValue: number;
   returnsTotal: number;
   returnsCount: number;
-  expenses: number;
-  /** Gross profit less returns and operating expenses. */
+  /** Gross profit less returns. */
   netProfit: number;
+  cashSales: number;
 }
 
 interface SalesAggregateRow {
@@ -79,15 +79,15 @@ async function salesAggregate(from: Date, to: Date): Promise<SalesAggregateRow> 
 }
 
 export async function getSalesSummary(from: Date, to: Date): Promise<SalesSummary> {
-  const [aggregate, returns, expenses] = await Promise.all([
+  const [aggregate, returns, cash] = await Promise.all([
     salesAggregate(from, to),
     prisma.return.aggregate({
-      where: { type: 'SALE_RETURN', status: 'COMPLETED', createdAt: { gte: from, lte: to } },
+      where: { status: 'COMPLETED', createdAt: { gte: from, lte: to } },
       _sum: { total: true },
       _count: true,
     }),
-    prisma.expense.aggregate({
-      where: { incurredAt: { gte: from, lte: to } },
+    prisma.payment.aggregate({
+      where: { method: 'CASH', direction: 'INBOUND', createdAt: { gte: from, lte: to } },
       _sum: { amount: true },
     }),
   ]);
@@ -97,7 +97,6 @@ export async function getSalesSummary(from: Date, to: Date): Promise<SalesSummar
   const costOfGoods = Number(aggregate.costOfGoods);
   const grossProfit = netRevenue - costOfGoods;
   const returnsTotal = toNum(returns._sum.total);
-  const expenseTotal = toNum(expenses._sum.amount);
   const transactionCount = aggregate.transactionCount;
 
   return {
@@ -111,8 +110,8 @@ export async function getSalesSummary(from: Date, to: Date): Promise<SalesSummar
     averageOrderValue: transactionCount > 0 ? revenue / transactionCount : 0,
     returnsTotal,
     returnsCount: returns._count,
-    expenses: expenseTotal,
-    netProfit: grossProfit - returnsTotal - expenseTotal,
+    netProfit: grossProfit - returnsTotal,
+    cashSales: toNum(cash._sum.amount),
   };
 }
 
@@ -371,7 +370,7 @@ export async function getProductPerformance(options: {
         si."productId",
         SUM(si.quantity)                                             AS units_sold,
         SUM(si.total)                                                AS revenue,
-        SUM(si.total - (si.total * si."taxRate" / (100 + si."taxRate")) - si."unitCost" * si.quantity) AS profit
+        SUM(si.total - si."unitCost" * si.quantity)                  AS profit
       FROM sale_items si
       JOIN sales s ON s.id = si."saleId"
       WHERE s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
@@ -407,124 +406,6 @@ export async function getProductPerformance(options: {
 }
 
 // ---------------------------------------------------------------------------
-// Reorder suggestions
-// ---------------------------------------------------------------------------
-
-export interface ReorderSuggestion {
-  productId: string;
-  name: string;
-  sku: string;
-  supplierName: string | null;
-  supplierId: string | null;
-  available: number;
-  reorderLevel: number;
-  maxStock: number;
-  suggestedQuantity: number;
-  /** Average units sold per day over the forecast window. */
-  dailyVelocity: number;
-  /** Days of cover remaining at current velocity; null when nothing is selling. */
-  daysUntilStockout: number | null;
-  estimatedCost: number;
-}
-
-interface ReorderRow {
-  productId: string;
-  name: string;
-  sku: string;
-  supplierId: string | null;
-  supplierName: string | null;
-  available: string;
-  reorderLevel: string;
-  maxStock: string;
-  reorderQty: string;
-  costPrice: string;
-  unitsSoldInWindow: string;
-}
-
-/**
- * Products at or below their reorder level, with a suggested order quantity.
- *
- * The suggestion is, in order of preference: the product's configured reorder
- * quantity; else enough to reach max stock; else enough to reach twice the
- * reorder level. Velocity comes from actual sales in the forecast window.
- */
-export async function getReorderSuggestions(limit = 10): Promise<ReorderSuggestion[]> {
-  const settings = await getSettings();
-  const windowDays = readNumber(settings, 'inventory.forecastWindowDays') || 30;
-
-  const rows = await prisma.$queryRaw<ReorderRow[]>`
-    WITH stock AS (
-      SELECT "productId", SUM(quantity) AS qty, SUM(reserved) AS reserved
-      FROM inventory GROUP BY "productId"
-    ),
-    velocity AS (
-      SELECT si."productId", SUM(si.quantity) AS units
-      FROM sale_items si
-      JOIN sales s ON s.id = si."saleId"
-      WHERE s.status <> 'VOIDED'
-        AND s."createdAt" >= now() - (${windowDays} || ' days')::interval
-      GROUP BY si."productId"
-    )
-    SELECT
-      p.id                                                   AS "productId",
-      p.name                                                 AS "name",
-      p.sku                                                  AS "sku",
-      p."supplierId"                                         AS "supplierId",
-      sup.name                                               AS "supplierName",
-      COALESCE(stock.qty - stock.reserved, 0)::text          AS "available",
-      COALESCE(NULLIF(p."reorderLevel", 0), p."minStock")::text AS "reorderLevel",
-      p."maxStock"::text                                     AS "maxStock",
-      p."reorderQty"::text                                   AS "reorderQty",
-      p."costPrice"::text                                    AS "costPrice",
-      COALESCE(velocity.units, 0)::text                      AS "unitsSoldInWindow"
-    FROM products p
-    LEFT JOIN stock ON stock."productId" = p.id
-    LEFT JOIN velocity ON velocity."productId" = p.id
-    LEFT JOIN suppliers sup ON sup.id = p."supplierId"
-    WHERE p.status = 'ACTIVE'
-      AND p."isTrackable" = true
-      AND COALESCE(NULLIF(p."reorderLevel", 0), p."minStock") > 0
-      AND COALESCE(stock.qty - stock.reserved, 0) <= COALESCE(NULLIF(p."reorderLevel", 0), p."minStock")
-    ORDER BY
-      (COALESCE(stock.qty - stock.reserved, 0) /
-        NULLIF(COALESCE(NULLIF(p."reorderLevel", 0), p."minStock"), 0)) ASC,
-      COALESCE(velocity.units, 0) DESC
-    LIMIT ${limit}
-  `;
-
-  return rows.map((r) => {
-    const available = Number(r.available);
-    const reorderLevel = Number(r.reorderLevel);
-    const maxStock = Number(r.maxStock);
-    const reorderQty = Number(r.reorderQty);
-    const costPrice = Number(r.costPrice);
-    const dailyVelocity = Number(r.unitsSoldInWindow) / windowDays;
-
-    const suggested =
-      reorderQty > 0
-        ? reorderQty
-        : maxStock > 0
-          ? Math.max(0, maxStock - available)
-          : Math.max(0, reorderLevel * 2 - available);
-
-    return {
-      productId: r.productId,
-      name: r.name,
-      sku: r.sku,
-      supplierId: r.supplierId,
-      supplierName: r.supplierName,
-      available,
-      reorderLevel,
-      maxStock,
-      suggestedQuantity: Math.ceil(suggested),
-      dailyVelocity: Number(dailyVelocity.toFixed(3)),
-      daysUntilStockout: dailyVelocity > 0 ? Math.floor(available / dailyVelocity) : null,
-      estimatedCost: Number((Math.ceil(suggested) * costPrice).toFixed(2)),
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Activity feeds
 // ---------------------------------------------------------------------------
 
@@ -539,7 +420,6 @@ export async function getRecentSales(limit = 6) {
       total: true,
       createdAt: true,
       channel: true,
-      customer: { select: { name: true } },
       user: { select: { name: true } },
       _count: { select: { items: true } },
     },
@@ -551,37 +431,8 @@ export async function getRecentSales(limit = 6) {
     total: toNum(s.total),
     createdAt: s.createdAt,
     channel: s.channel,
-    customerName: s.customer?.name ?? 'Walk-in',
     cashierName: s.user.name,
     itemCount: s._count.items,
-  }));
-}
-
-export async function getRecentPurchases(limit = 6) {
-  const orders = await prisma.purchaseOrder.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: limit,
-    select: {
-      id: true,
-      orderNumber: true,
-      total: true,
-      status: true,
-      createdAt: true,
-      expectedDate: true,
-      supplier: { select: { name: true } },
-      _count: { select: { items: true } },
-    },
-  });
-
-  return orders.map((o) => ({
-    id: o.id,
-    orderNumber: o.orderNumber,
-    total: toNum(o.total),
-    status: o.status,
-    createdAt: o.createdAt,
-    expectedDate: o.expectedDate,
-    supplierName: o.supplier.name,
-    itemCount: o._count.items,
   }));
 }
 
@@ -614,36 +465,5 @@ export async function getRecentInventoryActivity(limit = 8) {
     sku: m.product.sku,
     warehouseName: m.warehouse.name,
     userName: m.user?.name ?? 'System',
-  }));
-}
-
-/** Suppliers with orders that are past their expected delivery date. */
-export async function getSupplierAlerts(limit = 5) {
-  const orders = await prisma.purchaseOrder.findMany({
-    where: {
-      status: { in: ['ORDERED', 'PARTIALLY_RECEIVED'] },
-      expectedDate: { lt: new Date() },
-    },
-    orderBy: { expectedDate: 'asc' },
-    take: limit,
-    select: {
-      id: true,
-      orderNumber: true,
-      expectedDate: true,
-      status: true,
-      total: true,
-      supplier: { select: { id: true, name: true } },
-    },
-  });
-
-  return orders.map((o) => ({
-    id: o.id,
-    orderNumber: o.orderNumber,
-    supplierId: o.supplier.id,
-    supplierName: o.supplier.name,
-    expectedDate: o.expectedDate!,
-    daysLate: Math.max(0, Math.floor((Date.now() - o.expectedDate!.getTime()) / 86_400_000)),
-    status: o.status,
-    total: toNum(o.total),
   }));
 }

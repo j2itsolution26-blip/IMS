@@ -35,14 +35,14 @@ import type { ActionResult } from '@/lib/action';
 import type { ColumnDef } from '@tanstack/react-table';
 
 /**
- * One implementation for all six reference entities.
+ * One implementation for both reference entities.
  *
- * Categories, brands, units, warehouses, suppliers, and customers are the same
- * screen with different fields: a table, a create/edit dialog, and a guarded
- * delete. Describing the fields as data means adding an entity is a config
- * object rather than another 150 lines of near-identical JSX.
+ * Categories and units are the same screen with different fields: a table, a
+ * create/edit dialog, and a guarded delete. Describing the fields as data
+ * means adding an entity is a config object rather than another 150 lines of
+ * near-identical JSX.
  *
- * Products, sales, and purchases are deliberately not built this way — they
+ * Products, sales, and returns are deliberately not built this way — they
  * have real domain behaviour that a generic form cannot express.
  */
 

@@ -1,10 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowLeftRight, Boxes, ClipboardList } from 'lucide-react';
+import { Boxes, ClipboardList, Tags } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
 import { getStockLevels, type StockStatus } from '@/server/analytics/inventory-analytics';
 import { getInventorySnapshot } from '@/server/analytics/dashboard';
-import { listActiveWarehouses } from '@/features/inventory/queries';
 import { prisma } from '@/lib/prisma';
 import { getCurrency } from '@/server/services/settings-service';
 import { formatCurrency, formatDate, formatNumber, formatQuantity } from '@/lib/format';
@@ -15,31 +14,42 @@ import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/empty-state';
 import { FilterBar, PaginationBar } from '@/components/filter-bar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { StockInDialog } from '@/features/inventory/stock-in-dialog';
 import { cn } from '@/lib/utils';
 
-export const metadata: Metadata = { title: 'Stock levels' };
+export const metadata: Metadata = { title: 'Inventory' };
 export const dynamic = 'force-dynamic';
 
-const STATUS_META: Record<StockStatus, { label: string; variant: 'success' | 'secondary' | 'warning' | 'destructive' }> = {
-  OUT_OF_STOCK: { label: 'Out of stock', variant: 'destructive' },
-  CRITICAL: { label: 'Critical', variant: 'destructive' },
-  LOW: { label: 'Low', variant: 'warning' },
-  HEALTHY: { label: 'Healthy', variant: 'success' },
-  OVERSTOCK: { label: 'Overstocked', variant: 'secondary' },
+/** The spec's three-state stock badge: 🟢 In Stock, 🟠 Low Stock, 🔴 Out of Stock. */
+const STATUS_META: Record<StockStatus, { label: string; variant: 'success' | 'warning' | 'destructive' }> = {
+  OUT_OF_STOCK: { label: 'Out of Stock', variant: 'destructive' },
+  CRITICAL: { label: 'Low Stock', variant: 'warning' },
+  LOW: { label: 'Low Stock', variant: 'warning' },
+  HEALTHY: { label: 'In Stock', variant: 'success' },
+  OVERSTOCK: { label: 'In Stock', variant: 'success' },
 };
 
-const STATUS_KEYS = Object.keys(STATUS_META) as StockStatus[];
+const FILTER_STATUSES: { value: StockStatus | 'ALL'; label: string }[] = [
+  { value: 'ALL', label: 'All statuses' },
+  { value: 'HEALTHY', label: 'In Stock' },
+  { value: 'LOW', label: 'Low Stock' },
+  { value: 'OUT_OF_STOCK', label: 'Out of Stock' },
+];
 
 export default async function InventoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; status?: string; warehouse?: string; category?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; category?: string; page?: string }>;
 }) {
   const user = await requirePermission('inventory.view');
   const params = await searchParams;
 
-  const [warehouses, categories, currency, snapshot] = await Promise.all([
-    listActiveWarehouses(),
+  const status: StockStatus | 'ALL' =
+    params.status === 'LOW' || params.status === 'OUT_OF_STOCK' || params.status === 'HEALTHY'
+      ? params.status
+      : 'ALL';
+
+  const [categories, currency, snapshot] = await Promise.all([
     prisma.category.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
     getCurrency(),
     getInventorySnapshot(),
@@ -47,8 +57,7 @@ export default async function InventoryPage({
 
   const result = await getStockLevels({
     search: params.q,
-    status: STATUS_KEYS.includes(params.status as StockStatus) ? (params.status as StockStatus) : 'ALL',
-    warehouseId: params.warehouse,
+    status,
     categoryId: params.category,
     page: Number(params.page) || 1,
     pageSize: 25,
@@ -59,17 +68,20 @@ export default async function InventoryPage({
   return (
     <>
       <PageHeader
-        title="Stock levels"
-        description="Live on-hand quantities. Available is on-hand minus anything reserved for unfulfilled orders."
+        title="Inventory"
+        description="Live stock on hand for every product."
         actions={
           canAdjust && (
             <>
               <Button variant="outline" asChild>
-                <Link href="/inventory/transfers">
-                  <ArrowLeftRight /> Transfer
+                <Link href="/inventory/categories">
+                  <Tags /> Categories &amp; units
                 </Link>
               </Button>
-              <Button asChild>
+              <Button variant="outline" asChild>
+                <Link href="/inventory/movements">Movements</Link>
+              </Button>
+              <Button variant="outline" asChild>
                 <Link href="/inventory/adjustments">
                   <ClipboardList /> Adjust stock
                 </Link>
@@ -85,22 +97,16 @@ export default async function InventoryPage({
           value={formatCurrency(snapshot.costValue, currency)}
           hint={`${formatCurrency(snapshot.retailValue, currency)} at retail`}
         />
+        <StatCard label="Total products" value={formatNumber(snapshot.distinctProducts, 0)} />
         <StatCard
-          label="Available units"
-          value={formatQuantity(snapshot.available)}
-          hint={snapshot.reserved > 0 ? `${formatQuantity(snapshot.reserved)} reserved` : 'Nothing reserved'}
-        />
-        <StatCard
-          label="Below reorder"
+          label="Low stock"
           value={formatNumber(snapshot.lowStock + snapshot.criticalStock, 0)}
           tone={snapshot.criticalStock > 0 ? 'warning' : 'default'}
-          hint={`${snapshot.criticalStock} critical`}
         />
         <StatCard
           label="Out of stock"
           value={formatNumber(snapshot.outOfStock, 0)}
           tone={snapshot.outOfStock > 0 ? 'destructive' : 'success'}
-          hint={`${snapshot.deadStock} dead stock lines`}
         />
       </div>
 
@@ -112,13 +118,7 @@ export default async function InventoryPage({
             label: 'Stock status',
             allLabel: 'All statuses',
             width: 'w-[160px]',
-            options: STATUS_KEYS.map((key) => ({ value: key, label: STATUS_META[key].label })),
-          },
-          {
-            name: 'warehouse',
-            label: 'Warehouse',
-            allLabel: 'All warehouses',
-            options: warehouses.map((w) => ({ value: w.id, label: w.name })),
+            options: FILTER_STATUSES.filter((s) => s.value !== 'ALL').map((s) => ({ value: s.value, label: s.label })),
           },
           {
             name: 'category',
@@ -144,11 +144,11 @@ export default async function InventoryPage({
                   <TableHead>Product</TableHead>
                   <TableHead className="hidden md:table-cell">Category</TableHead>
                   <TableHead className="text-right">On hand</TableHead>
-                  <TableHead className="text-right">Available</TableHead>
-                  <TableHead className="hidden text-right sm:table-cell">Reorder at</TableHead>
+                  <TableHead className="hidden text-right sm:table-cell">Low-stock at</TableHead>
                   <TableHead className="hidden text-right lg:table-cell">Value</TableHead>
                   <TableHead className="hidden lg:table-cell">Last sold</TableHead>
                   <TableHead>Status</TableHead>
+                  {canAdjust && <TableHead className="w-32" />}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -165,7 +165,6 @@ export default async function InventoryPage({
                       <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
                         {row.categoryName}
                       </TableCell>
-                      <TableCell className="tabular text-right">{formatQuantity(row.onHand)}</TableCell>
                       <TableCell
                         className={cn(
                           'tabular text-right font-medium',
@@ -176,12 +175,7 @@ export default async function InventoryPage({
                               : '',
                         )}
                       >
-                        {formatQuantity(row.available)}
-                        {row.reserved > 0 && (
-                          <span className="block text-xs font-normal text-muted-foreground">
-                            {formatQuantity(row.reserved)} reserved
-                          </span>
-                        )}
+                        {formatQuantity(row.onHand)}
                       </TableCell>
                       <TableCell className="tabular hidden text-right text-sm text-muted-foreground sm:table-cell">
                         {row.reorderLevel > 0 || row.minStock > 0
@@ -197,6 +191,11 @@ export default async function InventoryPage({
                       <TableCell>
                         <Badge variant={meta.variant}>{meta.label}</Badge>
                       </TableCell>
+                      {canAdjust && (
+                        <TableCell>
+                          <StockInDialog productId={row.productId} productName={row.name} unit="units" />
+                        </TableCell>
+                      )}
                     </TableRow>
                   );
                 })}

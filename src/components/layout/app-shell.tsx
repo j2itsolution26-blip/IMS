@@ -11,10 +11,8 @@ import { cn } from '@/lib/utils';
 interface AppShellProps {
   permissions: string[];
   lowStockCount: number;
-  unreadCount: number;
   companyName: string;
   user?: UserInfo;
-  notificationSlot: React.ReactNode;
   userSlot: React.ReactNode;
   children: React.ReactNode;
 }
@@ -30,10 +28,8 @@ const COLLAPSED_STORAGE_KEY = 'ims-sidebar-collapsed';
 export function AppShell({
   permissions,
   lowStockCount,
-  unreadCount,
   companyName,
   user,
-  notificationSlot,
   userSlot,
   children,
 }: AppShellProps) {
@@ -78,7 +74,6 @@ export function AppShell({
       <Sidebar
         permissions={permissions}
         lowStockCount={lowStockCount}
-        unreadCount={unreadCount}
         companyName={companyName}
         user={user}
         open={sidebarOpen}
@@ -109,7 +104,6 @@ export function AppShell({
 
           <div className="ml-auto flex items-center gap-1.5">
             <ThemeToggle variant="dropdown" />
-            {notificationSlot}
             {userSlot}
           </div>
         </header>

@@ -10,7 +10,6 @@ import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { runAsProvisioning } from '@/lib/provisioning-context';
 import { recordAudit } from '@/server/services/audit-service';
-import { notify } from '@/server/services/notification-service';
 import { ALL_PERMISSION_KEYS } from '@/lib/permissions';
 import { slugify } from '@/lib/utils';
 import { SETTING_DEFINITIONS } from '@/lib/settings-definitions';
@@ -191,32 +190,6 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
       userId: admin.id,
     });
 
-    // Addressed to the people who administer accounts, not broadcast.
-    //
-    // `notify` with no userId is visible to every signed-in user, so a
-    // broadcast here put a colleague's email address and role in the
-    // notification bell of every cashier on the shop floor. The audience for
-    // "an account was created" is exactly whoever can view accounts.
-    const administrators = await prisma.user.findMany({
-      where: {
-        isActive: true,
-        role: { permissions: { some: { permission: { key: 'users.view' } } } },
-      },
-      select: { id: true },
-    });
-
-    await Promise.all(
-      administrators.map((administrator) =>
-        notify({
-          type: 'NEW_USER',
-          title: `New user: ${values.name}`,
-          message: `${values.email} was added with the ${role.name} role.`,
-          link: '/settings/users',
-          userId: administrator.id,
-        }),
-      ),
-    );
-
     revalidatePath('/settings/users');
     return { id: userId };
   });
@@ -302,12 +275,12 @@ export async function deleteUser(id: string): Promise<ActionResult<void>> {
         email: true,
         name: true,
         role: { select: { slug: true } },
-        _count: { select: { sales: true, purchaseOrders: true, expenses: true } },
+        _count: { select: { sales: true } },
       },
     });
     if (!target) throw new NotFoundError('User');
 
-    const activity = target._count.sales + target._count.purchaseOrders + target._count.expenses;
+    const activity = target._count.sales;
     if (activity > 0) {
       throw new ConflictError(
         `${target.name} has ${activity} transaction(s) on record. Deactivate the account instead — deleting it would break the audit trail.`,

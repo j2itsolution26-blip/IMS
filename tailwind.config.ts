@@ -55,6 +55,13 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        sidebar: {
+          DEFAULT: 'hsl(var(--sidebar-background))',
+          foreground: 'hsl(var(--sidebar-foreground))',
+          'muted-foreground': 'hsl(var(--sidebar-muted-foreground))',
+          accent: 'hsl(var(--sidebar-accent))',
+          border: 'hsl(var(--sidebar-border))',
+        },
         // Series colours are stored as literal hex (not HSL channels) because
         // they are a validated, hand-picked set — not derived from the theme.
         chart: {

@@ -56,8 +56,7 @@ export interface CompanyProfile {
   name: string;
   address: string;
   phone: string;
-  email: string;
-  taxNumber: string;
+  logoUrl: string;
   receiptFooter: string;
   currency: string;
 }
@@ -68,8 +67,7 @@ export async function getCompanyProfile(): Promise<CompanyProfile> {
     name: readString(settings, 'company.name'),
     address: readString(settings, 'company.address'),
     phone: readString(settings, 'company.phone'),
-    email: readString(settings, 'company.email'),
-    taxNumber: readString(settings, 'company.taxNumber'),
+    logoUrl: readString(settings, 'company.logoUrl'),
     receiptFooter: readString(settings, 'pos.receiptFooter'),
     currency: readString(settings, 'locale.currency') || 'PHP',
   };

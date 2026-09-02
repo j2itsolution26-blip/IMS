@@ -1,4 +1,4 @@
-// Inventory Management System — data model
+// Simple POS + Inventory — data model for a small sari-sari/convenience store.
 //
 // Design notes:
 //  * Money is Decimal(18,4) everywhere. Never Float. Quantities are Decimal(18,3)
@@ -6,8 +6,11 @@
 //  * `Inventory` is the single source of truth for on-hand stock and is only ever
 //    mutated inside a transaction that also writes an `InventoryTransaction` row.
 //    The ledger and the balance can therefore never drift.
-//  * Every table below is read or written by application code. There are no
-//    staging, mirror, or reporting duplicates — analytics aggregate the ledger.
+//  * This is a single-location system. Exactly one `Warehouse` row is seeded and
+//    every operation resolves it silently server-side — there is no location
+//    picker anywhere in the UI. The model is kept (rather than removed) so the
+//    stock-ledger engine below needs no changes to its signatures.
+//  * There is no Customer model. Every sale is a walk-in sale.
 
 generator client {
   provider = "prisma-client-js"
@@ -39,13 +42,11 @@ model User {
   sessions             Session[]
   accounts             Account[]
   auditLogs            AuditLog[]
-  notifications        Notification[]
   sales                Sale[]
-  purchaseOrders       PurchaseOrder[]
   inventoryTransaction InventoryTransaction[]
-  expenses             Expense[]
   returns              Return[]
   payments             Payment[]
+  shifts               CashierShift[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -176,22 +177,6 @@ model Category {
   @@map("categories")
 }
 
-model Brand {
-  id          String  @id @default(cuid())
-  name        String  @unique
-  slug        String  @unique
-  description String?
-  logoUrl     String?
-  isActive    Boolean @default(true)
-
-  products Product[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("brands")
-}
-
 model Unit {
   id           String  @id @default(cuid())
   name         String  @unique
@@ -218,19 +203,14 @@ model Product {
   imageUrl    String?
 
   categoryId String
-  brandId    String?
   unitId     String
-  supplierId String?
 
-  category Category  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  brand    Brand?    @relation(fields: [brandId], references: [id], onDelete: SetNull)
-  unit     Unit      @relation(fields: [unitId], references: [id], onDelete: Restrict)
-  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  unit     Unit     @relation(fields: [unitId], references: [id], onDelete: Restrict)
 
-  // costPrice is the moving-average cost, recalculated on every receipt.
+  // costPrice is the moving-average cost, recalculated on every stock-in.
   costPrice    Decimal @default(0) @db.Decimal(18, 4)
   sellingPrice Decimal @default(0) @db.Decimal(18, 4)
-  taxRate      Decimal @default(0) @db.Decimal(9, 4)
 
   minStock     Decimal @default(0) @db.Decimal(18, 3)
   maxStock     Decimal @default(0) @db.Decimal(18, 3)
@@ -240,19 +220,16 @@ model Product {
   status      ProductStatus @default(ACTIVE)
   isTrackable Boolean       @default(true)
 
-  inventory              Inventory[]
-  inventoryTransactions  InventoryTransaction[]
-  saleItems              SaleItem[]
-  purchaseItems          PurchaseItem[]
-  returnItems            ReturnItem[]
-  priceHistory           PriceHistory[]
+  inventory             Inventory[]
+  inventoryTransactions InventoryTransaction[]
+  saleItems             SaleItem[]
+  returnItems           ReturnItem[]
+  priceHistory          PriceHistory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([categoryId])
-  @@index([brandId])
-  @@index([supplierId])
   @@index([status])
   @@index([name])
   @@map("products")
@@ -261,7 +238,7 @@ model Product {
 enum ProductStatus {
   ACTIVE
   INACTIVE
-  DISCONTINUED
+  ARCHIVED
 }
 
 // Price changes are auditable and drive the "Price Changed" notification.
@@ -286,55 +263,12 @@ enum PriceField {
 }
 
 // ---------------------------------------------------------------------------
-// Partners & locations
+// Location
 // ---------------------------------------------------------------------------
 
-model Supplier {
-  id           String  @id @default(cuid())
-  code         String  @unique
-  name         String
-  contactName  String?
-  email        String?
-  phone        String?
-  address      String?
-  taxNumber    String?
-  // Agreed delivery window; a PO past this is flagged as a supplier delay.
-  leadTimeDays Int     @default(0)
-  isActive     Boolean @default(true)
-  notes        String?
-
-  products       Product[]
-  purchaseOrders PurchaseOrder[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([name])
-  @@map("suppliers")
-}
-
-model Customer {
-  id           String  @id @default(cuid())
-  code         String  @unique
-  name         String
-  email        String?
-  phone        String?
-  address      String?
-  taxNumber    String?
-  creditLimit  Decimal @default(0) @db.Decimal(18, 4)
-  isActive     Boolean @default(true)
-  notes        String?
-
-  sales   Sale[]
-  returns Return[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([name])
-  @@map("customers")
-}
-
+// Single-location system: exactly one row is seeded and used everywhere.
+// Kept as its own table (rather than removed) so the stock-ledger engine
+// below needs no changes — see the file-level note at the top.
 model Warehouse {
   id        String  @id @default(cuid())
   code      String  @unique
@@ -346,7 +280,6 @@ model Warehouse {
   inventory             Inventory[]
   inventoryTransactions InventoryTransaction[]
   sales                 Sale[]
-  purchaseOrders        PurchaseOrder[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -419,93 +352,59 @@ model InventoryTransaction {
 }
 
 enum InventoryTransactionType {
-  PURCHASE_RECEIPT
+  STOCK_IN
   SALE
   SALE_RETURN
-  PURCHASE_RETURN
   ADJUSTMENT_IN
   ADJUSTMENT_OUT
-  TRANSFER_IN
-  TRANSFER_OUT
   OPENING_BALANCE
 }
 
 enum ReferenceType {
-  PURCHASE_ORDER
   SALE
   RETURN
   ADJUSTMENT
-  TRANSFER
 }
 
 // ---------------------------------------------------------------------------
-// Purchasing
+// Cashier shifts
 // ---------------------------------------------------------------------------
 
-model PurchaseOrder {
-  id          String @id @default(cuid())
-  orderNumber String @unique
+// One shift per cashier session. Opens with a counted starting float, closes
+// with a counted cash total; the difference is the till variance. Totals are
+// computed live while the shift is open, then frozen onto this row at close
+// so a later void/return can never silently rewrite a reconciled shift.
+model CashierShift {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
-  supplierId  String
-  warehouseId String
-  userId      String
+  status      ShiftStatus @default(OPEN)
+  openedAt    DateTime    @default(now())
+  openingCash Decimal     @db.Decimal(18, 4)
 
-  supplier  Supplier  @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  closedAt         DateTime?
+  expectedCash     Decimal?  @db.Decimal(18, 4)
+  actualCash       Decimal?  @db.Decimal(18, 4)
+  difference       Decimal?  @db.Decimal(18, 4)
+  totalSales       Decimal?  @db.Decimal(18, 4)
+  transactionCount Int?
 
-  status PurchaseOrderStatus @default(DRAFT)
+  notes String?
 
-  subtotal     Decimal @default(0) @db.Decimal(18, 4)
-  taxAmount    Decimal @default(0) @db.Decimal(18, 4)
-  discount     Decimal @default(0) @db.Decimal(18, 4)
-  shippingCost Decimal @default(0) @db.Decimal(18, 4)
-  total        Decimal @default(0) @db.Decimal(18, 4)
-  paidAmount   Decimal @default(0) @db.Decimal(18, 4)
-
-  expectedDate DateTime?
-  receivedDate DateTime?
-  notes        String?
-
-  items    PurchaseItem[]
-  payments Payment[]
+  sales Sale[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([supplierId, createdAt])
+  @@index([userId, status])
   @@index([status])
-  @@index([createdAt])
-  @@map("purchase_orders")
+  @@map("cashier_shifts")
 }
 
-enum PurchaseOrderStatus {
-  DRAFT
-  ORDERED
-  PARTIALLY_RECEIVED
-  RECEIVED
-  CANCELLED
-}
-
-model PurchaseItem {
-  id              String @id @default(cuid())
-  purchaseOrderId String
-  productId       String
-
-  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
-
-  quantity         Decimal @db.Decimal(18, 3)
-  // Supports partial receiving; receivedQty <= quantity.
-  receivedQuantity Decimal @default(0) @db.Decimal(18, 3)
-  unitCost         Decimal @db.Decimal(18, 4)
-  taxRate          Decimal @default(0) @db.Decimal(9, 4)
-  discount         Decimal @default(0) @db.Decimal(18, 4)
-  total            Decimal @db.Decimal(18, 4)
-
-  @@index([purchaseOrderId])
-  @@index([productId])
-  @@map("purchase_items")
+enum ShiftStatus {
+  OPEN
+  CLOSED
 }
 
 // ---------------------------------------------------------------------------
@@ -516,13 +415,13 @@ model Sale {
   id            String @id @default(cuid())
   invoiceNumber String @unique
 
-  customerId  String?
   warehouseId String
   userId      String
+  shiftId     String?
 
-  customer  Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  warehouse Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  shift     CashierShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
 
   status  SaleStatus  @default(COMPLETED)
   channel SaleChannel @default(POS)
@@ -547,14 +446,13 @@ model Sale {
   updatedAt DateTime @updatedAt
 
   @@index([createdAt])
-  @@index([customerId, createdAt])
   @@index([userId, createdAt])
   @@index([status])
+  @@index([shiftId])
   @@map("sales")
 }
 
 enum SaleStatus {
-  DRAFT
   COMPLETED
   PARTIALLY_RETURNED
   RETURNED
@@ -563,7 +461,6 @@ enum SaleStatus {
 
 enum SaleChannel {
   POS
-  ONLINE
   MANUAL
 }
 
@@ -579,7 +476,6 @@ model SaleItem {
   returnedQuantity Decimal @default(0) @db.Decimal(18, 3)
   unitPrice        Decimal @db.Decimal(18, 4)
   unitCost         Decimal @db.Decimal(18, 4)
-  taxRate          Decimal @default(0) @db.Decimal(9, 4)
   discount         Decimal @default(0) @db.Decimal(18, 4)
   total            Decimal @db.Decimal(18, 4)
 
@@ -604,13 +500,11 @@ model Payment {
   reference String?
   note      String?
 
-  saleId          String?
-  purchaseOrderId String?
-  returnId        String?
+  saleId   String?
+  returnId String?
 
-  sale          Sale?          @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  return        Return?        @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  sale   Sale?   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  return Return? @relation(fields: [returnId], references: [id], onDelete: Cascade)
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -618,7 +512,6 @@ model Payment {
   createdAt DateTime @default(now())
 
   @@index([saleId])
-  @@index([purchaseOrderId])
   @@index([returnId])
   @@index([createdAt])
   @@index([method, createdAt])
@@ -633,30 +526,8 @@ enum PaymentDirection {
 enum PaymentMethod {
   CASH
   GCASH
-  MAYA
   CARD
-  BANK_TRANSFER
-  CREDIT
-}
-
-model Expense {
-  id            String   @id @default(cuid())
-  reference     String   @unique
-  category      String
-  description   String?
-  amount        Decimal  @db.Decimal(18, 4)
-  method        PaymentMethod @default(CASH)
-  incurredAt    DateTime
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([incurredAt])
-  @@index([category])
-  @@map("expenses")
+  OTHER
 }
 
 // ---------------------------------------------------------------------------
@@ -667,20 +538,16 @@ model Return {
   id           String @id @default(cuid())
   returnNumber String @unique
 
-  type   ReturnType
   status ReturnStatus @default(COMPLETED)
 
-  saleId     String?
-  customerId String?
-  userId     String
+  saleId String?
+  userId String
 
-  sale     Sale?     @relation(fields: [saleId], references: [id], onDelete: SetNull)
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  user     User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  sale Sale? @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  user User  @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   reason      String?
   subtotal    Decimal @default(0) @db.Decimal(18, 4)
-  taxAmount   Decimal @default(0) @db.Decimal(18, 4)
   total       Decimal @default(0) @db.Decimal(18, 4)
   // Returned goods that cannot be resold do not go back into sellable stock.
   restock     Boolean @default(true)
@@ -694,11 +561,6 @@ model Return {
   @@index([createdAt])
   @@index([saleId])
   @@map("returns")
-}
-
-enum ReturnType {
-  SALE_RETURN
-  PURCHASE_RETURN
 }
 
 enum ReturnStatus {
@@ -730,52 +592,6 @@ model ReturnItem {
 // ---------------------------------------------------------------------------
 // Platform
 // ---------------------------------------------------------------------------
-
-model Notification {
-  id       String               @id @default(cuid())
-  type     NotificationType
-  severity NotificationSeverity @default(INFO)
-  title    String
-  message  String
-  // Deep link to the record that triggered it.
-  link     String?
-
-  // Null = broadcast to every user with the relevant permission.
-  userId String?
-  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Stops the generators re-raising the same alert every run.
-  dedupeKey String? @unique
-
-  readAt      DateTime?
-  dismissedAt DateTime?
-  createdAt   DateTime  @default(now())
-
-  @@index([userId, readAt])
-  @@index([createdAt])
-  @@map("notifications")
-}
-
-enum NotificationType {
-  LOW_STOCK
-  OUT_OF_STOCK
-  PURCHASE_RECEIVED
-  LARGE_SALE
-  INVENTORY_ADJUSTMENT
-  RETURN_PROCESSED
-  PRICE_CHANGE
-  SUPPLIER_DELAY
-  NEW_USER
-  BACKUP_FAILED
-  SYSTEM
-}
-
-enum NotificationSeverity {
-  INFO
-  SUCCESS
-  WARNING
-  CRITICAL
-}
 
 model AuditLog {
   id     String      @id @default(cuid())
@@ -811,7 +627,6 @@ enum AuditAction {
   INVENTORY_CHANGE
   PRICE_CHANGE
   SALE
-  PURCHASE
   RETURN
   SETTINGS_CHANGE
   EXPORT

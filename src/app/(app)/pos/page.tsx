@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { prisma } from '@/lib/prisma';
-import { requirePermission, userCan } from '@/lib/session';
+import { requirePermission } from '@/lib/session';
 import { searchSellableProducts } from '@/features/products/queries';
-import { getCompanyProfile } from '@/server/services/settings-service';
+import { getCompanyProfile, getSettings, readNumber } from '@/server/services/settings-service';
+import { getOpenShift } from '@/server/services/shift-service';
 import { PageHeader } from '@/components/page-header';
 import { PosTerminal } from '@/features/pos/pos-terminal';
 
@@ -12,27 +12,12 @@ export const dynamic = 'force-dynamic';
 export default async function PosPage() {
   const user = await requirePermission('pos.view');
 
-  const [warehouses, customers, company] = await Promise.all([
-    prisma.warehouse.findMany({
-      where: { isActive: true },
-      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
-      select: { id: true, name: true, isDefault: true },
-    }),
-    prisma.customer.findMany({
-      where: { isActive: true },
-      orderBy: { name: 'asc' },
-      take: 200,
-      select: { id: true, name: true },
-    }),
+  const [company, settings, openShift, initialProducts] = await Promise.all([
     getCompanyProfile(),
+    getSettings(),
+    getOpenShift(user.id),
+    searchSellableProducts('', 40),
   ]);
-
-  const defaultWarehouse = warehouses.find((w) => w.isDefault) ?? warehouses[0];
-
-  // Seed the grid so the till is usable the moment it loads, before any search.
-  const initialProducts = defaultWarehouse
-    ? await searchSellableProducts('', defaultWarehouse.id, 40)
-    : [];
 
   return (
     <>
@@ -42,19 +27,17 @@ export default async function PosPage() {
       />
 
       <PosTerminal
-        warehouses={warehouses}
-        customers={customers}
         initialProducts={initialProducts}
         currency={company.currency}
+        taxRate={readNumber(settings, 'sales.defaultTaxRate')}
         cashierName={user.name}
-        canAddCustomers={userCan(user, 'customers.create')}
         company={{
           name: company.name,
           address: company.address,
           phone: company.phone,
-          taxNumber: company.taxNumber,
           receiptFooter: company.receiptFooter,
         }}
+        openShift={openShift ? { id: openShift.id, openedAt: openShift.openedAt.toISOString(), openingCash: openShift.openingCash } : null}
       />
     </>
   );

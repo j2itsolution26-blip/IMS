@@ -62,8 +62,7 @@ export function SaleActions({
     if (quantity <= 0) return acc;
     // Mirror the server: refund at the price paid, net of the line's discount share.
     const effectiveUnit = item.quantity > 0 ? item.unitPrice - item.discount / item.quantity : item.unitPrice;
-    const net = effectiveUnit * quantity;
-    return acc + net + (net * item.taxRate) / 100;
+    return acc + effectiveUnit * quantity;
   }, 0);
 
   const onVoid = async () => {
@@ -211,10 +210,8 @@ export function SaleActions({
                   <SelectContent>
                     <SelectItem value="CASH">Cash</SelectItem>
                     <SelectItem value="GCASH">GCash</SelectItem>
-                    <SelectItem value="MAYA">Maya</SelectItem>
                     <SelectItem value="CARD">Card</SelectItem>
-                    <SelectItem value="BANK_TRANSFER">Bank transfer</SelectItem>
-                    <SelectItem value="CREDIT">Store credit</SelectItem>
+                    <SelectItem value="OTHER">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

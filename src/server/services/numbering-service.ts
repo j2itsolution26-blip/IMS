@@ -11,16 +11,13 @@ import { prisma, type DbClient } from '@/lib/prisma';
  * number — which a `count() + 1` scheme would happily do.
  */
 
-export type DocumentKind = 'SALE' | 'PURCHASE_ORDER' | 'RETURN' | 'PAYMENT' | 'EXPENSE' | 'ADJUSTMENT' | 'TRANSFER';
+export type DocumentKind = 'SALE' | 'RETURN' | 'PAYMENT' | 'ADJUSTMENT';
 
 const CONFIG: Record<DocumentKind, { prefix: string; label: string }> = {
   SALE: { prefix: 'INV', label: 'Sale invoice counter' },
-  PURCHASE_ORDER: { prefix: 'PO', label: 'Purchase order counter' },
   RETURN: { prefix: 'RET', label: 'Return counter' },
   PAYMENT: { prefix: 'PAY', label: 'Payment counter' },
-  EXPENSE: { prefix: 'EXP', label: 'Expense counter' },
   ADJUSTMENT: { prefix: 'ADJ', label: 'Stock adjustment counter' },
-  TRANSFER: { prefix: 'TRF', label: 'Stock transfer counter' },
 };
 
 export async function nextDocumentNumber(kind: DocumentKind, db: DbClient = prisma): Promise<string> {

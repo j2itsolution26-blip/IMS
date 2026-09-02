@@ -22,7 +22,6 @@ export interface ReceiptData {
   invoiceNumber: string;
   issuedAt: Date;
   cashierName: string;
-  customerName: string;
   lines: ReceiptLine[];
   subtotal: number;
   tax: number;
@@ -35,7 +34,6 @@ export interface ReceiptData {
     name: string;
     address: string;
     phone: string;
-    taxNumber: string;
     receiptFooter: string;
   };
   currency: string;
@@ -50,7 +48,6 @@ export function Receipt({ data }: { data: ReceiptData }) {
         <p className="text-sm font-bold uppercase">{company.name}</p>
         {company.address && <p className="whitespace-pre-line">{company.address}</p>}
         {company.phone && <p>{company.phone}</p>}
-        {company.taxNumber && <p>TIN: {company.taxNumber}</p>}
       </header>
 
       <Divider />
@@ -59,7 +56,6 @@ export function Receipt({ data }: { data: ReceiptData }) {
         <Line label="Receipt" value={data.invoiceNumber} />
         <Line label="Date" value={formatDateTime(data.issuedAt)} />
         <Line label="Cashier" value={data.cashierName} />
-        <Line label="Customer" value={data.customerName} />
       </div>
 
       <Divider />

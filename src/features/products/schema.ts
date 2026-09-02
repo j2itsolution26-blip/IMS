@@ -14,12 +14,6 @@ const decimalField = (label: string, { min = 0, max = 1_000_000_000 } = {}) =>
     .max(max, `${label} is unreasonably large.`)
     .finite();
 
-const optionalId = z
-  .string()
-  .trim()
-  .transform((value) => (value === '' || value === 'none' ? null : value))
-  .nullable();
-
 export const productSchema = z
   .object({
     name: z.string().trim().min(2, 'Give the product a name.').max(160),
@@ -58,19 +52,16 @@ export const productSchema = z
 
     categoryId: z.string().trim().min(1, 'Choose a category.'),
     unitId: z.string().trim().min(1, 'Choose a unit of measure.'),
-    brandId: optionalId,
-    supplierId: optionalId,
 
     costPrice: decimalField('Cost price'),
     sellingPrice: decimalField('Selling price'),
-    taxRate: decimalField('Tax rate', { max: 100 }),
 
     minStock: decimalField('Minimum stock'),
     maxStock: decimalField('Maximum stock'),
-    reorderLevel: decimalField('Reorder level'),
+    reorderLevel: decimalField('Low-stock level'),
     reorderQty: decimalField('Reorder quantity'),
 
-    status: z.enum(['ACTIVE', 'INACTIVE', 'DISCONTINUED']).default('ACTIVE'),
+    status: z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']).default('ACTIVE'),
     isTrackable: z.boolean().default(true),
   })
   .superRefine((values, ctx) => {
@@ -106,5 +97,5 @@ export type ProductValues = z.output<typeof productSchema>;
 export const PRODUCT_STATUS_OPTIONS = [
   { value: 'ACTIVE', label: 'Active', description: 'Sellable and counted in stock reports.' },
   { value: 'INACTIVE', label: 'Inactive', description: 'Hidden from the POS but stock is retained.' },
-  { value: 'DISCONTINUED', label: 'Discontinued', description: 'No longer stocked or reordered.' },
+  { value: 'ARCHIVED', label: 'Archived', description: 'Hidden everywhere; stock and history are retained.' },
 ] as const;

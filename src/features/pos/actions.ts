@@ -11,17 +11,14 @@ import { searchSellableProducts, type SellableProduct } from '@/features/product
 /**
  * Point-of-sale actions.
  *
- * The client sends product ids and quantities only. Prices, tax rates, and
- * costs are always re-read from the database inside the checkout transaction,
- * so a tampered request cannot change what anything sells for.
+ * The client sends product ids and quantities only. Prices and costs are
+ * always re-read from the database inside the checkout transaction, so a
+ * tampered request cannot change what anything sells for. There is no
+ * customer or warehouse to pick — every sale is a walk-in sale at the
+ * store's single location.
  */
 
 const checkoutSchema = z.object({
-  warehouseId: z.string().min(1, 'Select a warehouse.'),
-  customerId: z
-    .string()
-    .transform((value) => (value === '' || value === 'walk-in' ? null : value))
-    .nullable(),
   items: z
     .array(
       z.object({
@@ -36,7 +33,7 @@ const checkoutSchema = z.object({
   payments: z
     .array(
       z.object({
-        method: z.enum(['CASH', 'GCASH', 'MAYA', 'CARD', 'BANK_TRANSFER', 'CREDIT']),
+        method: z.enum(['CASH', 'GCASH', 'CARD', 'OTHER']),
         amount: z.number().min(0),
         reference: z.string().max(80).optional(),
       }),
@@ -58,8 +55,6 @@ export async function checkout(input: unknown): Promise<ActionResult<CompletedSa
     const values = parseInput(checkoutSchema, input);
 
     const sale = await createSale({
-      warehouseId: values.warehouseId,
-      customerId: values.customerId,
       channel: 'POS',
       items: values.items,
       discount: values.discount,
@@ -78,12 +73,9 @@ export async function checkout(input: unknown): Promise<ActionResult<CompletedSa
 }
 
 /** Live product lookup for the terminal's search and barcode field. */
-export async function lookupProducts(
-  term: string,
-  warehouseId: string,
-): Promise<ActionResult<SellableProduct[]>> {
+export async function lookupProducts(term: string): Promise<ActionResult<SellableProduct[]>> {
   return runAction(async () => {
     await authorize('pos.view');
-    return searchSellableProducts(term, warehouseId, 40);
+    return searchSellableProducts(term, 40);
   });
 }

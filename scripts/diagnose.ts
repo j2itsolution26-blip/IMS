@@ -32,7 +32,6 @@ async function main() {
   const dashboard = await import('../src/server/analytics/dashboard');
   const salesAnalytics = await import('../src/server/analytics/sales-analytics');
   const inventoryAnalytics = await import('../src/server/analytics/inventory-analytics');
-  const insights = await import('../src/server/analytics/insights');
   const badges = await import('../src/server/analytics/badges');
   const reports = await import('../src/server/reports/registry');
 
@@ -40,51 +39,33 @@ async function main() {
   const catalogueQueries = await import('../src/features/catalogue/queries');
   const productQueries = await import('../src/features/products/queries');
   const salesQueries = await import('../src/features/sales/queries');
-  const purchaseQueries = await import('../src/features/purchases/queries');
 
   // --- /dashboard ---
-  await check('/dashboard', 'getComparedSalesSummary', () => dashboard.getComparedSalesSummary(range));
+  await check('/dashboard', 'getSalesSummary', () => dashboard.getSalesSummary(range.from, range.to));
   await check('/dashboard', 'getInventorySnapshot', () => dashboard.getInventorySnapshot());
-  await check('/dashboard', 'getReorderSuggestions', () => dashboard.getReorderSuggestions(6));
-  await check('/dashboard', 'getSupplierAlerts', () => dashboard.getSupplierAlerts(4));
   await check('/dashboard', 'getRecentSales', () => dashboard.getRecentSales(6));
-  await check('/dashboard', 'getRecentPurchases', () => dashboard.getRecentPurchases(6));
   await check('/dashboard', 'getRecentInventoryActivity', () => dashboard.getRecentInventoryActivity(8));
-  await check('/dashboard', 'getProductPerformance(desc)', () =>
-    dashboard.getProductPerformance({ from: range.from, to: range.to, sort: 'units', direction: 'desc', limit: 5 }),
-  );
-  await check('/dashboard', 'getProductPerformance(asc,unsold)', () =>
-    dashboard.getProductPerformance({ from: range.from, to: range.to, sort: 'units', direction: 'asc', limit: 5, includeUnsold: true }),
-  );
   await check('/dashboard', 'getSalesTimeSeries', () =>
     salesAnalytics.getSalesTimeSeries(range.from, range.to, 'day'),
   );
-  await check('/dashboard', 'generateInsights', () => insights.generateInsights(6));
   await check('/dashboard', 'countActionableStock', () => badges.countActionableStock());
 
-  // --- /analytics ---
-  for (const dimension of ['category', 'brand', 'supplier', 'employee'] as const) {
-    await check('/analytics', `getSalesBreakdown(${dimension})`, () =>
+  // --- reports analytics helpers ---
+  for (const dimension of ['category', 'employee'] as const) {
+    await check('/reports', `getSalesBreakdown(${dimension})`, () =>
       salesAnalytics.getSalesBreakdown(dimension, range.from, range.to, 8),
     );
   }
-  await check('/analytics', 'getSalesByHour', () => salesAnalytics.getSalesByHour(range.from, range.to));
-  await check('/analytics', 'getTopCustomers', () => salesAnalytics.getTopCustomers(range.from, range.to, 8));
-  await check('/analytics', 'getMostReturnedProducts', () =>
+  await check('/reports', 'getSalesByHour', () => salesAnalytics.getSalesByHour(range.from, range.to));
+  await check('/reports', 'getMostReturnedProducts', () =>
     salesAnalytics.getMostReturnedProducts(range.from, range.to, 8),
   );
-  await check('/analytics', 'getPaymentMethodBreakdown', () =>
+  await check('/reports', 'getPaymentMethodBreakdown', () =>
     salesAnalytics.getPaymentMethodBreakdown(range.from, range.to),
   );
-  await check('/analytics', 'getInventoryAging', () => inventoryAnalytics.getInventoryAging());
-  await check('/analytics', 'getInventoryTurnover', () =>
+  await check('/reports', 'getInventoryAging', () => inventoryAnalytics.getInventoryAging());
+  await check('/reports', 'getInventoryTurnover', () =>
     inventoryAnalytics.getInventoryTurnover(range.from, range.to),
-  );
-  await check('/analytics', 'getSupplierPerformance', () =>
-    inventoryAnalytics.getSupplierPerformance(range.from, range.to, 8),
-  );
-  await check('/analytics', 'getPurchaseTrends', () =>
-    inventoryAnalytics.getPurchaseTrends(range.from, range.to, 'month'),
   );
 
   // --- /inventory ---
@@ -97,19 +78,11 @@ async function main() {
     );
   }
   await check('/inventory/movements', 'listMovements', () => inventoryQueries.listMovements({}));
-  await check('/inventory/adjustments', 'listActiveWarehouses', () => inventoryQueries.listActiveWarehouses());
-  await check('/inventory/adjustments', 'getStockPickerProducts', async () => {
-    const warehouses = await inventoryQueries.listActiveWarehouses();
-    return warehouses[0] ? inventoryQueries.getStockPickerProducts(warehouses[0].id) : [];
-  });
+  await check('/inventory/adjustments', 'getStockPickerProducts', () => inventoryQueries.getStockPickerProducts());
 
   // --- catalogue ---
-  await check('/categories', 'listCategories', () => catalogueQueries.listCategories());
-  await check('/brands', 'listBrands', () => catalogueQueries.listBrands());
-  await check('/units', 'listUnits', () => catalogueQueries.listUnits());
-  await check('/warehouses', 'listWarehouses', () => catalogueQueries.listWarehouses());
-  await check('/suppliers', 'listSuppliers', () => catalogueQueries.listSuppliers());
-  await check('/customers', 'listCustomers', () => catalogueQueries.listCustomers());
+  await check('/inventory', 'listCategories', () => catalogueQueries.listCategories());
+  await check('/inventory', 'listUnits', () => catalogueQueries.listUnits());
 
   // --- /products ---
   await check('/products', 'listProducts', () => productQueries.listProducts({}));
@@ -117,21 +90,10 @@ async function main() {
 
   // --- /sales & /pos ---
   await check('/sales', 'listSales', () => salesQueries.listSales({}));
-  await check('/pos', 'searchSellableProducts', async () => {
-    const warehouses = await inventoryQueries.listActiveWarehouses();
-    return warehouses[0] ? productQueries.searchSellableProducts('', warehouses[0].id, 40) : [];
-  });
-
-  // --- /purchases ---
-  await check('/purchases', 'listPurchaseOrders', () => purchaseQueries.listPurchaseOrders({}));
-  await check('/purchases/new', 'getPurchaseFormOptions', () => purchaseQueries.getPurchaseFormOptions());
+  await check('/pos', 'searchSellableProducts', () => productQueries.searchSellableProducts('', 40));
 
   // --- simple prisma pages ---
   await check('/returns', 'return.findMany', () => prisma.return.findMany({ take: 5 }));
-  await check('/payments', 'payment.findMany', () => prisma.payment.findMany({ take: 5 }));
-  await check('/expenses', 'expense.findMany', () => prisma.expense.findMany({ take: 5 }));
-  await check('/notifications', 'notification.findMany', () => prisma.notification.findMany({ take: 5 }));
-  await check('/audit', 'auditLog.findMany', () => prisma.auditLog.findMany({ take: 5 }));
   await check('/settings', 'setting.findMany', () => prisma.setting.findMany({ take: 5 }));
   await check('/settings/users', 'user.findMany', () => prisma.user.findMany({ take: 5 }));
   await check('/settings/roles', 'role.findMany', () =>

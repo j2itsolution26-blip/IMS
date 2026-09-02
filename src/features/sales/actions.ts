@@ -34,7 +34,7 @@ const returnSchema = z.object({
   saleId: z.string().min(1),
   reason: z.string().trim().min(4, 'Give a reason of at least 4 characters.').max(200),
   restock: z.boolean().default(true),
-  refundMethod: z.enum(['CASH', 'GCASH', 'MAYA', 'CARD', 'BANK_TRANSFER', 'CREDIT']).default('CASH'),
+  refundMethod: z.enum(['CASH', 'GCASH', 'CARD', 'OTHER']).default('CASH'),
   lines: z
     .array(z.object({ saleItemId: z.string().min(1), quantity: z.number().min(0) }))
     .min(1, 'Select at least one line to return.'),

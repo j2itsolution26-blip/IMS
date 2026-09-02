@@ -39,19 +39,14 @@ interface Line {
 }
 
 export function AdjustmentForm({
-  warehouses,
   products,
   currency,
 }: {
-  warehouses: { id: string; name: string; isDefault: boolean }[];
   products: StockPickerProduct[];
   currency: string;
 }) {
   const router = useRouter();
 
-  const [warehouseId, setWarehouseId] = React.useState(
-    warehouses.find((w) => w.isDefault)?.id ?? warehouses[0]?.id ?? '',
-  );
   const [mode, setMode] = React.useState<'ABSOLUTE' | 'RELATIVE'>('ABSOLUTE');
   const [isOpeningBalance, setIsOpeningBalance] = React.useState(false);
   const [reason, setReason] = React.useState('');
@@ -97,7 +92,6 @@ export function AdjustmentForm({
 
     setSubmitting(true);
     const result = await createAdjustmentAction({
-      warehouseId,
       mode,
       reason,
       isOpeningBalance,
@@ -120,15 +114,6 @@ export function AdjustmentForm({
     router.refresh();
   };
 
-  if (warehouses.length === 0) {
-    return (
-      <Card className="p-8 text-center">
-        <p className="font-medium">No warehouse configured</p>
-        <p className="mt-1 text-sm text-muted-foreground">Create a warehouse before adjusting stock.</p>
-      </Card>
-    );
-  }
-
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <Card>
@@ -139,22 +124,6 @@ export function AdjustmentForm({
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="warehouse">Warehouse</Label>
-            <Select value={warehouseId} onValueChange={setWarehouseId}>
-              <SelectTrigger id="warehouse">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {warehouses.map((warehouse) => (
-                  <SelectItem key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           <div className="space-y-1.5">
             <Label htmlFor="mode">Entry mode</Label>
             <Select value={mode} onValueChange={(value) => setMode(value as 'ABSOLUTE' | 'RELATIVE')}>

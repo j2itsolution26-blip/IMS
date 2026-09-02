@@ -2,14 +2,14 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Package, Search, ShoppingCart, Truck, Users } from 'lucide-react';
+import { Loader2, Package, Search, ShoppingCart } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/format';
 
 interface SearchHit {
   id: string;
-  type: 'product' | 'customer' | 'supplier' | 'sale' | 'purchase';
+  type: 'product' | 'sale';
   title: string;
   subtitle: string;
   href: string;
@@ -18,10 +18,7 @@ interface SearchHit {
 
 const ICONS = {
   product: Package,
-  customer: Users,
-  supplier: Truck,
   sale: ShoppingCart,
-  purchase: Truck,
 } as const;
 
 /**
@@ -124,7 +121,7 @@ export function GlobalSearch() {
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => hits.length > 0 && setOpen(true)}
         onKeyDown={onKeyDown}
-        placeholder="Search products, customers, invoices…"
+        placeholder="Search products or invoices…"
         className="pl-8 pr-10"
         role="combobox"
         aria-expanded={open}

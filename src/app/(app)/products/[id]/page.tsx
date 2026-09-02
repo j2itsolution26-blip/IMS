@@ -130,22 +130,11 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   </Badge>
                 </Row>
                 <Row label="Category">{product.category.name}</Row>
-                <Row label="Brand">{product.brand?.name ?? '—'}</Row>
                 <Row label="Unit">
                   {product.unit.name} ({product.unit.abbreviation})
                 </Row>
-                <Row label="Supplier">
-                  {product.supplier ? (
-                    <Link href={`/suppliers/${product.supplier.id}`} className="hover:underline">
-                      {product.supplier.name}
-                    </Link>
-                  ) : (
-                    '—'
-                  )}
-                </Row>
                 <Row label="Cost price">{formatCurrency(costPrice, currency)}</Row>
                 <Row label="Selling price">{formatCurrency(sellingPrice, currency)}</Row>
-                <Row label="Tax rate">{toNum(product.taxRate)}%</Row>
               </dl>
 
               {product.description && (
@@ -153,37 +142,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
               )}
             </CardContent>
           </Card>
-
-          {product.isTrackable && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Stock by warehouse</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {product.inventory.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-muted-foreground">
-                    No stock recorded in any warehouse yet.
-                  </p>
-                ) : (
-                  <ul className="space-y-2">
-                    {product.inventory.map((row) => (
-                      <li key={row.warehouse.id} className="flex items-center justify-between gap-2 text-sm">
-                        <span className="truncate text-muted-foreground">{row.warehouse.name}</span>
-                        <span className="tabular shrink-0 font-medium">
-                          {formatQuantity(toNum(row.quantity) - toNum(row.reserved))}
-                          {toNum(row.reserved) > 0 && (
-                            <span className="ml-1 text-xs font-normal text-muted-foreground">
-                              ({formatQuantity(toNum(row.reserved))} reserved)
-                            </span>
-                          )}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-          )}
 
           {history.priceHistory.length > 0 && (
             <Card>
@@ -237,7 +195,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   <TableRow>
                     <TableHead>When</TableHead>
                     <TableHead>Type</TableHead>
-                    <TableHead className="hidden md:table-cell">Warehouse</TableHead>
                     <TableHead className="text-right">Change</TableHead>
                     <TableHead className="text-right">Balance</TableHead>
                     <TableHead className="hidden lg:table-cell">By</TableHead>
@@ -263,9 +220,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                           {movement.note && (
                             <span className="block truncate text-xs text-muted-foreground">{movement.note}</span>
                           )}
-                        </TableCell>
-                        <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
-                          {movement.warehouseName}
                         </TableCell>
                         <TableCell
                           className={cn(

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Archive, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ProductStatus } from '@prisma/client';
 import type { ProductListRow } from '@/features/products/queries';
@@ -18,14 +18,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { deleteProduct } from '@/features/products/actions';
+import { archiveProductAction, deleteProduct } from '@/features/products/actions';
 import { formatCurrency, formatQuantity } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const STATUS_VARIANT: Record<ProductStatus, 'success' | 'secondary' | 'destructive'> = {
   ACTIVE: 'success',
   INACTIVE: 'secondary',
-  DISCONTINUED: 'destructive',
+  ARCHIVED: 'destructive',
 };
 
 export function ProductTable({
@@ -63,6 +63,16 @@ export function ProductTable({
     router.refresh();
   };
 
+  const onArchive = async (row: ProductListRow) => {
+    const result = await archiveProductAction(row.id);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(`${row.name} archived.`);
+    router.refresh();
+  };
+
   return (
     <>
       <Table>
@@ -92,10 +102,7 @@ export function ProductTable({
                       <Link href={`/products/${row.id}`} className="block truncate font-medium hover:underline">
                         {row.name}
                       </Link>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {row.sku}
-                        {row.brandName ? ` · ${row.brandName}` : ''}
-                      </p>
+                      <p className="truncate text-xs text-muted-foreground">{row.sku}</p>
                     </div>
                   </div>
                 </TableCell>
@@ -162,6 +169,11 @@ export function ProductTable({
                             <Link href={`/products/${row.id}/edit`}>
                               <Pencil /> Edit
                             </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {canUpdate && row.status !== 'ARCHIVED' && (
+                          <DropdownMenuItem onSelect={() => onArchive(row)}>
+                            <Archive /> Archive
                           </DropdownMenuItem>
                         )}
                         {canDelete && (

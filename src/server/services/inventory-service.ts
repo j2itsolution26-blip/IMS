@@ -8,8 +8,7 @@ import {
 import { prisma, type DbClient, type TxClient } from '@/lib/prisma';
 import { D, qty as q3, money, toNum, type Numeric } from '@/lib/decimal';
 import { InsufficientStockError, NotFoundError, ValidationError } from '@/lib/errors';
-import { notify, resolveNotification, stockAlertKey } from '@/server/services/notification-service';
-import { getSettings, readBoolean, readNumber } from '@/server/services/settings-service';
+import { getSettings, readBoolean } from '@/server/services/settings-service';
 
 /**
  * The stock engine.
@@ -58,7 +57,7 @@ interface LockedRow {
 
 /** Movement types that increase on-hand stock and therefore re-average cost. */
 const RECEIPT_TYPES = new Set<InventoryTransactionType>([
-  'PURCHASE_RECEIPT',
+  'STOCK_IN',
   'OPENING_BALANCE',
 ]);
 
@@ -199,7 +198,7 @@ export async function applyStockMovement(
   // Only genuine receipts and genuine sales move these timestamps. An
   // adjustment or a transfer must not make dead stock look freshly sold.
   const timestamps: { lastReceivedAt?: Date; lastSoldAt?: Date } = {};
-  if (input.type === 'PURCHASE_RECEIPT' || input.type === 'OPENING_BALANCE') {
+  if (input.type === 'STOCK_IN' || input.type === 'OPENING_BALANCE') {
     timestamps.lastReceivedAt = new Date();
   } else if (input.type === 'SALE') {
     timestamps.lastSoldAt = new Date();
@@ -237,79 +236,6 @@ export async function applyStockMovement(
     balanceAfter: toNum(balanceAfter),
     unitCost: toNum(unitCost),
   };
-}
-
-/**
- * Raises or clears the low/out-of-stock alert for a product.
- *
- * Deliberately called *after* the transaction commits: a notification is not
- * worth rolling a completed sale back for, and the alert should reflect
- * committed state.
- */
-export async function evaluateStockAlerts(
-  productIds: string[],
-  warehouseId: string,
-): Promise<void> {
-  if (productIds.length === 0) return;
-
-  try {
-    const settings = await getSettings();
-    const criticalRatio = readNumber(settings, 'inventory.criticalStockRatio') || 0.5;
-
-    const rows = await prisma.inventory.findMany({
-      where: { productId: { in: productIds }, warehouseId },
-      select: {
-        quantity: true,
-        reserved: true,
-        warehouse: { select: { name: true } },
-        product: {
-          select: { id: true, name: true, sku: true, reorderLevel: true, minStock: true, isTrackable: true },
-        },
-      },
-    });
-
-    for (const row of rows) {
-      const { product } = row;
-      if (!product.isTrackable) continue;
-
-      const key = stockAlertKey(product.id, warehouseId);
-      const available = D(row.quantity).minus(D(row.reserved));
-      const threshold = D(product.reorderLevel).greaterThan(0)
-        ? D(product.reorderLevel)
-        : D(product.minStock);
-      const link = `/products/${product.id}`;
-
-      if (available.lessThanOrEqualTo(0)) {
-        await notify({
-          type: 'OUT_OF_STOCK',
-          severity: 'CRITICAL',
-          title: `Out of stock: ${product.name}`,
-          message: `${product.name} (${product.sku}) has no available stock at ${row.warehouse.name}.`,
-          link,
-          dedupeKey: key,
-        });
-        continue;
-      }
-
-      if (threshold.greaterThan(0) && available.lessThanOrEqualTo(threshold)) {
-        const critical = available.lessThanOrEqualTo(threshold.times(criticalRatio));
-        await notify({
-          type: 'LOW_STOCK',
-          severity: critical ? 'CRITICAL' : 'WARNING',
-          title: `${critical ? 'Critically low' : 'Low'} stock: ${product.name}`,
-          message: `${toNum(available)} left at ${row.warehouse.name} — reorder level is ${toNum(threshold)}.`,
-          link,
-          dedupeKey: key,
-        });
-        continue;
-      }
-
-      // Back above the threshold: clear any standing alert.
-      await resolveNotification(key);
-    }
-  } catch (error) {
-    console.error('[inventory] stock alert evaluation failed', error);
-  }
 }
 
 /**

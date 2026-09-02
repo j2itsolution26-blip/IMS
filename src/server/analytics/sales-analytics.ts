@@ -111,7 +111,7 @@ interface RawBreakdownRow {
 }
 
 /** Dimensions sales can be sliced by. Each maps to a fixed, safe join. */
-export type SalesDimension = 'category' | 'brand' | 'supplier' | 'employee' | 'customer' | 'paymentMethod' | 'channel';
+export type SalesDimension = 'category' | 'employee' | 'paymentMethod' | 'channel';
 
 const DIMENSION_SQL: Record<SalesDimension, { join: string; id: string; label: string }> = {
   category: {
@@ -119,25 +119,10 @@ const DIMENSION_SQL: Record<SalesDimension, { join: string; id: string; label: s
     id: 'dim.id',
     label: 'dim.name',
   },
-  brand: {
-    join: 'LEFT JOIN brands dim ON dim.id = p."brandId"',
-    id: `COALESCE(dim.id, 'unbranded')`,
-    label: `COALESCE(dim.name, 'No brand')`,
-  },
-  supplier: {
-    join: 'LEFT JOIN suppliers dim ON dim.id = p."supplierId"',
-    id: `COALESCE(dim.id, 'unassigned')`,
-    label: `COALESCE(dim.name, 'No supplier')`,
-  },
   employee: {
     join: 'JOIN users dim ON dim.id = s."userId"',
     id: 'dim.id',
     label: 'dim.name',
-  },
-  customer: {
-    join: 'LEFT JOIN customers dim ON dim.id = s."customerId"',
-    id: `COALESCE(dim.id, 'walk-in')`,
-    label: `COALESCE(dim.name, 'Walk-in')`,
   },
   paymentMethod: { join: '', id: '', label: '' },
   channel: { join: '', id: '', label: '' },
@@ -154,7 +139,7 @@ export async function getSalesBreakdown(
   limit = 10,
 ): Promise<BreakdownRow[]> {
   const spec = DIMENSION_SQL[dimension];
-  const isLineLevel = dimension === 'category' || dimension === 'brand' || dimension === 'supplier';
+  const isLineLevel = dimension === 'category';
 
   const sql = isLineLevel
     ? `
@@ -162,7 +147,7 @@ export async function getSalesBreakdown(
         ${spec.id}                    AS "id",
         ${spec.label}                 AS "label",
         SUM(si.total)::text           AS "revenue",
-        SUM(si.total - (si.total * si."taxRate" / (100 + si."taxRate")) - si."unitCost" * si.quantity)::text AS "profit",
+        SUM(si.total - si."unitCost" * si.quantity)::text AS "profit",
         SUM(si.quantity)::text        AS "units",
         COUNT(DISTINCT s.id)::int     AS "orders"
       FROM sale_items si
@@ -265,46 +250,6 @@ export async function getSalesByHour(from: Date, to: Date): Promise<HourlyPoint[
   });
 }
 
-export interface CustomerValue {
-  id: string;
-  name: string;
-  orders: number;
-  revenue: number;
-  profit: number;
-  lastPurchase: Date;
-  averageOrderValue: number;
-}
-
-export async function getTopCustomers(from: Date, to: Date, limit = 10): Promise<CustomerValue[]> {
-  const rows = await prisma.$queryRaw<
-    { id: string; name: string; orders: number; revenue: string; profit: string; lastPurchase: Date }[]
-  >`
-    SELECT
-      c.id                                                  AS "id",
-      c.name                                                AS "name",
-      COUNT(s.id)::int                                      AS "orders",
-      COALESCE(SUM(s.total), 0)::text                       AS "revenue",
-      COALESCE(SUM(s.total - s."taxAmount" - s."costOfGoods"), 0)::text AS "profit",
-      MAX(s."createdAt")                                    AS "lastPurchase"
-    FROM customers c
-    JOIN sales s ON s."customerId" = c.id
-    WHERE s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
-    GROUP BY c.id, c.name
-    ORDER BY SUM(s.total) DESC
-    LIMIT ${limit}
-  `;
-
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    orders: r.orders,
-    revenue: Number(r.revenue),
-    profit: Number(r.profit),
-    lastPurchase: r.lastPurchase,
-    averageOrderValue: r.orders > 0 ? Number(r.revenue) / r.orders : 0,
-  }));
-}
-
 export interface ReturnedProduct {
   productId: string;
   name: string;
@@ -324,7 +269,7 @@ export async function getMostReturnedProducts(from: Date, to: Date, limit = 10):
       SELECT ri."productId", SUM(ri.quantity) AS units, SUM(ri.total) AS value
       FROM return_items ri
       JOIN returns r ON r.id = ri."returnId"
-      WHERE r.type = 'SALE_RETURN' AND r.status = 'COMPLETED'
+      WHERE r.status = 'COMPLETED'
         AND r."createdAt" >= ${from} AND r."createdAt" <= ${to}
       GROUP BY ri."productId"
     ),

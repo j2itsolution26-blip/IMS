@@ -6,6 +6,8 @@ import {
   Banknote,
   CreditCard,
   Loader2,
+  Lock,
+  LogOut,
   Minus,
   Package,
   Plus,
@@ -14,7 +16,6 @@ import {
   ShoppingCart,
   Smartphone,
   Trash2,
-  UserPlus,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -22,7 +23,7 @@ import type { PaymentMethod } from '@prisma/client';
 import type { SellableProduct } from '@/features/products/queries';
 import { ProductImage } from '@/components/product-image';
 import { checkout, lookupProducts } from '@/features/pos/actions';
-import { quickCreateCustomer } from '@/features/catalogue/actions';
+import { openShiftAction, closeShiftAction, previewShiftCloseAction } from '@/features/pos/shift-actions';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -39,7 +40,7 @@ import {
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/misc';
 import { Receipt, type ReceiptData } from '@/features/pos/receipt';
-import { formatCurrency, formatQuantity } from '@/lib/format';
+import { formatCurrency, formatDateTime, formatQuantity } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 /**
@@ -49,27 +50,29 @@ import { cn } from '@/lib/utils';
  * server from catalogue prices at checkout — the client figure is a preview,
  * never the source of truth. If the two ever disagree, the server wins and the
  * receipt shows the server's numbers.
+ *
+ * Every sale is a walk-in sale — there is no customer to pick — and checkout
+ * requires an open cashier shift.
  */
 
-export interface PosOption {
+export interface OpenShiftInfo {
   id: string;
-  name: string;
+  openedAt: string;
+  openingCash: number;
 }
 
 export interface PosTerminalProps {
-  warehouses: (PosOption & { isDefault: boolean })[];
-  customers: PosOption[];
   initialProducts: SellableProduct[];
   currency: string;
+  taxRate: number;
   company: {
     name: string;
     address: string;
     phone: string;
-    taxNumber: string;
     receiptFooter: string;
   };
   cashierName: string;
-  canAddCustomers: boolean;
+  openShift: OpenShiftInfo | null;
 }
 
 interface BasketLine {
@@ -77,7 +80,6 @@ interface BasketLine {
   name: string;
   sku: string;
   unitPrice: number;
-  taxRate: number;
   quantity: number;
   discount: number;
   available: number;
@@ -95,30 +97,21 @@ interface TenderRow {
 const METHOD_META: Record<PaymentMethod, { label: string; icon: typeof Banknote }> = {
   CASH: { label: 'Cash', icon: Banknote },
   GCASH: { label: 'GCash', icon: Smartphone },
-  MAYA: { label: 'Maya', icon: Smartphone },
   CARD: { label: 'Card', icon: CreditCard },
-  BANK_TRANSFER: { label: 'Bank transfer', icon: CreditCard },
-  CREDIT: { label: 'On account', icon: CreditCard },
+  OTHER: { label: 'Other', icon: CreditCard },
 };
 
-const QUICK_METHODS: PaymentMethod[] = ['CASH', 'GCASH', 'MAYA', 'CARD'];
+const QUICK_METHODS: PaymentMethod[] = ['CASH', 'GCASH', 'CARD', 'OTHER'];
 
 export function PosTerminal({
-  warehouses,
-  customers,
   initialProducts,
   currency,
+  taxRate,
   company,
   cashierName,
-  canAddCustomers,
+  openShift,
 }: PosTerminalProps) {
   const router = useRouter();
-
-  const [warehouseId, setWarehouseId] = React.useState(
-    warehouses.find((w) => w.isDefault)?.id ?? warehouses[0]?.id ?? '',
-  );
-  const [customerId, setCustomerId] = React.useState('walk-in');
-  const [customerList, setCustomerList] = React.useState(customers);
 
   const [term, setTerm] = React.useState('');
   const [products, setProducts] = React.useState(initialProducts);
@@ -133,23 +126,85 @@ export function PosTerminal({
   const [submitting, setSubmitting] = React.useState(false);
 
   const [receipt, setReceipt] = React.useState<ReceiptData | null>(null);
-  const [newCustomerName, setNewCustomerName] = React.useState('');
-  const [customerDialogOpen, setCustomerDialogOpen] = React.useState(false);
 
-  const searchRef = React.useRef<HTMLInputElement>(null);
+  // --- Shift -----------------------------------------------------------------
+
+  const [openingCash, setOpeningCash] = React.useState('');
+  const [openingShift, setOpeningShift] = React.useState(false);
+  const [closeOpen, setCloseOpen] = React.useState(false);
+  const [closePreview, setClosePreview] = React.useState<{
+    openingCash: number;
+    expectedCash: number;
+    totalSales: number;
+    transactionCount: number;
+  } | null>(null);
+  const [actualCash, setActualCash] = React.useState('');
+  const [closing, setClosing] = React.useState(false);
+  const [closeSummary, setCloseSummary] = React.useState<{
+    expectedCash: number;
+    actualCash: number;
+    difference: number;
+    totalSales: number;
+    transactionCount: number;
+  } | null>(null);
+
+  const onOpenShift = async () => {
+    const amount = Number(openingCash);
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast.error('Enter a valid opening cash amount.');
+      return;
+    }
+    setOpeningShift(true);
+    const result = await openShiftAction({ openingCash: amount });
+    setOpeningShift(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success('Shift opened.');
+    router.refresh();
+  };
+
+  const openCloseDialog = async () => {
+    setCloseOpen(true);
+    setClosePreview(null);
+    const result = await previewShiftCloseAction();
+    if (result.ok) {
+      setClosePreview(result.data);
+      setActualCash(result.data.expectedCash.toFixed(2));
+    }
+  };
+
+  const onCloseShift = async () => {
+    const amount = Number(actualCash);
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast.error('Enter a valid counted cash amount.');
+      return;
+    }
+    setClosing(true);
+    const result = await closeShiftAction({ actualCash: amount });
+    setClosing(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    setCloseSummary(result.data);
+  };
+
+  const onCloseSummaryDone = () => {
+    setCloseOpen(false);
+    setCloseSummary(null);
+    router.refresh();
+  };
 
   // --- Product lookup ------------------------------------------------------
 
-  const runLookup = React.useCallback(
-    async (value: string) => {
-      if (!warehouseId) return;
-      setSearching(true);
-      const result = await lookupProducts(value, warehouseId);
-      setSearching(false);
-      if (result.ok) setProducts(result.data);
-    },
-    [warehouseId],
-  );
+  const runLookup = React.useCallback(async (value: string) => {
+    setSearching(true);
+    const result = await lookupProducts(value);
+    setSearching(false);
+    if (result.ok) setProducts(result.data);
+  }, []);
 
   React.useEffect(() => {
     const timer = setTimeout(() => void runLookup(term), 250);
@@ -157,6 +212,7 @@ export function PosTerminal({
   }, [term, runLookup]);
 
   // F2 jumps to the search/scan field from anywhere on the page.
+  const searchRef = React.useRef<HTMLInputElement>(null);
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'F2') {
@@ -198,7 +254,6 @@ export function PosTerminal({
           name: product.name,
           sku: product.sku,
           unitPrice: product.sellingPrice,
-          taxRate: product.taxRate,
           quantity,
           discount: 0,
           available: product.available,
@@ -260,30 +315,29 @@ export function PosTerminal({
     setBasket([]);
     setOrderDiscount('0');
     setNotes('');
-    setCustomerId('walk-in');
   };
 
   // --- Totals (preview only; the server recomputes at checkout) ------------
 
   const totals = React.useMemo(() => {
     let subtotal = 0;
-    let tax = 0;
 
     for (const line of basket) {
-      const net = line.unitPrice * line.quantity - line.discount;
-      subtotal += net;
-      tax += (net * line.taxRate) / 100;
+      subtotal += line.unitPrice * line.quantity - line.discount;
     }
 
-    const discount = Math.min(Math.max(0, Number(orderDiscount) || 0), subtotal + tax);
+    const discount = Math.min(Math.max(0, Number(orderDiscount) || 0), subtotal);
+    const taxable = subtotal - discount;
+    const tax = round((taxable * taxRate) / 100);
+
     return {
       subtotal: round(subtotal),
-      tax: round(tax),
+      tax,
       discount: round(discount),
-      total: round(subtotal + tax - discount),
+      total: round(taxable + tax),
       itemCount: basket.reduce((acc, line) => acc + line.quantity, 0),
     };
-  }, [basket, orderDiscount]);
+  }, [basket, orderDiscount, taxRate]);
 
   const tendered = tenders.reduce((acc, row) => acc + (Number(row.amount) || 0), 0);
   const hasCash = tenders.some((row) => row.method === 'CASH' && Number(row.amount) > 0);
@@ -301,16 +355,14 @@ export function PosTerminal({
   };
 
   const onCheckout = async () => {
-    if (outstanding > 0 && customerId === 'walk-in') {
-      toast.error('Select a customer to leave a balance on account, or take the full amount.');
+    if (outstanding > 0) {
+      toast.error('Amount tendered does not cover the total.');
       return;
     }
 
     setSubmitting(true);
 
     const result = await checkout({
-      warehouseId,
-      customerId,
       items: basket.map((line) => ({
         productId: line.productId,
         quantity: line.quantity,
@@ -339,7 +391,6 @@ export function PosTerminal({
       invoiceNumber: result.data.invoiceNumber,
       issuedAt: new Date(),
       cashierName,
-      customerName: customerList.find((c) => c.id === customerId)?.name ?? 'Walk-in',
       lines: basket.map((line) => ({
         name: line.name,
         quantity: line.quantity,
@@ -366,27 +417,33 @@ export function PosTerminal({
     router.refresh();
   };
 
-  const onQuickCustomer = async () => {
-    const result = await quickCreateCustomer(newCustomerName);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
-    }
-    setCustomerList((current) => [...current, result.data]);
-    setCustomerId(result.data.id);
-    setNewCustomerName('');
-    setCustomerDialogOpen(false);
-    toast.success(`${result.data.name} added.`);
-  };
+  // --- No open shift: block the till entirely -------------------------------
 
-  if (warehouses.length === 0) {
+  if (!openShift) {
     return (
-      <Card className="p-8 text-center">
-        <Package className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
-        <p className="font-medium">No warehouse configured</p>
+      <Card className="mx-auto max-w-sm p-8 text-center">
+        <Lock className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
+        <p className="font-medium">Open your shift to start selling</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          The POS needs a warehouse to sell from. Create one under Warehouses first.
+          Count the cash in the drawer and enter it below.
         </p>
+        <div className="mt-4 space-y-2 text-left">
+          <Label htmlFor="opening-cash">Opening cash</Label>
+          <Input
+            id="opening-cash"
+            type="number"
+            min={0}
+            step="0.01"
+            value={openingCash}
+            onChange={(event) => setOpeningCash(event.target.value)}
+            placeholder="0.00"
+            onKeyDown={(e) => e.key === 'Enter' && onOpenShift()}
+            autoFocus
+          />
+        </div>
+        <Button className="mt-4 w-full" size="lg" loading={openingShift} onClick={onOpenShift}>
+          Open shift
+        </Button>
       </Card>
     );
   }
@@ -395,6 +452,13 @@ export function PosTerminal({
     <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
       {/* Product picker */}
       <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
+          <span>Shift open since {formatDateTime(new Date(openShift.openedAt))}</span>
+          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={openCloseDialog}>
+            <LogOut className="h-3.5 w-3.5" /> Close shift
+          </Button>
+        </div>
+
         <form onSubmit={onSearchSubmit} className="flex gap-2">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -412,21 +476,6 @@ export function PosTerminal({
               <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
             )}
           </div>
-
-          {warehouses.length > 1 && (
-            <Select value={warehouseId} onValueChange={setWarehouseId}>
-              <SelectTrigger className="w-[170px]" aria-label="Sell from warehouse">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {warehouses.map((warehouse) => (
-                  <SelectItem key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
         </form>
 
         {products.length === 0 ? (
@@ -508,37 +557,6 @@ export function PosTerminal({
               <X /> Clear
             </Button>
           )}
-        </div>
-
-        <div className="space-y-2 border-b p-3">
-          <Label htmlFor="pos-customer" className="text-xs">
-            Customer
-          </Label>
-          <div className="flex gap-1.5">
-            <Select value={customerId} onValueChange={setCustomerId}>
-              <SelectTrigger id="pos-customer" className="flex-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="walk-in">Walk-in customer</SelectItem>
-                {customerList.map((customer) => (
-                  <SelectItem key={customer.id} value={customer.id}>
-                    {customer.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {canAddCustomers && (
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setCustomerDialogOpen(true)}
-                aria-label="Add a new customer"
-              >
-                <UserPlus />
-              </Button>
-            )}
-          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
@@ -625,7 +643,7 @@ export function PosTerminal({
 
           <div className="flex items-center justify-between gap-2">
             <Label htmlFor="order-discount" className="text-sm font-normal text-muted-foreground">
-              Order discount
+              Discount
             </Label>
             <Input
               id="order-discount"
@@ -779,9 +797,9 @@ export function PosTerminal({
               </div>
             )}
             {outstanding > 0 && (
-              <div className="flex items-center justify-between rounded-md bg-warning/10 px-3 py-2">
-                <span className="font-medium text-warning">Balance on account</span>
-                <span className="tabular font-bold text-warning">
+              <div className="flex items-center justify-between rounded-md bg-destructive/10 px-3 py-2">
+                <span className="font-medium text-destructive">Still due</span>
+                <span className="tabular font-bold text-destructive">
                   {formatCurrency(outstanding, currency)}
                 </span>
               </div>
@@ -827,28 +845,75 @@ export function PosTerminal({
         </DialogContent>
       </Dialog>
 
-      {/* Quick customer */}
-      <Dialog open={customerDialogOpen} onOpenChange={setCustomerDialogOpen}>
+      {/* Close shift */}
+      <Dialog open={closeOpen} onOpenChange={(open) => !open && !closing && setCloseOpen(false)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>New customer</DialogTitle>
-            <DialogDescription>
-              A customer code is generated automatically. You can fill in the rest later.
-            </DialogDescription>
+            <DialogTitle>{closeSummary ? 'Shift closed' : 'Close shift'}</DialogTitle>
           </DialogHeader>
-          <Input
-            value={newCustomerName}
-            onChange={(event) => setNewCustomerName(event.target.value)}
-            placeholder="Customer name"
-            aria-label="Customer name"
-          />
+
+          {closeSummary ? (
+            <div className="space-y-2">
+              <Row label="Total sales" value={formatCurrency(closeSummary.totalSales, currency)} />
+              <Row label="Transactions" value={String(closeSummary.transactionCount)} />
+              <Row label="Expected cash" value={formatCurrency(closeSummary.expectedCash, currency)} />
+              <Row label="Actual cash" value={formatCurrency(closeSummary.actualCash, currency)} />
+              <Separator />
+              <div className="flex items-center justify-between">
+                <span className="font-semibold">Difference</span>
+                <span
+                  className={cn(
+                    'tabular text-lg font-bold',
+                    closeSummary.difference === 0
+                      ? 'text-success'
+                      : closeSummary.difference > 0
+                        ? 'text-success'
+                        : 'text-destructive',
+                  )}
+                >
+                  {closeSummary.difference > 0 ? '+' : ''}
+                  {formatCurrency(closeSummary.difference, currency)}
+                </span>
+              </div>
+            </div>
+          ) : closePreview ? (
+            <div className="space-y-3">
+              <Row label="Opening cash" value={formatCurrency(closePreview.openingCash, currency)} />
+              <Row label="Total sales" value={formatCurrency(closePreview.totalSales, currency)} />
+              <Row label="Transactions" value={String(closePreview.transactionCount)} />
+              <Row label="Expected cash" value={formatCurrency(closePreview.expectedCash, currency)} />
+              <div className="space-y-1.5">
+                <Label htmlFor="actual-cash">Actual cash counted</Label>
+                <Input
+                  id="actual-cash"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={actualCash}
+                  onChange={(event) => setActualCash(event.target.value)}
+                  autoFocus
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" /> Loading…
+            </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCustomerDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={onQuickCustomer} disabled={newCustomerName.trim().length < 2}>
-              Add customer
-            </Button>
+            {closeSummary ? (
+              <Button onClick={onCloseSummaryDone}>Done</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setCloseOpen(false)} disabled={closing}>
+                  Cancel
+                </Button>
+                <Button onClick={onCloseShift} loading={closing} disabled={!closePreview}>
+                  Close shift
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -9,7 +9,6 @@ import { toNum } from '@/lib/decimal';
 export interface SaleListQuery {
   search?: string;
   status?: SaleStatus | 'ALL';
-  customerId?: string;
   userId?: string;
   from?: Date;
   to?: Date;
@@ -23,18 +22,12 @@ export async function listSales(query: SaleListQuery = {}) {
 
   const where: Prisma.SaleWhereInput = {
     ...(query.status && query.status !== 'ALL' ? { status: query.status } : {}),
-    ...(query.customerId ? { customerId: query.customerId } : {}),
     ...(query.userId ? { userId: query.userId } : {}),
     ...(query.from || query.to
       ? { createdAt: { ...(query.from ? { gte: query.from } : {}), ...(query.to ? { lte: query.to } : {}) } }
       : {}),
     ...(query.search?.trim()
-      ? {
-          OR: [
-            { invoiceNumber: { contains: query.search.trim(), mode: 'insensitive' } },
-            { customer: { name: { contains: query.search.trim(), mode: 'insensitive' } } },
-          ],
-        }
+      ? { invoiceNumber: { contains: query.search.trim(), mode: 'insensitive' } }
       : {}),
   };
 
@@ -54,9 +47,8 @@ export async function listSales(query: SaleListQuery = {}) {
         taxAmount: true,
         costOfGoods: true,
         createdAt: true,
-        customer: { select: { id: true, name: true } },
         user: { select: { name: true } },
-        warehouse: { select: { name: true } },
+        payments: { select: { method: true }, orderBy: { createdAt: 'asc' } },
         _count: { select: { items: true } },
       },
     }),
@@ -83,10 +75,8 @@ export async function listSales(query: SaleListQuery = {}) {
       balance: Math.max(0, toNum(row.total) - toNum(row.paidAmount)),
       profit: toNum(row.total) - toNum(row.taxAmount) - toNum(row.costOfGoods),
       createdAt: row.createdAt,
-      customerId: row.customer?.id ?? null,
-      customerName: row.customer?.name ?? 'Walk-in',
       cashierName: row.user.name,
-      warehouseName: row.warehouse.name,
+      paymentMethod: row.payments.length === 0 ? null : row.payments.length > 1 ? 'Split' : row.payments[0].method,
       itemCount: row._count.items,
     })),
     total,
@@ -103,7 +93,6 @@ export async function getSale(id: string) {
   const sale = await prisma.sale.findUnique({
     where: { id },
     include: {
-      customer: true,
       warehouse: { select: { id: true, name: true } },
       user: { select: { id: true, name: true } },
       items: {
@@ -111,7 +100,7 @@ export async function getSale(id: string) {
       },
       payments: { orderBy: { createdAt: 'asc' } },
       returns: {
-        select: { id: true, returnNumber: true, total: true, createdAt: true, reason: true },
+        select: { id: true, returnNumber: true, total: true, createdAt: true, reason: true, userId: true, user: { select: { name: true } } },
         orderBy: { createdAt: 'desc' },
       },
     },
@@ -135,7 +124,6 @@ export async function getSale(id: string) {
     costOfGoods: toNum(sale.costOfGoods),
     profit: toNum(sale.total) - toNum(sale.taxAmount) - toNum(sale.costOfGoods),
     balance: Math.max(0, toNum(sale.total) - toNum(sale.paidAmount)),
-    customer: sale.customer ? { id: sale.customer.id, name: sale.customer.name, code: sale.customer.code } : null,
     warehouse: sale.warehouse,
     cashier: sale.user,
     items: sale.items.map((item) => ({
@@ -149,7 +137,6 @@ export async function getSale(id: string) {
       returnable: toNum(item.quantity) - toNum(item.returnedQuantity),
       unitPrice: toNum(item.unitPrice),
       unitCost: toNum(item.unitCost),
-      taxRate: toNum(item.taxRate),
       discount: toNum(item.discount),
       total: toNum(item.total),
     })),
@@ -167,8 +154,35 @@ export async function getSale(id: string) {
       total: toNum(item.total),
       createdAt: item.createdAt,
       reason: item.reason,
+      processedBy: item.user.name,
     })),
   };
 }
 
 export type SaleDetail = NonNullable<Awaited<ReturnType<typeof getSale>>>;
+
+/** Assembles the same receipt shape the till prints, for "View/Print receipt" after the fact. */
+export async function getReceiptData(id: string) {
+  const sale = await getSale(id);
+  if (!sale) return null;
+
+  return {
+    invoiceNumber: sale.invoiceNumber,
+    issuedAt: sale.createdAt,
+    cashierName: sale.cashier.name,
+    lines: sale.items.map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      discount: item.discount,
+      total: item.total,
+    })),
+    subtotal: sale.subtotal,
+    tax: sale.taxAmount,
+    discount: sale.discount,
+    total: sale.total,
+    paid: sale.paidAmount,
+    change: sale.changeAmount,
+    payments: sale.payments.map((p) => ({ method: p.method, amount: p.amount })),
+  };
+}

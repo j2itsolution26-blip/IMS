@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { ArrowDownLeft, ArrowUpRight, FileBarChart } from 'lucide-react';
 import type { InventoryTransactionType } from '@prisma/client';
 import { requirePermission } from '@/lib/session';
-import { listMovements, listActiveWarehouses } from '@/features/inventory/queries';
+import { listMovements } from '@/features/inventory/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { resolveRange, parsePeriod } from '@/server/analytics/date-range';
 import { formatCurrency, formatDateTime, formatQuantity, humanizeEnum } from '@/lib/format';
@@ -18,14 +18,11 @@ export const metadata: Metadata = { title: 'Stock movements' };
 export const dynamic = 'force-dynamic';
 
 const TYPES: InventoryTransactionType[] = [
-  'PURCHASE_RECEIPT',
+  'STOCK_IN',
   'SALE',
   'SALE_RETURN',
-  'PURCHASE_RETURN',
   'ADJUSTMENT_IN',
   'ADJUSTMENT_OUT',
-  'TRANSFER_IN',
-  'TRANSFER_OUT',
   'OPENING_BALANCE',
 ];
 
@@ -33,16 +30,15 @@ const TYPES: InventoryTransactionType[] = [
 function referenceHref(referenceType: string | null, referenceId: string | null): string | null {
   if (!referenceType || !referenceId) return null;
   if (referenceType === 'SALE') return `/sales/${referenceId}`;
-  if (referenceType === 'PURCHASE_ORDER') return `/purchases/${referenceId}`;
   if (referenceType === 'RETURN') return `/returns/${referenceId}`;
-  // Adjustments and transfers reference a generated document number, not a row id.
+  // Adjustments reference a generated document number, not a row id.
   return null;
 }
 
 export default async function MovementsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; type?: string; warehouse?: string; period?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; type?: string; period?: string; page?: string }>;
 }) {
   await requirePermission('inventory.view');
   const params = await searchParams;
@@ -50,14 +46,13 @@ export default async function MovementsPage({
   const period = parsePeriod(params.period, 'last30');
   const range = resolveRange(period);
 
-  const [warehouses, currency] = await Promise.all([listActiveWarehouses(), getCurrency()]);
+  const currency = await getCurrency();
 
   const result = await listMovements({
     search: params.q,
     type: TYPES.includes(params.type as InventoryTransactionType)
       ? (params.type as InventoryTransactionType)
       : 'ALL',
-    warehouseId: params.warehouse,
     from: range.from,
     to: range.to,
     page: Number(params.page) || 1,
@@ -82,12 +77,6 @@ export default async function MovementsPage({
             width: 'w-[190px]',
             options: TYPES.map((type) => ({ value: type, label: humanizeEnum(type) })),
           },
-          {
-            name: 'warehouse',
-            label: 'Warehouse',
-            allLabel: 'All warehouses',
-            options: warehouses.map((w) => ({ value: w.id, label: w.name })),
-          },
         ]}
       />
 
@@ -106,7 +95,6 @@ export default async function MovementsPage({
                   <TableHead>When</TableHead>
                   <TableHead>Product</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead className="hidden md:table-cell">Warehouse</TableHead>
                   <TableHead className="text-right">Change</TableHead>
                   <TableHead className="text-right">Balance</TableHead>
                   <TableHead className="hidden text-right lg:table-cell">Value</TableHead>
@@ -147,9 +135,6 @@ export default async function MovementsPage({
                         {movement.note && (
                           <span className="line-clamp-1 text-xs text-muted-foreground">{movement.note}</span>
                         )}
-                      </TableCell>
-                      <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
-                        {movement.warehouseName}
                       </TableCell>
                       <TableCell
                         className={cn(

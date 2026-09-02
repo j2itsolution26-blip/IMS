@@ -21,8 +21,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 }
 
 /**
- * Return detail: what came back, what was refunded, and whether it went back
- * into sellable stock.
+ * Refund detail: what came back, what was refunded, who processed it and
+ * when, and whether it went back into sellable stock.
  */
 export default async function ReturnPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermission('returns.view');
@@ -33,7 +33,6 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
       where: { id },
       include: {
         sale: { select: { id: true, invoiceNumber: true, createdAt: true } },
-        customer: { select: { id: true, name: true } },
         user: { select: { name: true } },
         payments: { orderBy: { createdAt: 'asc' } },
         items: {
@@ -50,39 +49,28 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
 
   if (!record) notFound();
 
-  const isSaleReturn = record.type === 'SALE_RETURN';
-
   return (
     <>
       <PageHeader
         title={record.returnNumber}
-        description={`${isSaleReturn ? 'Customer return' : 'Return to supplier'} · recorded ${formatDateTime(record.createdAt)} by ${record.user.name}`}
+        description={`Recorded ${formatDateTime(record.createdAt)} by ${record.user.name}`}
         breadcrumbs={[{ label: 'Returns', href: '/returns' }, { label: record.returnNumber }]}
         actions={
-          <>
-            <Badge variant={isSaleReturn ? 'warning' : 'secondary'}>
-              {isSaleReturn ? 'Customer' : 'Supplier'}
-            </Badge>
-            <Badge
-              variant={
-                record.status === 'COMPLETED'
-                  ? 'success'
-                  : record.status === 'REJECTED'
-                    ? 'destructive'
-                    : 'warning'
-              }
-            >
-              {humanizeEnum(record.status)}
-            </Badge>
-          </>
+          <Badge
+            variant={
+              record.status === 'COMPLETED' ? 'success' : record.status === 'REJECTED' ? 'destructive' : 'warning'
+            }
+          >
+            {humanizeEnum(record.status)}
+          </Badge>
         }
       />
 
-      {isSaleReturn && !record.restock && (
+      {!record.restock && (
         <div className="mb-4 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>
-            These goods were <strong>not</strong> returned to sellable stock — the customer was refunded and the
+            These goods were <strong>not</strong> returned to sellable stock — the sale was refunded and the
             items written off.
           </span>
         </div>
@@ -126,26 +114,8 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
               </TableBody>
               <TableFooter>
                 <TableRow>
-                  <TableCell colSpan={3} className="text-right text-muted-foreground">
-                    Subtotal
-                  </TableCell>
-                  <TableCell className="tabular text-right">
-                    {formatCurrency(toNum(record.subtotal), currency)}
-                  </TableCell>
-                </TableRow>
-                {toNum(record.taxAmount) > 0 && (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-right text-muted-foreground">
-                      Tax
-                    </TableCell>
-                    <TableCell className="tabular text-right">
-                      {formatCurrency(toNum(record.taxAmount), currency)}
-                    </TableCell>
-                  </TableRow>
-                )}
-                <TableRow>
                   <TableCell colSpan={3} className="text-right font-semibold">
-                    {isSaleReturn ? 'Refunded' : 'Credit due'}
+                    Refunded
                   </TableCell>
                   <TableCell className="tabular text-right text-base font-bold">
                     {formatCurrency(toNum(record.total), currency)}
@@ -169,22 +139,14 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
                   </Link>
                 </Row>
               )}
-              {record.customer && (
-                <Row label="Customer">
-                  <Link href={`/customers/${record.customer.id}`} className="text-primary hover:underline">
-                    {record.customer.name}
-                  </Link>
-                </Row>
-              )}
               <Row label="Processed by">{record.user.name}</Row>
+              <Row label="When">{formatDateTime(record.createdAt)}</Row>
               <Row label="Lines">{record.items.length}</Row>
-              {isSaleReturn && (
-                <Row label="Restocked">
-                  <span className={record.restock ? 'text-success' : 'text-destructive'}>
-                    {record.restock ? 'Yes' : 'Written off'}
-                  </span>
-                </Row>
-              )}
+              <Row label="Restocked">
+                <span className={record.restock ? 'text-success' : 'text-destructive'}>
+                  {record.restock ? 'Yes' : 'Written off'}
+                </span>
+              </Row>
             </CardContent>
           </Card>
 
@@ -203,7 +165,7 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <PackageCheck className="h-4 w-4" aria-hidden="true" />
-                Refunds
+                Refund payment
               </CardTitle>
             </CardHeader>
             <CardContent>

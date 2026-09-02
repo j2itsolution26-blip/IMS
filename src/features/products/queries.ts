@@ -3,6 +3,7 @@ import 'server-only';
 import type { Prisma, ProductStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { toNum } from '@/lib/decimal';
+import { getDefaultWarehouseId } from '@/server/services/warehouse-service';
 
 /**
  * Product reads.
@@ -14,8 +15,6 @@ import { toNum } from '@/lib/decimal';
 export interface ProductListQuery {
   search?: string;
   categoryId?: string;
-  brandId?: string;
-  supplierId?: string;
   status?: ProductStatus | 'ALL';
   page?: number;
   pageSize?: number;
@@ -30,7 +29,6 @@ export interface ProductListRow {
   barcode: string | null;
   imageUrl: string | null;
   categoryName: string;
-  brandName: string | null;
   unitAbbreviation: string;
   costPrice: number;
   sellingPrice: number;
@@ -48,8 +46,6 @@ export async function listProducts(query: ProductListQuery = {}) {
   const where: Prisma.ProductWhereInput = {
     ...(query.status && query.status !== 'ALL' ? { status: query.status } : {}),
     ...(query.categoryId ? { categoryId: query.categoryId } : {}),
-    ...(query.brandId ? { brandId: query.brandId } : {}),
-    ...(query.supplierId ? { supplierId: query.supplierId } : {}),
     ...(query.search?.trim()
       ? {
           OR: [
@@ -90,7 +86,6 @@ export async function listProducts(query: ProductListQuery = {}) {
         status: true,
         isTrackable: true,
         category: { select: { name: true } },
-        brand: { select: { name: true } },
         unit: { select: { abbreviation: true } },
         inventory: { select: { quantity: true } },
       },
@@ -110,7 +105,6 @@ export async function listProducts(query: ProductListQuery = {}) {
       barcode: row.barcode,
       imageUrl: row.imageUrl,
       categoryName: row.category.name,
-      brandName: row.brand?.name ?? null,
       unitAbbreviation: row.unit.abbreviation,
       costPrice,
       sellingPrice,
@@ -133,13 +127,8 @@ export async function listProducts(query: ProductListQuery = {}) {
 
 /** Reference lists for the product form's select inputs. */
 export async function getProductFormOptions() {
-  const [categories, brands, units, suppliers] = await Promise.all([
+  const [categories, units] = await Promise.all([
     prisma.category.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
-    }),
-    prisma.brand.findMany({
       where: { isActive: true },
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
@@ -149,14 +138,9 @@ export async function getProductFormOptions() {
       select: { id: true, name: true, abbreviation: true },
       orderBy: { name: 'asc' },
     }),
-    prisma.supplier.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
-    }),
   ]);
 
-  return { categories, brands, units, suppliers };
+  return { categories, units };
 }
 
 export async function getProduct(id: string) {
@@ -164,9 +148,7 @@ export async function getProduct(id: string) {
     where: { id },
     include: {
       category: { select: { id: true, name: true } },
-      brand: { select: { id: true, name: true } },
       unit: { select: { id: true, name: true, abbreviation: true } },
-      supplier: { select: { id: true, name: true } },
       inventory: {
         select: {
           quantity: true,
@@ -208,7 +190,7 @@ export async function getProductHistory(id: string, days = 90) {
       SELECT
         COALESCE(SUM(si.quantity), 0)::text  AS "unitsSold",
         COALESCE(SUM(si.total), 0)::text     AS "revenue",
-        COALESCE(SUM(si.total - (si.total * si."taxRate" / (100 + si."taxRate")) - si."unitCost" * si.quantity), 0)::text AS "profit",
+        COALESCE(SUM(si.total - si."unitCost" * si.quantity), 0)::text AS "profit",
         COUNT(DISTINCT s.id)::int            AS "orders"
       FROM sale_items si
       JOIN sales s ON s.id = si."saleId"
@@ -253,8 +235,9 @@ export async function getProductHistory(id: string, days = 90) {
 }
 
 /** Product lookup for the POS — active, sellable lines with live availability. */
-export async function searchSellableProducts(term: string, warehouseId: string, limit = 24) {
+export async function searchSellableProducts(term: string, limit = 24) {
   const trimmed = term.trim();
+  const warehouseId = await getDefaultWarehouseId();
 
   const products = await prisma.product.findMany({
     where: {
@@ -278,7 +261,6 @@ export async function searchSellableProducts(term: string, warehouseId: string, 
       barcode: true,
       imageUrl: true,
       sellingPrice: true,
-      taxRate: true,
       isTrackable: true,
       unit: { select: { abbreviation: true, allowDecimal: true } },
       category: { select: { name: true } },
@@ -300,7 +282,6 @@ export async function searchSellableProducts(term: string, warehouseId: string, 
       barcode: p.barcode,
       imageUrl: p.imageUrl,
       sellingPrice: toNum(p.sellingPrice),
-      taxRate: toNum(p.taxRate),
       isTrackable: p.isTrackable,
       unitAbbreviation: p.unit.abbreviation,
       allowDecimal: p.unit.allowDecimal,

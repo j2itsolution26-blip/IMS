@@ -4,19 +4,16 @@ import { prisma } from '@/lib/prisma';
 import { toNum } from '@/lib/decimal';
 import type { PermissionKey } from '@/lib/permissions';
 import type { DateRange } from '@/server/analytics/date-range';
-import { getSalesSummary } from '@/server/analytics/dashboard';
+import { getSalesSummary, getProductPerformance } from '@/server/analytics/dashboard';
 import {
   getSalesBreakdown,
   getSalesTimeSeries,
-  getTopCustomers,
   getMostReturnedProducts,
+  getPaymentMethodBreakdown,
   granularityForRange,
 } from '@/server/analytics/sales-analytics';
-import {
-  getMovementAnalysis,
-  getStockLevels,
-  getSupplierPerformance,
-} from '@/server/analytics/inventory-analytics';
+import { getMovementAnalysis, getStockLevels } from '@/server/analytics/inventory-analytics';
+import { SALE_STATUS_LABEL } from '@/lib/sale-status';
 
 /**
  * The report catalogue.
@@ -54,7 +51,7 @@ export interface ReportDefinition {
   name: string;
   description: string;
   permission: PermissionKey;
-  group: 'Sales' | 'Inventory' | 'Purchasing' | 'Finance' | 'System';
+  group: 'Sales' | 'Inventory' | 'Finance';
   /** False for reports that describe current state rather than a window. */
   usesDateRange: boolean;
   load: (range: DateRange, currency: string) => Promise<ReportResult>;
@@ -91,7 +88,7 @@ export const REPORTS: ReportDefinition[] = [
   {
     id: 'sales-summary',
     name: 'Sales summary',
-    description: 'Revenue, profit, and order counts per day, week, or month for the period.',
+    description: 'Revenue, profit, and order counts per day, week, or month for the period — covers daily, weekly, and monthly sales.',
     permission: 'reports.view',
     group: 'Sales',
     usesDateRange: true,
@@ -128,7 +125,7 @@ export const REPORTS: ReportDefinition[] = [
   {
     id: 'sales-detail',
     name: 'Sales detail',
-    description: 'Every invoice in the period with its customer, cashier, totals, and profit.',
+    description: 'Every invoice in the period with its cashier, totals, and profit.',
     permission: 'sales.view',
     group: 'Sales',
     usesDateRange: true,
@@ -146,7 +143,6 @@ export const REPORTS: ReportDefinition[] = [
           discount: true,
           costOfGoods: true,
           paidAmount: true,
-          customer: { select: { name: true } },
           user: { select: { name: true } },
           _count: { select: { items: true } },
         },
@@ -156,7 +152,6 @@ export const REPORTS: ReportDefinition[] = [
         columns: [
           text('invoice', 'Invoice'),
           { key: 'date', label: 'Date', format: 'datetime' },
-          text('customer', 'Customer'),
           text('cashier', 'Cashier'),
           count('lines', 'Lines'),
           money('total', 'Total'),
@@ -168,7 +163,6 @@ export const REPORTS: ReportDefinition[] = [
         rows: sales.map((sale) => ({
           invoice: sale.invoiceNumber,
           date: sale.createdAt,
-          customer: sale.customer?.name ?? 'Walk-in',
           cashier: sale.user.name,
           lines: sale._count.items,
           total: toNum(sale.total),
@@ -178,7 +172,7 @@ export const REPORTS: ReportDefinition[] = [
             sale.status === 'VOIDED'
               ? 0
               : toNum(sale.total) - toNum(sale.taxAmount) - toNum(sale.costOfGoods),
-          status: sale.status,
+          status: SALE_STATUS_LABEL[sale.status],
         })),
       };
     },
@@ -206,22 +200,43 @@ export const REPORTS: ReportDefinition[] = [
     },
   },
   {
-    id: 'best-customers',
-    name: 'Customer report',
-    description: 'Customers ranked by spend, with order counts and average basket.',
-    permission: 'customers.view',
+    id: 'best-selling',
+    name: 'Best selling products',
+    description: 'Top products by units sold in the period.',
+    permission: 'reports.view',
     group: 'Sales',
     usesDateRange: true,
     async load(range) {
-      const rows = await getTopCustomers(range.from, range.to, 500);
+      const rows = await getProductPerformance({ from: range.from, to: range.to, sort: 'units', direction: 'desc', limit: 100 });
       return {
         columns: [
-          text('name', 'Customer'),
-          count('orders', 'Orders'),
-          money('revenue', 'Total spent'),
-          money('profit', 'Profit generated'),
-          money('averageOrderValue', 'Average order'),
-          { key: 'lastPurchase', label: 'Last purchase', format: 'date' },
+          text('sku', 'SKU'),
+          text('name', 'Product'),
+          text('categoryName', 'Category'),
+          qty('unitsSold', 'Units sold'),
+          money('revenue', 'Revenue'),
+          money('profit', 'Profit'),
+          { key: 'marginPercent', label: 'Margin', format: 'percent', numeric: true },
+        ],
+        rows: rows.map((row) => ({ ...row })),
+      };
+    },
+  },
+  {
+    id: 'sales-by-payment-method',
+    name: 'Sales by payment method',
+    description: 'Takings split by cash, GCash, card, and other payment methods.',
+    permission: 'reports.view',
+    group: 'Sales',
+    usesDateRange: true,
+    async load(range) {
+      const rows = await getPaymentMethodBreakdown(range.from, range.to);
+      return {
+        columns: [
+          text('method', 'Method'),
+          money('amount', 'Amount'),
+          count('count', 'Payments'),
+          { key: 'share', label: 'Share', format: 'percent', numeric: true },
         ],
         rows: rows.map((row) => ({ ...row })),
       };
@@ -231,7 +246,7 @@ export const REPORTS: ReportDefinition[] = [
   // --- Inventory -----------------------------------------------------------
   {
     id: 'inventory',
-    name: 'Inventory report',
+    name: 'Stock report',
     description: 'Current stock levels and value for every active product.',
     permission: 'inventory.view',
     group: 'Inventory',
@@ -254,7 +269,7 @@ export const REPORTS: ReportDefinition[] = [
           qty('onHand', 'On hand'),
           qty('reserved', 'Reserved'),
           qty('available', 'Available'),
-          qty('reorderLevel', 'Reorder level'),
+          qty('reorderLevel', 'Low-stock level'),
           money('costPrice', 'Unit cost'),
           money('stockValue', 'Stock value'),
           text('status', 'Status'),
@@ -269,6 +284,40 @@ export const REPORTS: ReportDefinition[] = [
           reorderLevel: row.reorderLevel,
           costPrice: row.costPrice,
           stockValue: row.stockValue,
+          status: row.status,
+        })),
+      };
+    },
+  },
+  {
+    id: 'low-stock',
+    name: 'Low stock report',
+    description: 'Everything at or below its low-stock level, plus anything out of stock.',
+    permission: 'inventory.view',
+    group: 'Inventory',
+    usesDateRange: false,
+    async load() {
+      const [low, out] = await Promise.all([
+        getStockLevels({ pageSize: 500, page: 1, status: 'LOW' }),
+        getStockLevels({ pageSize: 500, page: 1, status: 'OUT_OF_STOCK' }),
+      ]);
+      const rows = [...out.rows, ...low.rows];
+
+      return {
+        columns: [
+          text('sku', 'SKU'),
+          text('name', 'Product'),
+          text('categoryName', 'Category'),
+          qty('onHand', 'On hand'),
+          qty('reorderLevel', 'Low-stock level'),
+          text('status', 'Status'),
+        ],
+        rows: rows.map((row) => ({
+          sku: row.sku,
+          name: row.name,
+          categoryName: row.categoryName,
+          onHand: row.onHand,
+          reorderLevel: row.reorderLevel,
           status: row.status,
         })),
       };
@@ -294,7 +343,6 @@ export const REPORTS: ReportDefinition[] = [
           unitCost: true,
           note: true,
           product: { select: { name: true, sku: true } },
-          warehouse: { select: { name: true } },
           user: { select: { name: true } },
         },
       });
@@ -304,7 +352,6 @@ export const REPORTS: ReportDefinition[] = [
           { key: 'date', label: 'Date', format: 'datetime' },
           text('sku', 'SKU'),
           text('product', 'Product'),
-          text('warehouse', 'Warehouse'),
           text('type', 'Type'),
           qty('quantity', 'Change'),
           qty('balance', 'Balance after'),
@@ -315,7 +362,6 @@ export const REPORTS: ReportDefinition[] = [
           date: movement.createdAt,
           sku: movement.product.sku,
           product: movement.product.name,
-          warehouse: movement.warehouse.name,
           type: movement.type,
           quantity: toNum(movement.quantity),
           balance: toNum(movement.balanceAfter),
@@ -424,97 +470,11 @@ export const REPORTS: ReportDefinition[] = [
     },
   },
 
-  // --- Purchasing ----------------------------------------------------------
-  {
-    id: 'purchases',
-    name: 'Purchase report',
-    description: 'Every purchase order raised in the period with receipt and payment status.',
-    permission: 'purchases.view',
-    group: 'Purchasing',
-    usesDateRange: true,
-    async load(range) {
-      const orders = await prisma.purchaseOrder.findMany({
-        where: { createdAt: { gte: range.from, lte: range.to } },
-        orderBy: { createdAt: 'desc' },
-        take: 5000,
-        select: {
-          orderNumber: true,
-          createdAt: true,
-          expectedDate: true,
-          receivedDate: true,
-          status: true,
-          total: true,
-          paidAmount: true,
-          supplier: { select: { name: true } },
-          warehouse: { select: { name: true } },
-        },
-      });
-
-      return {
-        columns: [
-          text('orderNumber', 'Order'),
-          { key: 'date', label: 'Raised', format: 'date' },
-          text('supplier', 'Supplier'),
-          text('warehouse', 'Warehouse'),
-          { key: 'expected', label: 'Expected', format: 'date' },
-          { key: 'received', label: 'Received', format: 'date' },
-          money('total', 'Total'),
-          money('paid', 'Paid'),
-          money('outstanding', 'Outstanding'),
-          text('status', 'Status'),
-        ],
-        rows: orders.map((order) => ({
-          orderNumber: order.orderNumber,
-          date: order.createdAt,
-          supplier: order.supplier.name,
-          warehouse: order.warehouse.name,
-          expected: order.expectedDate,
-          received: order.receivedDate,
-          total: toNum(order.total),
-          paid: toNum(order.paidAmount),
-          outstanding: Math.max(0, toNum(order.total) - toNum(order.paidAmount)),
-          status: order.status,
-        })),
-      };
-    },
-  },
-  {
-    id: 'suppliers',
-    name: 'Supplier report',
-    description: 'Spend, delivery reliability, and outstanding balances by supplier.',
-    permission: 'suppliers.view',
-    group: 'Purchasing',
-    usesDateRange: true,
-    async load(range) {
-      const rows = await getSupplierPerformance(range.from, range.to, 500);
-      return {
-        columns: [
-          text('name', 'Supplier'),
-          count('orders', 'Orders'),
-          count('receivedOrders', 'Received'),
-          { key: 'onTimeRate', label: 'On-time rate', format: 'percent', numeric: true },
-          { key: 'averageLeadTimeDays', label: 'Avg lead time (days)', format: 'number', numeric: true },
-          money('totalSpend', 'Total spend'),
-          money('outstandingBalance', 'Outstanding'),
-        ],
-        rows: rows.map((row) => ({
-          name: row.name,
-          orders: row.orders,
-          receivedOrders: row.receivedOrders,
-          onTimeRate: row.onTimeRate,
-          averageLeadTimeDays: row.averageLeadTimeDays,
-          totalSpend: row.totalSpend,
-          outstandingBalance: row.outstandingBalance,
-        })),
-      };
-    },
-  },
-
   // --- Finance -------------------------------------------------------------
   {
     id: 'profit',
     name: 'Profit report',
-    description: 'Revenue less cost of goods, returns, and expenses, per period.',
+    description: 'Revenue less cost of goods and returns, per period.',
     permission: 'reports.view',
     group: 'Finance',
     usesDateRange: true,
@@ -542,98 +502,8 @@ export const REPORTS: ReportDefinition[] = [
           { label: 'Cost of goods', value: String(summary.costOfGoods) },
           { label: 'Gross profit', value: String(summary.grossProfit) },
           { label: 'Returns', value: String(summary.returnsTotal) },
-          { label: 'Expenses', value: String(summary.expenses) },
           { label: 'Net profit', value: String(summary.netProfit) },
         ],
-      };
-    },
-  },
-  {
-    id: 'expenses',
-    name: 'Expense report',
-    description: 'Operating costs recorded in the period, by category.',
-    permission: 'expenses.view',
-    group: 'Finance',
-    usesDateRange: true,
-    async load(range) {
-      const expenses = await prisma.expense.findMany({
-        where: { incurredAt: { gte: range.from, lte: range.to } },
-        orderBy: { incurredAt: 'desc' },
-        take: 5000,
-        select: {
-          reference: true,
-          incurredAt: true,
-          category: true,
-          description: true,
-          amount: true,
-          method: true,
-          user: { select: { name: true } },
-        },
-      });
-
-      return {
-        columns: [
-          text('reference', 'Reference'),
-          { key: 'date', label: 'Date', format: 'date' },
-          text('category', 'Category'),
-          text('description', 'Description'),
-          text('method', 'Method'),
-          text('user', 'Recorded by'),
-          money('amount', 'Amount'),
-        ],
-        rows: expenses.map((expense) => ({
-          reference: expense.reference,
-          date: expense.incurredAt,
-          category: expense.category,
-          description: expense.description ?? '',
-          method: expense.method,
-          user: expense.user.name,
-          amount: toNum(expense.amount),
-        })),
-      };
-    },
-  },
-
-  // --- System --------------------------------------------------------------
-  {
-    id: 'audit',
-    name: 'Audit log',
-    description: 'Every recorded action in the period, with the user and IP address.',
-    permission: 'audit.view',
-    group: 'System',
-    usesDateRange: true,
-    async load(range) {
-      const logs = await prisma.auditLog.findMany({
-        where: { createdAt: { gte: range.from, lte: range.to } },
-        orderBy: { createdAt: 'desc' },
-        take: 10000,
-        select: {
-          createdAt: true,
-          action: true,
-          entity: true,
-          summary: true,
-          ipAddress: true,
-          user: { select: { name: true, email: true } },
-        },
-      });
-
-      return {
-        columns: [
-          { key: 'date', label: 'When', format: 'datetime' },
-          text('action', 'Action'),
-          text('entity', 'Entity'),
-          text('summary', 'Summary'),
-          text('user', 'User'),
-          text('ip', 'IP address'),
-        ],
-        rows: logs.map((log) => ({
-          date: log.createdAt,
-          action: log.action,
-          entity: log.entity,
-          summary: log.summary,
-          user: log.user ? `${log.user.name} (${log.user.email})` : 'System',
-          ip: log.ipAddress ?? '',
-        })),
       };
     },
   },

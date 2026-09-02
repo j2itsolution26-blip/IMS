@@ -11,25 +11,19 @@ import type { PermissionKey } from '@/lib/permissions';
 
 /**
  * A create/update/delete factory for the straightforward reference entities —
- * categories, brands, units, warehouses, suppliers, customers.
+ * categories and units.
  *
- * These six differ only in their fields, their permissions, and their delete
+ * These differ only in their fields, their permissions, and their delete
  * guards; the permission check, validation, audit entry, and cache
- * invalidation are identical. Writing that six times would mean six places to
+ * invalidation are identical. Writing that twice would mean two places to
  * fix the next time one of them changes.
  *
- * Products, sales, purchases, and returns are deliberately NOT built on this —
- * they carry real domain rules and live in their own services.
+ * Products, sales, and returns are deliberately NOT built on this — they
+ * carry real domain rules and live in their own services.
  */
 
 /** Prisma's generated delegates have no common supertype, so the model is addressed by name. */
-type ModelName =
-  | 'category'
-  | 'brand'
-  | 'unit'
-  | 'warehouse'
-  | 'supplier'
-  | 'customer';
+type ModelName = 'category' | 'unit';
 
 export interface ResourceConfig<TCreate extends z.ZodTypeAny, TUpdate extends z.ZodTypeAny> {
   model: ModelName;

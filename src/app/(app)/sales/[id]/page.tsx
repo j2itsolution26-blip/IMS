@@ -2,14 +2,16 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePermission, userCan } from '@/lib/session';
-import { getSale } from '@/features/sales/queries';
-import { getCurrency } from '@/server/services/settings-service';
+import { getSale, getReceiptData } from '@/features/sales/queries';
+import { getCompanyProfile, getCurrency } from '@/server/services/settings-service';
 import { formatCurrency, formatDateTime, formatQuantity, humanizeEnum } from '@/lib/format';
+import { SALE_STATUS_LABEL, SALE_STATUS_BADGE } from '@/lib/sale-status';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { SaleActions } from '@/features/sales/sale-actions';
+import { ReceiptButton } from '@/features/sales/receipt-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,22 +25,39 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
   const user = await requirePermission('sales.view');
   const { id } = await params;
 
-  const [sale, currency] = await Promise.all([getSale(id), getCurrency()]);
+  const [sale, currency, company] = await Promise.all([getSale(id), getCurrency(), getCompanyProfile()]);
   if (!sale) notFound();
+  const receiptData = await getReceiptData(id);
 
   return (
     <>
       <PageHeader
         title={sale.invoiceNumber}
-        description={`${formatDateTime(sale.createdAt)} · ${sale.warehouse.name} · sold by ${sale.cashier.name}`}
+        description={`${formatDateTime(sale.createdAt)} · sold by ${sale.cashier.name}`}
         breadcrumbs={[{ label: 'Sales', href: '/sales' }, { label: sale.invoiceNumber }]}
         actions={
-          <SaleActions
-            sale={sale}
-            currency={currency}
-            canVoid={userCan(user, 'sales.delete')}
-            canReturn={userCan(user, 'returns.create')}
-          />
+          <>
+            {receiptData && (
+              <ReceiptButton
+                data={{
+                  ...receiptData,
+                  company: {
+                    name: company.name,
+                    address: company.address,
+                    phone: company.phone,
+                    receiptFooter: company.receiptFooter,
+                  },
+                  currency,
+                }}
+              />
+            )}
+            <SaleActions
+              sale={sale}
+              currency={currency}
+              canVoid={userCan(user, 'sales.delete')}
+              canReturn={userCan(user, 'returns.create')}
+            />
+          </>
         }
       />
 
@@ -52,17 +71,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
         <Card className="lg:col-span-2">
           <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
             <CardTitle className="text-base">Items</CardTitle>
-            <Badge
-              variant={
-                sale.status === 'COMPLETED'
-                  ? 'success'
-                  : sale.status === 'VOIDED'
-                    ? 'destructive'
-                    : 'warning'
-              }
-            >
-              {humanizeEnum(sale.status)}
-            </Badge>
+            <Badge variant={SALE_STATUS_BADGE[sale.status]}>{SALE_STATUS_LABEL[sale.status]}</Badge>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
@@ -152,15 +161,6 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
               <CardTitle className="text-base">Summary</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <Row label="Customer">
-                {sale.customer ? (
-                  <Link href={`/customers/${sale.customer.id}`} className="hover:underline">
-                    {sale.customer.name}
-                  </Link>
-                ) : (
-                  'Walk-in'
-                )}
-              </Row>
               <Row label="Channel">{humanizeEnum(sale.channel)}</Row>
               <Row label="Paid">{formatCurrency(sale.paidAmount, currency)}</Row>
               {sale.changeAmount > 0 && <Row label="Change">{formatCurrency(sale.changeAmount, currency)}</Row>}
@@ -231,7 +231,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                           {item.returnNumber}
                         </Link>
                         <span className="block truncate text-xs text-muted-foreground">
-                          {formatDateTime(item.createdAt)}
+                          {formatDateTime(item.createdAt)} · by {item.processedBy}
                           {item.reason ? ` · ${item.reason}` : ''}
                         </span>
                       </span>

@@ -18,8 +18,6 @@ export const dynamic = 'force-dynamic';
 interface SearchParams {
   q?: string;
   category?: string;
-  brand?: string;
-  supplier?: string;
   status?: string;
   page?: string;
 }
@@ -39,21 +37,19 @@ export default async function ProductsPage({
   const result = await listProducts({
     search: params.q,
     categoryId: params.category,
-    brandId: params.brand,
-    supplierId: params.supplier,
     status: STATUS_VALUES.has(params.status ?? '') ? (params.status as ProductStatus) : 'ALL',
     page: Number(params.page) || 1,
     pageSize: 20,
   });
 
-  const hasFilters = Boolean(params.q || params.category || params.brand || params.supplier || params.status);
+  const hasFilters = Boolean(params.q || params.category || params.status);
   const canCreate = userCan(user, 'products.create');
 
   return (
     <>
       <PageHeader
         title="Products"
-        description="Your catalogue. Stock figures are the live sum across every warehouse."
+        description="Your catalogue and live stock on hand."
         actions={
           canCreate && (
             <Button asChild>
@@ -80,18 +76,6 @@ export default async function ProductsPage({
             label: 'Category',
             allLabel: 'All categories',
             options: options.categories.map((c) => ({ value: c.id, label: c.name })),
-          },
-          {
-            name: 'brand',
-            label: 'Brand',
-            allLabel: 'All brands',
-            options: options.brands.map((b) => ({ value: b.id, label: b.name })),
-          },
-          {
-            name: 'supplier',
-            label: 'Supplier',
-            allLabel: 'All suppliers',
-            options: options.suppliers.map((s) => ({ value: s.id, label: s.name })),
           },
         ]}
       />

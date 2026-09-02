@@ -9,7 +9,6 @@ import { toNum } from '@/lib/decimal';
 export interface MovementQuery {
   search?: string;
   type?: InventoryTransactionType | 'ALL';
-  warehouseId?: string;
   productId?: string;
   from?: Date;
   to?: Date;
@@ -23,7 +22,6 @@ export async function listMovements(query: MovementQuery = {}) {
 
   const where: Prisma.InventoryTransactionWhereInput = {
     ...(query.type && query.type !== 'ALL' ? { type: query.type } : {}),
-    ...(query.warehouseId ? { warehouseId: query.warehouseId } : {}),
     ...(query.productId ? { productId: query.productId } : {}),
     ...(query.from || query.to
       ? { createdAt: { ...(query.from ? { gte: query.from } : {}), ...(query.to ? { lte: query.to } : {}) } }
@@ -58,7 +56,6 @@ export async function listMovements(query: MovementQuery = {}) {
         referenceId: true,
         createdAt: true,
         product: { select: { id: true, name: true, sku: true } },
-        warehouse: { select: { name: true } },
         user: { select: { name: true } },
       },
     }),
@@ -81,7 +78,6 @@ export async function listMovements(query: MovementQuery = {}) {
       productId: row.product.id,
       productName: row.product.name,
       sku: row.product.sku,
-      warehouseName: row.warehouse.name,
       userName: row.user?.name ?? 'System',
     })),
     total,
@@ -91,8 +87,8 @@ export async function listMovements(query: MovementQuery = {}) {
   };
 }
 
-/** Product picker options for the adjustment and transfer forms. */
-export async function getStockPickerProducts(warehouseId?: string) {
+/** Product picker options for the adjustment and stock-in forms. */
+export async function getStockPickerProducts() {
   const products = await prisma.product.findMany({
     where: { status: 'ACTIVE', isTrackable: true },
     orderBy: { name: 'asc' },
@@ -103,9 +99,7 @@ export async function getStockPickerProducts(warehouseId?: string) {
       sku: true,
       costPrice: true,
       unit: { select: { abbreviation: true } },
-      inventory: warehouseId
-        ? { where: { warehouseId }, select: { quantity: true, reserved: true } }
-        : { select: { quantity: true, reserved: true } },
+      inventory: { select: { quantity: true, reserved: true } },
     },
   });
 
@@ -126,11 +120,3 @@ export async function getStockPickerProducts(warehouseId?: string) {
 }
 
 export type StockPickerProduct = Awaited<ReturnType<typeof getStockPickerProducts>>[number];
-
-export async function listActiveWarehouses() {
-  return prisma.warehouse.findMany({
-    where: { isActive: true },
-    orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
-    select: { id: true, name: true, isDefault: true },
-  });
-}
