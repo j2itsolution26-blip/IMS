@@ -1,76 +1,6 @@
 -- CreateEnum
 CREATE TYPE "ShiftStatus" AS ENUM ('OPEN', 'CLOSED');
 
--- AlterEnum
-BEGIN;
-CREATE TYPE "ProductStatus_new" AS ENUM ('ACTIVE', 'INACTIVE', 'ARCHIVED');
-ALTER TABLE "products" ALTER COLUMN "status" DROP DEFAULT;
-ALTER TABLE "products" ALTER COLUMN "status" TYPE "ProductStatus_new" USING ("status"::text::"ProductStatus_new");
-ALTER TYPE "ProductStatus" RENAME TO "ProductStatus_old";
-ALTER TYPE "ProductStatus_new" RENAME TO "ProductStatus";
-DROP TYPE "ProductStatus_old";
-ALTER TABLE "products" ALTER COLUMN "status" SET DEFAULT 'ACTIVE';
-COMMIT;
-
--- AlterEnum
-BEGIN;
-CREATE TYPE "InventoryTransactionType_new" AS ENUM ('STOCK_IN', 'SALE', 'SALE_RETURN', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT', 'OPENING_BALANCE');
-ALTER TABLE "inventory_transactions" ALTER COLUMN "type" TYPE "InventoryTransactionType_new" USING ("type"::text::"InventoryTransactionType_new");
-ALTER TYPE "InventoryTransactionType" RENAME TO "InventoryTransactionType_old";
-ALTER TYPE "InventoryTransactionType_new" RENAME TO "InventoryTransactionType";
-DROP TYPE "InventoryTransactionType_old";
-COMMIT;
-
--- AlterEnum
-BEGIN;
-CREATE TYPE "ReferenceType_new" AS ENUM ('SALE', 'RETURN', 'ADJUSTMENT');
-ALTER TABLE "inventory_transactions" ALTER COLUMN "referenceType" TYPE "ReferenceType_new" USING ("referenceType"::text::"ReferenceType_new");
-ALTER TYPE "ReferenceType" RENAME TO "ReferenceType_old";
-ALTER TYPE "ReferenceType_new" RENAME TO "ReferenceType";
-DROP TYPE "ReferenceType_old";
-COMMIT;
-
--- AlterEnum
-BEGIN;
-CREATE TYPE "SaleStatus_new" AS ENUM ('COMPLETED', 'PARTIALLY_RETURNED', 'RETURNED', 'VOIDED');
-ALTER TABLE "sales" ALTER COLUMN "status" DROP DEFAULT;
-ALTER TABLE "sales" ALTER COLUMN "status" TYPE "SaleStatus_new" USING ("status"::text::"SaleStatus_new");
-ALTER TYPE "SaleStatus" RENAME TO "SaleStatus_old";
-ALTER TYPE "SaleStatus_new" RENAME TO "SaleStatus";
-DROP TYPE "SaleStatus_old";
-ALTER TABLE "sales" ALTER COLUMN "status" SET DEFAULT 'COMPLETED';
-COMMIT;
-
--- AlterEnum
-BEGIN;
-CREATE TYPE "SaleChannel_new" AS ENUM ('POS', 'MANUAL');
-ALTER TABLE "sales" ALTER COLUMN "channel" DROP DEFAULT;
-ALTER TABLE "sales" ALTER COLUMN "channel" TYPE "SaleChannel_new" USING ("channel"::text::"SaleChannel_new");
-ALTER TYPE "SaleChannel" RENAME TO "SaleChannel_old";
-ALTER TYPE "SaleChannel_new" RENAME TO "SaleChannel";
-DROP TYPE "SaleChannel_old";
-ALTER TABLE "sales" ALTER COLUMN "channel" SET DEFAULT 'POS';
-COMMIT;
-
--- AlterEnum
-BEGIN;
-CREATE TYPE "PaymentMethod_new" AS ENUM ('CASH', 'GCASH', 'CARD', 'OTHER');
-ALTER TABLE "expenses" ALTER COLUMN "method" DROP DEFAULT;
-ALTER TABLE "payments" ALTER COLUMN "method" TYPE "PaymentMethod_new" USING ("method"::text::"PaymentMethod_new");
-ALTER TYPE "PaymentMethod" RENAME TO "PaymentMethod_old";
-ALTER TYPE "PaymentMethod_new" RENAME TO "PaymentMethod";
-DROP TYPE "PaymentMethod_old";
-COMMIT;
-
--- AlterEnum
-BEGIN;
-CREATE TYPE "AuditAction_new" AS ENUM ('LOGIN', 'LOGOUT', 'CREATE', 'UPDATE', 'DELETE', 'INVENTORY_CHANGE', 'PRICE_CHANGE', 'SALE', 'RETURN', 'SETTINGS_CHANGE', 'EXPORT');
-ALTER TABLE "audit_logs" ALTER COLUMN "action" TYPE "AuditAction_new" USING ("action"::text::"AuditAction_new");
-ALTER TYPE "AuditAction" RENAME TO "AuditAction_old";
-ALTER TYPE "AuditAction_new" RENAME TO "AuditAction";
-DROP TYPE "AuditAction_old";
-COMMIT;
-
 -- DropForeignKey
 ALTER TABLE "products" DROP CONSTRAINT "products_brandId_fkey";
 
@@ -172,6 +102,78 @@ DROP TYPE "NotificationType";
 -- DropEnum
 DROP TYPE "NotificationSeverity";
 
+-- AlterEnum
+-- All tables referencing PaymentMethod (payments, expenses) must already be
+-- migrated or dropped before the old type is dropped below, so this block
+-- runs after "expenses" is gone rather than before, as generated.
+BEGIN;
+CREATE TYPE "ProductStatus_new" AS ENUM ('ACTIVE', 'INACTIVE', 'ARCHIVED');
+ALTER TABLE "products" ALTER COLUMN "status" DROP DEFAULT;
+ALTER TABLE "products" ALTER COLUMN "status" TYPE "ProductStatus_new" USING ("status"::text::"ProductStatus_new");
+ALTER TYPE "ProductStatus" RENAME TO "ProductStatus_old";
+ALTER TYPE "ProductStatus_new" RENAME TO "ProductStatus";
+DROP TYPE "ProductStatus_old";
+ALTER TABLE "products" ALTER COLUMN "status" SET DEFAULT 'ACTIVE';
+COMMIT;
+
+-- AlterEnum
+BEGIN;
+CREATE TYPE "InventoryTransactionType_new" AS ENUM ('STOCK_IN', 'SALE', 'SALE_RETURN', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT', 'OPENING_BALANCE');
+ALTER TABLE "inventory_transactions" ALTER COLUMN "type" TYPE "InventoryTransactionType_new" USING ("type"::text::"InventoryTransactionType_new");
+ALTER TYPE "InventoryTransactionType" RENAME TO "InventoryTransactionType_old";
+ALTER TYPE "InventoryTransactionType_new" RENAME TO "InventoryTransactionType";
+DROP TYPE "InventoryTransactionType_old";
+COMMIT;
+
+-- AlterEnum
+BEGIN;
+CREATE TYPE "ReferenceType_new" AS ENUM ('SALE', 'RETURN', 'ADJUSTMENT');
+ALTER TABLE "inventory_transactions" ALTER COLUMN "referenceType" TYPE "ReferenceType_new" USING ("referenceType"::text::"ReferenceType_new");
+ALTER TYPE "ReferenceType" RENAME TO "ReferenceType_old";
+ALTER TYPE "ReferenceType_new" RENAME TO "ReferenceType";
+DROP TYPE "ReferenceType_old";
+COMMIT;
+
+-- AlterEnum
+BEGIN;
+CREATE TYPE "SaleStatus_new" AS ENUM ('COMPLETED', 'PARTIALLY_RETURNED', 'RETURNED', 'VOIDED');
+ALTER TABLE "sales" ALTER COLUMN "status" DROP DEFAULT;
+ALTER TABLE "sales" ALTER COLUMN "status" TYPE "SaleStatus_new" USING ("status"::text::"SaleStatus_new");
+ALTER TYPE "SaleStatus" RENAME TO "SaleStatus_old";
+ALTER TYPE "SaleStatus_new" RENAME TO "SaleStatus";
+DROP TYPE "SaleStatus_old";
+ALTER TABLE "sales" ALTER COLUMN "status" SET DEFAULT 'COMPLETED';
+COMMIT;
+
+-- AlterEnum
+BEGIN;
+CREATE TYPE "SaleChannel_new" AS ENUM ('POS', 'MANUAL');
+ALTER TABLE "sales" ALTER COLUMN "channel" DROP DEFAULT;
+ALTER TABLE "sales" ALTER COLUMN "channel" TYPE "SaleChannel_new" USING ("channel"::text::"SaleChannel_new");
+ALTER TYPE "SaleChannel" RENAME TO "SaleChannel_old";
+ALTER TYPE "SaleChannel_new" RENAME TO "SaleChannel";
+DROP TYPE "SaleChannel_old";
+ALTER TABLE "sales" ALTER COLUMN "channel" SET DEFAULT 'POS';
+COMMIT;
+
+-- AlterEnum
+BEGIN;
+CREATE TYPE "PaymentMethod_new" AS ENUM ('CASH', 'GCASH', 'CARD', 'OTHER');
+ALTER TABLE "payments" ALTER COLUMN "method" TYPE "PaymentMethod_new" USING ("method"::text::"PaymentMethod_new");
+ALTER TYPE "PaymentMethod" RENAME TO "PaymentMethod_old";
+ALTER TYPE "PaymentMethod_new" RENAME TO "PaymentMethod";
+DROP TYPE "PaymentMethod_old";
+COMMIT;
+
+-- AlterEnum
+BEGIN;
+CREATE TYPE "AuditAction_new" AS ENUM ('LOGIN', 'LOGOUT', 'CREATE', 'UPDATE', 'DELETE', 'INVENTORY_CHANGE', 'PRICE_CHANGE', 'SALE', 'RETURN', 'SETTINGS_CHANGE', 'EXPORT');
+ALTER TABLE "audit_logs" ALTER COLUMN "action" TYPE "AuditAction_new" USING ("action"::text::"AuditAction_new");
+ALTER TYPE "AuditAction" RENAME TO "AuditAction_old";
+ALTER TYPE "AuditAction_new" RENAME TO "AuditAction";
+DROP TYPE "AuditAction_old";
+COMMIT;
+
 -- CreateTable
 CREATE TABLE "cashier_shifts" (
     "id" TEXT NOT NULL,
@@ -206,4 +208,3 @@ ALTER TABLE "cashier_shifts" ADD CONSTRAINT "cashier_shifts_userId_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "sales" ADD CONSTRAINT "sales_shiftId_fkey" FOREIGN KEY ("shiftId") REFERENCES "cashier_shifts"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
