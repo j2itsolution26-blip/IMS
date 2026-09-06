@@ -142,25 +142,19 @@ export default async function SignUpPage() {
           <span className="text-xs font-semibold uppercase tracking-wide">First-Run Setup</span>
         </div>
 
-        <h1 className="text-2xl font-bold tracking-tight">
-          Set up your Inventory Management System
-        </h1>
+        <h1 className="text-2xl font-bold tracking-tight">Create Owner Account</h1>
         <p className="text-sm text-muted-foreground">
-          Create the primary Owner account to get started. This account gets full access —
-          everyone else is added later from Settings → Users.
+          Set up the owner account to get started. This account gets full access — everyone
+          else is added later from Settings → Users.
         </p>
       </div>
 
       {/* ── Sign-up form ── */}
       <SignUpForm />
 
-      {/* ── Link back ── */}
-      <p className="text-center text-xs text-muted-foreground">
-        Already set up?{' '}
-        <Link href="/sign-in" className="font-medium text-primary hover:underline">
-          Sign in
-        </Link>
-      </p>
+      {/* No "Sign in" link here on purpose: with zero accounts there is nothing
+          to sign in to yet, and /sign-in itself redirects back to this page
+          until an Owner exists — see src/app/(auth)/sign-in/page.tsx. */}
     </div>
   );
 }

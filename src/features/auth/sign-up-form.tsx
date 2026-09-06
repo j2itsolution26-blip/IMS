@@ -21,31 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { authClient } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
-
-/**
- * Reusable single validation function for password rules.
- * Evaluated live on every input event (character-by-character).
- */
-export function validatePassword(password: string) {
-  const minLength = password.length >= 10;
-  const uppercase = /[A-Z]/.test(password);
-  const lowercase = /[a-z]/.test(password);
-  const number = /[0-9]/.test(password);
-  const specialCharacter = /[^A-Za-z0-9]/.test(password);
-  const isValid = minLength && uppercase && lowercase && number && specialCharacter;
-
-  const metCount = [minLength, uppercase, lowercase, number, specialCharacter].filter(Boolean).length;
-
-  return {
-    minLength,
-    uppercase,
-    lowercase,
-    number,
-    specialCharacter,
-    isValid,
-    metCount,
-  };
-}
+import { validatePassword } from '@/lib/password';
 
 /** Zod schema for client-side form validation. */
 const schema = z
@@ -181,8 +157,8 @@ export function SignUpForm() {
     }
 
     setIsSuccess(true);
-    toast.success('Account created successfully', {
-      description: 'Your owner account has been created successfully.',
+    toast.success('Owner account created successfully', {
+      description: 'You can now sign in.',
       duration: 4000,
     });
 
@@ -211,9 +187,9 @@ export function SignUpForm() {
         >
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
           <div className="space-y-1">
-            <p className="font-semibold leading-none">Account created successfully</p>
+            <p className="font-semibold leading-none">Owner account created successfully</p>
             <p className="text-sm text-emerald-600/90 dark:text-emerald-400/90">
-              Your owner account is ready. Redirecting to sign in page…
+              You can now sign in. Redirecting…
             </p>
           </div>
         </div>

@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ProfileForm } from '@/features/admin/profile-form';
+import { ChangePasswordForm } from '@/features/admin/change-password-form';
 
 export const metadata: Metadata = { title: 'Profile' };
 export const dynamic = 'force-dynamic';
@@ -31,21 +32,36 @@ export default async function ProfilePage() {
       <PageHeader title="Your profile" description="Your account details and what your role allows." />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Details</CardTitle>
-            <CardDescription>
-              Your email and role are managed by an administrator. Contact them if either needs to change.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ProfileForm
-              email={record?.email ?? user.email}
-              roleName={user.role.name}
-              defaultValues={{ name: record?.name ?? user.name, phone: record?.phone ?? '' }}
-            />
-          </CardContent>
-        </Card>
+        <div className="space-y-4 lg:col-span-2">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Details</CardTitle>
+              <CardDescription>
+                Your email and role are managed by an administrator. Contact them if either needs to change.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ProfileForm
+                email={record?.email ?? user.email}
+                roleName={user.role.name}
+                defaultValues={{ name: record?.name ?? user.name, phone: record?.phone ?? '' }}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Password</CardTitle>
+              <CardDescription>
+                Change your own password. You&apos;ll need your current one — this doesn&apos;t
+                affect anyone else&apos;s account.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChangePasswordForm />
+            </CardContent>
+          </Card>
+        </div>
 
         <div className="space-y-4">
           <Card>
