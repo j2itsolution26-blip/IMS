@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { FormField, FormError } from '@/components/form';
 import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
 import { BarcodeDuplicateNotice } from '@/features/inventory/barcode-duplicate-notice';
+import { ProductPhotoField } from '@/features/inventory/product-photo-field';
 
 const quickAddSchema = z.object({
   name: z.string().trim().min(2, 'Give the product a name.').max(160),
@@ -58,11 +59,13 @@ export function AddProductDialog({
   defaultUnitId,
   defaultReorderLevel,
   currency,
+  storageEnabled,
 }: {
   categories: { id: string; name: string }[];
   defaultUnitId: string;
   defaultReorderLevel: number;
   currency: string;
+  storageEnabled: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -71,6 +74,7 @@ export function AddProductDialog({
   const [addingCategory, setAddingCategory] = React.useState(false);
   const [newCategoryName, setNewCategoryName] = React.useState('');
   const [savingCategory, setSavingCategory] = React.useState(false);
+  const [photoUrl, setPhotoUrl] = React.useState('');
 
   const {
     register,
@@ -94,6 +98,7 @@ export function AddProductDialog({
       setFormError(null);
       setAddingCategory(false);
       setNewCategoryName('');
+      setPhotoUrl('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -134,7 +139,7 @@ export function AddProductDialog({
       sku: generateSku(values.name),
       barcode: values.barcode?.trim() || '',
       description: '',
-      imageUrl: '',
+      imageUrl: photoUrl,
       categoryId: values.categoryId,
       unitId: defaultUnitId,
       costPrice: values.costPrice || 0,
@@ -194,6 +199,13 @@ export function AddProductDialog({
 
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
             <FormError message={formError} />
+
+            <ProductPhotoField
+              value={photoUrl}
+              onChange={setPhotoUrl}
+              fileNameHint={watch('name') || 'product'}
+              disabled={!storageEnabled}
+            />
 
             <FormField id="name" label="Product Name" error={errors.name} required>
               <Input id="name" {...register('name')} aria-invalid={Boolean(errors.name)} autoFocus />

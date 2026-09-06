@@ -5,6 +5,7 @@ import { getStockLevels, type StockStatus } from '@/server/analytics/inventory-a
 import { getInventorySnapshot } from '@/server/analytics/dashboard';
 import { getProductFormOptions } from '@/features/products/queries';
 import { getCurrency, getSettings, readNumber } from '@/server/services/settings-service';
+import { isStorageConfigured } from '@/lib/env';
 import { formatNumber } from '@/lib/format';
 import { PageHeader } from '@/components/page-header';
 import { StatCard } from '@/components/stat-card';
@@ -48,6 +49,7 @@ export default async function InventoryPage({
 
   const defaultUnitId = options.units.find((u) => u.name.toLowerCase() === 'piece')?.id ?? options.units[0]?.id ?? '';
   const defaultReorderLevel = readNumber(settings, 'inventory.defaultLowStockLevel');
+  const storageEnabled = isStorageConfigured();
 
   const hasAnyProducts = snapshot.distinctProducts > 0;
   const hasActiveFilters = Boolean(params.q?.trim()) || status !== 'ALL';
@@ -56,6 +58,7 @@ export default async function InventoryPage({
     productId: row.productId,
     name: row.name,
     sku: row.sku,
+    imageUrl: row.imageUrl,
     unit: row.unitAbbreviation,
     sellingPrice: row.sellingPrice,
     onHand: row.onHand,
@@ -77,6 +80,7 @@ export default async function InventoryPage({
                 defaultUnitId={defaultUnitId}
                 defaultReorderLevel={defaultReorderLevel}
                 currency={currency}
+                storageEnabled={storageEnabled}
               />
             )}
           </>
@@ -113,6 +117,7 @@ export default async function InventoryPage({
                     defaultUnitId={defaultUnitId}
                     defaultReorderLevel={defaultReorderLevel}
                     currency={currency}
+                    storageEnabled={storageEnabled}
                   />
                 )
               }

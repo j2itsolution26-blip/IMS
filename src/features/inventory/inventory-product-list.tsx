@@ -3,6 +3,7 @@ import type { StockStatus } from '@/server/analytics/inventory-analytics';
 import { formatCurrency, formatQuantity } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ProductImage } from '@/components/product-image';
 import { ProductRowActions } from '@/features/inventory/product-row-actions';
 import { cn } from '@/lib/utils';
 
@@ -10,6 +11,7 @@ export interface InventoryListRow {
   productId: string;
   name: string;
   sku: string;
+  imageUrl: string | null;
   unit: string;
   sellingPrice: number;
   onHand: number;
@@ -45,19 +47,22 @@ export function InventoryProductList({
           const meta = STATUS_META[row.status];
           return (
             <div key={row.productId} className="flex items-center justify-between gap-3 p-4">
-              <div className="min-w-0 flex-1">
-                <Link href={`/products/${row.productId}`} className="block truncate font-medium hover:underline">
-                  {row.name}
-                </Link>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-                  <span>{formatCurrency(row.sellingPrice, currency)}</span>
-                  <span>
-                    {formatQuantity(row.onHand)} {row.unit}
-                  </span>
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <ProductImage src={row.imageUrl} alt={row.name} size="md" />
+                <div className="min-w-0 flex-1">
+                  <Link href={`/products/${row.productId}`} className="block truncate font-medium hover:underline">
+                    {row.name}
+                  </Link>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                    <span>{formatCurrency(row.sellingPrice, currency)}</span>
+                    <span>
+                      {formatQuantity(row.onHand)} {row.unit}
+                    </span>
+                  </div>
+                  <Badge variant={meta.variant} className="mt-1.5">
+                    {meta.dot} {meta.label}
+                  </Badge>
                 </div>
-                <Badge variant={meta.variant} className="mt-1.5">
-                  {meta.dot} {meta.label}
-                </Badge>
               </div>
               <ProductRowActions
                 productId={row.productId}
@@ -92,9 +97,12 @@ export function InventoryProductList({
               return (
                 <TableRow key={row.productId}>
                   <TableCell>
-                    <Link href={`/products/${row.productId}`} className="font-medium hover:underline">
-                      {row.name}
-                    </Link>
+                    <div className="flex items-center gap-3">
+                      <ProductImage src={row.imageUrl} alt={row.name} size="sm" />
+                      <Link href={`/products/${row.productId}`} className="font-medium hover:underline">
+                        {row.name}
+                      </Link>
+                    </div>
                   </TableCell>
                   <TableCell className="tabular text-right">{formatCurrency(row.sellingPrice, currency)}</TableCell>
                   <TableCell
