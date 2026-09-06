@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Boxes, ShieldCheck } from 'lucide-react';
+import { Boxes } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
 import { SignInForm } from '@/features/auth/sign-in-form';
 
@@ -70,29 +70,14 @@ export default async function SignInPage({
       {/* ── Sign-in form ── */}
       <SignInForm redirectTo={next ?? '/dashboard'} />
 
-      {/* ── First-time setup notice ── */}
+      {/* ── First-time setup: only ever shown before an Owner account exists ── */}
       {userCount === 0 && (
-        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 dark:bg-primary/10">
-          <div className="mb-2 flex items-center gap-2 text-primary">
-            <ShieldCheck className="h-4 w-4" />
-            <span className="text-xs font-semibold uppercase tracking-wide">
-              First-Time Setup
-            </span>
-          </div>
-          <p className="text-sm font-medium">
-            No administrator account has been created yet.
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Create the initial owner account to begin configuring your inventory
-            system.
-          </p>
-          <Link
-            href="/sign-up"
-            className="mt-3 inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
+        <p className="text-center text-sm text-muted-foreground">
+          Don&apos;t have an account yet?{' '}
+          <Link href="/sign-up" className="font-medium text-primary hover:underline">
             Create Owner Account
           </Link>
-        </div>
+        </p>
       )}
     </div>
   );
