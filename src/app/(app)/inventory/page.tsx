@@ -1,107 +1,93 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
-import { Boxes, ClipboardList, Tags } from 'lucide-react';
+import { Package } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
 import { getStockLevels, type StockStatus } from '@/server/analytics/inventory-analytics';
 import { getInventorySnapshot } from '@/server/analytics/dashboard';
-import { prisma } from '@/lib/prisma';
-import { getCurrency } from '@/server/services/settings-service';
-import { formatCurrency, formatDate, formatNumber, formatQuantity } from '@/lib/format';
+import { getProductFormOptions } from '@/features/products/queries';
+import { getCurrency, getSettings, readNumber } from '@/server/services/settings-service';
+import { formatNumber } from '@/lib/format';
 import { PageHeader } from '@/components/page-header';
 import { StatCard } from '@/components/stat-card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/empty-state';
-import { FilterBar, PaginationBar } from '@/components/filter-bar';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { StockInDialog } from '@/features/inventory/stock-in-dialog';
-import { cn } from '@/lib/utils';
+import { PaginationBar } from '@/components/filter-bar';
+import { AddProductDialog } from '@/features/inventory/add-product-dialog';
+import { InventoryMoreMenu } from '@/features/inventory/inventory-more-menu';
+import { InventorySearchFilter } from '@/features/inventory/inventory-search-filter';
+import { InventoryProductList } from '@/features/inventory/inventory-product-list';
 
 export const metadata: Metadata = { title: 'Inventory' };
 export const dynamic = 'force-dynamic';
 
-/** The spec's three-state stock badge: 🟢 In Stock, 🟠 Low Stock, 🔴 Out of Stock. */
-const STATUS_META: Record<StockStatus, { label: string; variant: 'success' | 'warning' | 'destructive' }> = {
-  OUT_OF_STOCK: { label: 'Out of Stock', variant: 'destructive' },
-  CRITICAL: { label: 'Low Stock', variant: 'warning' },
-  LOW: { label: 'Low Stock', variant: 'warning' },
-  HEALTHY: { label: 'In Stock', variant: 'success' },
-  OVERSTOCK: { label: 'In Stock', variant: 'success' },
-};
-
-const FILTER_STATUSES: { value: StockStatus | 'ALL'; label: string }[] = [
-  { value: 'ALL', label: 'All statuses' },
-  { value: 'HEALTHY', label: 'In Stock' },
-  { value: 'LOW', label: 'Low Stock' },
-  { value: 'OUT_OF_STOCK', label: 'Out of Stock' },
-];
-
 export default async function InventoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; status?: string; category?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; page?: string }>;
 }) {
   const user = await requirePermission('inventory.view');
   const params = await searchParams;
 
-  const status: StockStatus | 'ALL' =
-    params.status === 'LOW' || params.status === 'OUT_OF_STOCK' || params.status === 'HEALTHY'
-      ? params.status
-      : 'ALL';
+  const status: StockStatus | 'ALL' = params.status === 'LOW' || params.status === 'OUT_OF_STOCK' ? params.status : 'ALL';
 
-  const [categories, currency, snapshot] = await Promise.all([
-    prisma.category.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+  const [options, currency, settings, snapshot] = await Promise.all([
+    getProductFormOptions(),
     getCurrency(),
+    getSettings(),
     getInventorySnapshot(),
   ]);
 
   const result = await getStockLevels({
     search: params.q,
     status,
-    categoryId: params.category,
     page: Number(params.page) || 1,
     pageSize: 25,
   });
 
-  const canAdjust = userCan(user, 'inventory.create');
+  const canAdjustStock = userCan(user, 'inventory.create');
+  const canEditProduct = userCan(user, 'products.update');
+  const canCreateProduct = userCan(user, 'products.create');
+
+  const defaultUnitId = options.units.find((u) => u.name.toLowerCase() === 'piece')?.id ?? options.units[0]?.id ?? '';
+  const defaultReorderLevel = readNumber(settings, 'inventory.defaultLowStockLevel');
+
+  const hasAnyProducts = snapshot.distinctProducts > 0;
+  const hasActiveFilters = Boolean(params.q?.trim()) || status !== 'ALL';
+
+  const rows = result.rows.map((row) => ({
+    productId: row.productId,
+    name: row.name,
+    sku: row.sku,
+    unit: row.unitAbbreviation,
+    sellingPrice: row.sellingPrice,
+    onHand: row.onHand,
+    costPrice: row.costPrice,
+    status: row.status,
+  }));
 
   return (
     <>
       <PageHeader
         title="Inventory"
-        description="Live stock on hand for every product."
+        description="Manage your products and stock."
         actions={
-          canAdjust && (
-            <>
-              <Button variant="outline" asChild>
-                <Link href="/inventory/categories">
-                  <Tags /> Categories &amp; units
-                </Link>
-              </Button>
-              <Button variant="outline" asChild>
-                <Link href="/inventory/movements">Movements</Link>
-              </Button>
-              <Button variant="outline" asChild>
-                <Link href="/inventory/adjustments">
-                  <ClipboardList /> Adjust stock
-                </Link>
-              </Button>
-            </>
-          )
+          <>
+            {canAdjustStock && <InventoryMoreMenu />}
+            {canCreateProduct && (
+              <AddProductDialog
+                categories={options.categories}
+                defaultUnitId={defaultUnitId}
+                defaultReorderLevel={defaultReorderLevel}
+              />
+            )}
+          </>
         }
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Stock value"
-          value={formatCurrency(snapshot.costValue, currency)}
-          hint={`${formatCurrency(snapshot.retailValue, currency)} at retail`}
-        />
+      <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <StatCard label="Total products" value={formatNumber(snapshot.distinctProducts, 0)} />
         <StatCard
           label="Low stock"
           value={formatNumber(snapshot.lowStock + snapshot.criticalStock, 0)}
-          tone={snapshot.criticalStock > 0 ? 'warning' : 'default'}
+          tone={snapshot.lowStock + snapshot.criticalStock > 0 ? 'warning' : 'default'}
         />
         <StatCard
           label="Out of stock"
@@ -110,97 +96,44 @@ export default async function InventoryPage({
         />
       </div>
 
-      <FilterBar
-        searchPlaceholder="Search name, SKU, or barcode…"
-        selects={[
-          {
-            name: 'status',
-            label: 'Stock status',
-            allLabel: 'All statuses',
-            width: 'w-[160px]',
-            options: FILTER_STATUSES.filter((s) => s.value !== 'ALL').map((s) => ({ value: s.value, label: s.label })),
-          },
-          {
-            name: 'category',
-            label: 'Category',
-            allLabel: 'All categories',
-            options: categories.map((c) => ({ value: c.id, label: c.name })),
-          },
-        ]}
-      />
+      <InventorySearchFilter />
 
       <div className="rounded-lg border">
-        {result.rows.length === 0 ? (
-          <EmptyState
-            icon={Boxes}
-            title="Nothing to show"
-            description="Either no products match these filters, or no trackable products have been created yet."
-          />
+        {rows.length === 0 ? (
+          !hasAnyProducts ? (
+            <EmptyState
+              icon={Package}
+              title="No products yet"
+              description="Add your first product to start selling."
+              action={
+                canCreateProduct && (
+                  <AddProductDialog
+                    categories={options.categories}
+                    defaultUnitId={defaultUnitId}
+                    defaultReorderLevel={defaultReorderLevel}
+                  />
+                )
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={Package}
+              title="No products found"
+              description={
+                hasActiveFilters
+                  ? "Try a different search, or clear the filter above."
+                  : 'No products to show.'
+              }
+            />
+          )
         ) : (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="hidden md:table-cell">Category</TableHead>
-                  <TableHead className="text-right">On hand</TableHead>
-                  <TableHead className="hidden text-right sm:table-cell">Low-stock at</TableHead>
-                  <TableHead className="hidden text-right lg:table-cell">Value</TableHead>
-                  <TableHead className="hidden lg:table-cell">Last sold</TableHead>
-                  <TableHead>Status</TableHead>
-                  {canAdjust && <TableHead className="w-32" />}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {result.rows.map((row) => {
-                  const meta = STATUS_META[row.status];
-                  return (
-                    <TableRow key={row.productId}>
-                      <TableCell>
-                        <Link href={`/products/${row.productId}`} className="font-medium hover:underline">
-                          {row.name}
-                        </Link>
-                        <p className="text-xs text-muted-foreground">{row.sku}</p>
-                      </TableCell>
-                      <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
-                        {row.categoryName}
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          'tabular text-right font-medium',
-                          row.status === 'OUT_OF_STOCK'
-                            ? 'text-destructive'
-                            : row.status === 'CRITICAL' || row.status === 'LOW'
-                              ? 'text-warning'
-                              : '',
-                        )}
-                      >
-                        {formatQuantity(row.onHand)}
-                      </TableCell>
-                      <TableCell className="tabular hidden text-right text-sm text-muted-foreground sm:table-cell">
-                        {row.reorderLevel > 0 || row.minStock > 0
-                          ? formatQuantity(row.reorderLevel || row.minStock)
-                          : '—'}
-                      </TableCell>
-                      <TableCell className="tabular hidden text-right lg:table-cell">
-                        {formatCurrency(row.stockValue, currency)}
-                      </TableCell>
-                      <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
-                        {row.lastSoldAt ? formatDate(row.lastSoldAt) : 'never'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={meta.variant}>{meta.label}</Badge>
-                      </TableCell>
-                      {canAdjust && (
-                        <TableCell>
-                          <StockInDialog productId={row.productId} productName={row.name} unit="units" />
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            <InventoryProductList
+              rows={rows}
+              currency={currency}
+              canAdjustStock={canAdjustStock}
+              canEditProduct={canEditProduct}
+            />
             <PaginationBar page={result.page} pageCount={result.pageCount} total={result.total} />
           </>
         )}

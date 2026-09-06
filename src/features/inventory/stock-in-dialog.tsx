@@ -2,23 +2,45 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { PackagePlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { stockInAction } from '@/features/inventory/actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { formatQuantity } from '@/lib/format';
 
 /**
- * "Stock In → Enter Quantity → Save" — the lightweight receiving flow.
- * Deliberately simpler than a full adjustment: no reason field, one product.
+ * "Add stock" — the lightweight receiving flow, shown as Current / Add / New
+ * so an owner never has to think in terms of "inventory movements".
+ * Controlled by the parent (the row's action menu) rather than owning its own
+ * trigger, since it can be opened from more than one place.
  */
-export function StockInDialog({ productId, productName, unit }: { productId: string; productName: string; unit: string }) {
+export function StockInDialog({
+  open,
+  onOpenChange,
+  productId,
+  productName,
+  currentStock,
+  unit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  productId: string;
+  productName: string;
+  currentStock: number;
+  unit: string;
+}) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
   const [quantity, setQuantity] = React.useState('');
   const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (open) setQuantity('');
+  }, [open]);
+
+  const added = Number(quantity);
+  const newStock = currentStock + (Number.isFinite(added) ? added : 0);
 
   const onSave = async () => {
     const qty = Number(quantity);
@@ -37,36 +59,48 @@ export function StockInDialog({ productId, productName, unit }: { productId: str
     }
 
     toast.success(`${productName} stocked in.`);
-    setQuantity('');
-    setOpen(false);
+    onOpenChange(false);
     router.refresh();
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <PackagePlus className="h-4 w-4" /> Stock in
-      </Button>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Stock in — {productName}</DialogTitle>
+          <DialogTitle>Add stock — {productName}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-1.5">
-          <Label htmlFor="stock-in-qty">Quantity received ({unit})</Label>
-          <Input
-            id="stock-in-qty"
-            type="number"
-            step="0.001"
-            min="0"
-            inputMode="decimal"
-            value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
-            autoFocus
-            onKeyDown={(e) => e.key === 'Enter' && onSave()}
-          />
+        <div className="space-y-3">
+          <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Current stock</span>
+            <span className="tabular font-medium">
+              {formatQuantity(currentStock)} {unit}
+            </span>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="add-stock-qty">Add</Label>
+            <Input
+              id="add-stock-qty"
+              type="number"
+              step="0.001"
+              min="0"
+              inputMode="decimal"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && onSave()}
+            />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+            <span className="text-muted-foreground">New stock</span>
+            <span className="tabular font-semibold">
+              {formatQuantity(newStock)} {unit}
+            </span>
+          </div>
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button type="button" loading={saving} onClick={onSave}>

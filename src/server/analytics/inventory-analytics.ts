@@ -17,6 +17,7 @@ export interface StockLevelRow {
   sku: string;
   imageUrl: string | null;
   categoryName: string;
+  unitAbbreviation: string;
   warehouseName: string | null;
   onHand: number;
   reserved: number;
@@ -38,6 +39,7 @@ interface StockLevelSqlRow {
   sku: string;
   imageUrl: string | null;
   categoryName: string;
+  unitAbbreviation: string;
   warehouseName: string | null;
   onHand: string;
   reserved: string;
@@ -127,6 +129,7 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         p.sku                                                   AS "sku",
         p."imageUrl"                                            AS "imageUrl",
         c.name                                                  AS "categoryName",
+        MAX(u.abbreviation)                                     AS "unitAbbreviation",
         ${query.warehouseId ? 'MAX(w.name)' : 'NULL::text'}     AS "warehouseName",
         COALESCE(SUM(i.quantity), 0)                            AS on_hand,
         COALESCE(SUM(i.reserved), 0)                            AS reserved,
@@ -141,6 +144,7 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         MAX(i."lastReceivedAt")                                 AS last_received_at
       FROM products p
       JOIN categories c ON c.id = p."categoryId"
+      LEFT JOIN units u ON u.id = p."unitId"
       LEFT JOIN inventory i ON i."productId" = p.id
       LEFT JOIN warehouses w ON w.id = i."warehouseId"
       WHERE ${conditions.join(' AND ')}
@@ -158,7 +162,7 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
   const rows = await prisma.$queryRawUnsafe<StockLevelSqlRow[]>(
     `
     SELECT
-      "productId", "name", "sku", "imageUrl", "categoryName", "warehouseName",
+      "productId", "name", "sku", "imageUrl", "categoryName", "unitAbbreviation", "warehouseName",
       on_hand::text          AS "onHand",
       reserved::text         AS "reserved",
       reorder_level::text    AS "reorderLevel",
@@ -194,6 +198,7 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         sku: r.sku,
         imageUrl: r.imageUrl,
         categoryName: r.categoryName,
+        unitAbbreviation: r.unitAbbreviation || 'pcs',
         warehouseName: r.warehouseName,
         onHand,
         reserved,
