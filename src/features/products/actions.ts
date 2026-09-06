@@ -9,6 +9,7 @@ import { money, toNum } from '@/lib/decimal';
 import { diff, recordAudit } from '@/server/services/audit-service';
 import { deleteProductImage, uploadProductImage } from '@/server/services/storage-service';
 import { productSchema } from '@/features/products/schema';
+import { findProductByBarcode, type BarcodeMatch } from '@/features/products/queries';
 
 const PATHS = ['/products', '/inventory', '/dashboard', '/pos'];
 
@@ -260,5 +261,21 @@ export async function uploadProductImageAction(formData: FormData): Promise<Acti
 
     const url = await uploadProductImage(file, sku);
     return { url };
+  });
+}
+
+/**
+ * Checks whether a barcode already belongs to another product, so the
+ * barcode field can warn about it before a duplicate is saved. Read-only —
+ * gated on view access rather than create/update, since both the add and
+ * edit forms call this as the owner types or scans.
+ */
+export async function checkBarcodeAction(
+  barcode: string,
+  excludeId?: string,
+): Promise<ActionResult<BarcodeMatch>> {
+  return runAction(async () => {
+    await authorize('products.view');
+    return findProductByBarcode(barcode, excludeId);
   });
 }

@@ -1,134 +1,268 @@
 'use client';
 
 import * as React from 'react';
-import { Camera } from 'lucide-react';
+import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser';
+import { BarcodeFormat, DecodeHintType, NotFoundException } from '@zxing/library';
+import { Camera, ShieldAlert, Video, VideoOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
-/** Minimal typing for the browser's native barcode API — not in lib.dom yet. */
-interface DetectedBarcode {
-  rawValue: string;
-}
-interface BarcodeDetectorLike {
-  detect: (source: CanvasImageSource) => Promise<DetectedBarcode[]>;
-}
-type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDetectorLike;
-
-const SCAN_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code', 'itf'];
-
 /**
- * Opens the phone camera and reads a barcode straight into the field it's
- * attached to. Feature-detected: on a browser without native barcode
- * scanning support, it explains that plainly and the owner just types it in
- * — barcode is optional either way.
+ * Camera-based barcode scanning for a phone with no physical scanner.
+ *
+ * Uses ZXing rather than the native `BarcodeDetector` API: `BarcodeDetector`
+ * doesn't exist at all on iOS Safari or iOS Chrome (iOS forces WebKit
+ * regardless of browser), which would silently drop two of the four
+ * platforms this needs to support. ZXing runs on plain `getUserMedia` +
+ * `<video>`, so it works identically everywhere.
  */
+
+// Retail formats only — restricting the decoder to these keeps detection
+// fast and avoids false positives from QR codes or other symbologies.
+const HINTS = new Map([
+  [
+    DecodeHintType.POSSIBLE_FORMATS,
+    [BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.CODE_128],
+  ],
+]);
+
+type ScanState =
+  | 'idle' // "Allow camera access…" prompt, not requested yet
+  | 'insecure' // page is not served over HTTPS (and isn't localhost)
+  | 'unsupported' // browser has no getUserMedia at all
+  | 'requesting' // permission prompt in flight
+  | 'scanning' // camera live, decoding
+  | 'denied' // permission was refused
+  | 'no-camera' // no camera device found on this hardware
+  | 'error'; // anything else
+
+function classifyMediaError(error: unknown): ScanState {
+  const name = error instanceof Error ? error.name : '';
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') return 'denied';
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError') {
+    return 'no-camera';
+  }
+  return 'error';
+}
+
 export function BarcodeScanButton({ onScan }: { onScan: (code: string) => void }) {
   const [open, setOpen] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [state, setState] = React.useState<ScanState>('idle');
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
+  const controlsRef = React.useRef<IScannerControls | null>(null);
+  const readerRef = React.useRef<BrowserMultiFormatReader | null>(null);
 
-  const supported =
-    typeof window !== 'undefined' && 'BarcodeDetector' in window && typeof navigator.mediaDevices?.getUserMedia === 'function';
-
-  const stopStream = React.useCallback(() => {
+  const stopScanning = React.useCallback(() => {
+    controlsRef.current?.stop();
+    controlsRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }, []);
 
-  React.useEffect(() => {
-    if (!open || !supported) return;
+  const startScanning = React.useCallback(async () => {
+    setState('requesting');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setState('scanning');
 
-    let cancelled = false;
-    let rafId: number;
+      // Attaching the ref happens on the next render (state just flipped to
+      // 'scanning'), so wait a tick for the <video> element to exist.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (!videoRef.current) return;
 
-    async function start() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
+      if (!readerRef.current) readerRef.current = new BrowserMultiFormatReader(HINTS);
+
+      const controls = await readerRef.current.decodeFromStream(stream, videoRef.current, (result, error) => {
+        if (result) {
+          stopScanning();
+          onScan(result.getText());
+          setOpen(false);
           return;
         }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+        // NotFoundException fires on every frame with no visible barcode —
+        // that is the normal, expected state while the camera is searching.
+        if (error && !(error instanceof NotFoundException)) {
+          setState('error');
         }
-
-        const Detector = (window as unknown as { BarcodeDetector: BarcodeDetectorCtor }).BarcodeDetector;
-        const detector = new Detector({ formats: SCAN_FORMATS });
-
-        const tick = async () => {
-          if (cancelled || !videoRef.current) return;
-          try {
-            const codes = await detector.detect(videoRef.current);
-            if (codes.length > 0) {
-              onScan(codes[0].rawValue);
-              setOpen(false);
-              return;
-            }
-          } catch {
-            // Decoding a frame with no visible barcode throws — expected between reads.
-          }
-          rafId = requestAnimationFrame(tick);
-        };
-        rafId = requestAnimationFrame(tick);
-      } catch {
-        if (!cancelled) {
-          setError('Camera access was blocked. Allow camera access, or type the barcode in manually.');
-        }
-      }
+      });
+      controlsRef.current = controls;
+    } catch (error) {
+      setState(classifyMediaError(error));
     }
+  }, [onScan, stopScanning]);
 
-    start();
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(rafId);
-      stopStream();
-    };
-  }, [open, supported, onScan, stopStream]);
+  const openScanner = () => {
+    setOpen(true);
+
+    if (!window.isSecureContext) {
+      setState('insecure');
+      return;
+    }
+    if (typeof navigator.mediaDevices?.getUserMedia !== 'function') {
+      setState('unsupported');
+      return;
+    }
+    setState('idle');
+  };
+
+  const close = () => {
+    stopScanning();
+    setOpen(false);
+  };
+
+  // Stop the camera the moment the dialog is dismissed by any means (Esc,
+  // overlay click, or our own close()) — a scanner left running in the
+  // background is exactly the kind of thing that gets a store's wifi camera
+  // permission revoked by an annoyed owner.
+  React.useEffect(() => {
+    if (!open) stopScanning();
+  }, [open, stopScanning]);
+
+  React.useEffect(() => stopScanning, [stopScanning]);
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        onClick={() => {
-          setError(null);
-          setOpen(true);
-        }}
-      >
-        <Camera /> Scan
+      <Button type="button" variant="outline" onClick={openScanner}>
+        <Camera /> Scan Barcode
       </Button>
 
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          if (!next) stopStream();
-          setOpen(next);
-        }}
-      >
+      <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Scan barcode</DialogTitle>
+            <DialogTitle>Scan Barcode</DialogTitle>
           </DialogHeader>
-          {!supported ? (
-            <p className="text-sm text-muted-foreground">
-              This device or browser doesn&apos;t support camera scanning. Barcode is optional — you can type it in
-              instead.
-            </p>
-          ) : error ? (
-            <p className="text-sm text-destructive">{error}</p>
-          ) : (
-            <div className="space-y-2">
-              <div className="overflow-hidden rounded-md bg-black">
-                <video ref={videoRef} className="aspect-video w-full" muted playsInline />
+
+          {state === 'insecure' && (
+            <ScannerMessage
+              icon={<ShieldAlert className="h-8 w-8 text-warning" />}
+              message="Camera scanning requires a secure connection (HTTPS)."
+              actionLabel="Enter Barcode Manually"
+              onAction={close}
+            />
+          )}
+
+          {state === 'unsupported' && (
+            <ScannerMessage
+              icon={<VideoOff className="h-8 w-8 text-muted-foreground" />}
+              message="This device or browser doesn't support camera scanning."
+              actionLabel="Enter Barcode Manually"
+              onAction={close}
+            />
+          )}
+
+          {state === 'no-camera' && (
+            <ScannerMessage
+              icon={<VideoOff className="h-8 w-8 text-muted-foreground" />}
+              message="Camera scanning isn't available on this device."
+              actionLabel="Enter Barcode Manually"
+              onAction={close}
+            />
+          )}
+
+          {(state === 'idle' || state === 'requesting') && (
+            <div className="space-y-4 py-2 text-center">
+              <Camera className="mx-auto h-8 w-8 text-muted-foreground" aria-hidden="true" />
+              <p className="text-sm text-muted-foreground">Allow camera access to scan product barcodes.</p>
+              <Button type="button" onClick={startScanning} loading={state === 'requesting'} className="w-full">
+                Allow Camera
+              </Button>
+              <button
+                type="button"
+                onClick={close}
+                className="block w-full text-center text-xs text-muted-foreground hover:text-foreground hover:underline"
+              >
+                Enter barcode manually
+              </button>
+            </div>
+          )}
+
+          {state === 'denied' && (
+            <div className="space-y-3 py-2 text-center">
+              <ShieldAlert className="mx-auto h-8 w-8 text-destructive" aria-hidden="true" />
+              <p className="text-sm text-destructive">Camera access was blocked.</p>
+              <div className="flex flex-col gap-2">
+                <Button type="button" onClick={startScanning} className="w-full">
+                  Try Again
+                </Button>
+                <button
+                  type="button"
+                  onClick={close}
+                  className="text-center text-xs text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  Enter barcode manually
+                </button>
               </div>
-              <p className="text-center text-xs text-muted-foreground">Point the camera at the barcode.</p>
+            </div>
+          )}
+
+          {state === 'error' && (
+            <ScannerMessage
+              icon={<VideoOff className="h-8 w-8 text-destructive" />}
+              message="Something went wrong reading the camera. You can try again or type the barcode in."
+              actionLabel="Try Again"
+              onAction={startScanning}
+              secondaryLabel="Enter barcode manually"
+              onSecondary={close}
+            />
+          )}
+
+          {state === 'scanning' && (
+            <div className="space-y-3">
+              <div className="relative overflow-hidden rounded-lg border-2 border-primary/40 bg-black">
+                <video ref={videoRef} className="aspect-square w-full object-cover" muted playsInline autoPlay />
+                <div className="pointer-events-none absolute inset-6 rounded-md border-2 border-dashed border-white/70" />
+              </div>
+              <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+                <Video className="h-3.5 w-3.5" aria-hidden="true" />
+                Point your camera at the product barcode.
+              </p>
+              <Button type="button" variant="outline" onClick={close} className="w-full">
+                Cancel
+              </Button>
             </div>
           )}
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function ScannerMessage({
+  icon,
+  message,
+  actionLabel,
+  onAction,
+  secondaryLabel,
+  onSecondary,
+}: {
+  icon: React.ReactNode;
+  message: string;
+  actionLabel: string;
+  onAction: () => void;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
+}) {
+  return (
+    <div className="space-y-3 py-2 text-center">
+      <div className="mx-auto w-fit">{icon}</div>
+      <p className="text-sm text-muted-foreground">{message}</p>
+      <Button type="button" onClick={onAction} className="w-full">
+        {actionLabel}
+      </Button>
+      {secondaryLabel && onSecondary && (
+        <button
+          type="button"
+          onClick={onSecondary}
+          className="block w-full text-center text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          {secondaryLabel}
+        </button>
+      )}
+    </div>
   );
 }

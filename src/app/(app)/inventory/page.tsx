@@ -76,6 +76,7 @@ export default async function InventoryPage({
                 categories={options.categories}
                 defaultUnitId={defaultUnitId}
                 defaultReorderLevel={defaultReorderLevel}
+                currency={currency}
               />
             )}
           </>
@@ -111,6 +112,7 @@ export default async function InventoryPage({
                     categories={options.categories}
                     defaultUnitId={defaultUnitId}
                     defaultReorderLevel={defaultReorderLevel}
+                    currency={currency}
                   />
                 )
               }

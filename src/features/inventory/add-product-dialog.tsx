@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { FormField, FormError } from '@/components/form';
 import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
+import { BarcodeDuplicateNotice } from '@/features/inventory/barcode-duplicate-notice';
 
 const quickAddSchema = z.object({
   name: z.string().trim().min(2, 'Give the product a name.').max(160),
@@ -56,10 +57,12 @@ export function AddProductDialog({
   categories,
   defaultUnitId,
   defaultReorderLevel,
+  currency,
 }: {
   categories: { id: string; name: string }[];
   defaultUnitId: string;
   defaultReorderLevel: number;
+  currency: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -76,11 +79,14 @@ export function AddProductDialog({
     reset,
     setValue,
     setError,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<QuickAddInput>({
     resolver: zodResolver(quickAddSchema),
     defaultValues: { ...EMPTY, categoryId: categories[0]?.id ?? '' },
   });
+
+  const barcodeValue = watch('barcode');
 
   React.useEffect(() => {
     if (open) {
@@ -302,6 +308,8 @@ export function AddProductDialog({
                 )}
               />
             </FormField>
+
+            {barcodeValue && <BarcodeDuplicateNotice barcode={barcodeValue} currency={currency} />}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>

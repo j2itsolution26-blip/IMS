@@ -292,3 +292,34 @@ export async function searchSellableProducts(term: string, limit = 24) {
 }
 
 export type SellableProduct = Awaited<ReturnType<typeof searchSellableProducts>>[number];
+
+/**
+ * Looks up a product by its exact barcode, so the barcode field (whether
+ * typed or scanned) can warn about a duplicate before the owner saves a
+ * second product for something already in the catalogue. `excludeId` lets
+ * the edit form check without matching the product it's already editing.
+ */
+export async function findProductByBarcode(barcode: string, excludeId?: string) {
+  const trimmed = barcode.trim();
+  if (!trimmed) return null;
+
+  const product = await prisma.product.findFirst({
+    where: { barcode: trimmed, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    select: {
+      id: true,
+      name: true,
+      sellingPrice: true,
+      inventory: { select: { quantity: true } },
+    },
+  });
+  if (!product) return null;
+
+  return {
+    id: product.id,
+    name: product.name,
+    sellingPrice: toNum(product.sellingPrice),
+    onHand: product.inventory.reduce((sum, row) => sum + toNum(row.quantity), 0),
+  };
+}
+
+export type BarcodeMatch = Awaited<ReturnType<typeof findProductByBarcode>>;

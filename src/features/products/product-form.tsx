@@ -21,6 +21,8 @@ import { Label } from '@/components/ui/label';
 import { formatCurrency } from '@/lib/format';
 import { ProductImage } from '@/components/product-image';
 import { validateImageUrl } from '@/lib/image-url';
+import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
+import { BarcodeDuplicateNotice } from '@/features/inventory/barcode-duplicate-notice';
 
 export interface ProductFormOptions {
   categories: { id: string; name: string }[];
@@ -182,6 +184,7 @@ export function ProductForm({
   // Same rule the server applies, so the field cannot look accepted here
   // and then be rejected on submit.
   const imageCheck = React.useMemo(() => validateImageUrl(imageUrl), [imageUrl]);
+  const barcodeValue = watch('barcode');
   const costPrice = Number(watch('costPrice')) || 0;
   const sellingPrice = Number(watch('sellingPrice')) || 0;
   const isTrackable = watch('isTrackable');
@@ -260,9 +263,27 @@ export function ProductForm({
                   error={errors.barcode}
                   description="Scanned at the POS. Leave blank if there isn't one."
                 >
-                  <Input id="barcode" {...register('barcode')} aria-invalid={Boolean(errors.barcode)} />
+                  <Controller
+                    name="barcode"
+                    control={control}
+                    render={({ field }) => (
+                      <div className="flex gap-2">
+                        <Input
+                          id="barcode"
+                          {...field}
+                          value={field.value ?? ''}
+                          aria-invalid={Boolean(errors.barcode)}
+                        />
+                        <BarcodeScanButton onScan={(code) => field.onChange(code)} />
+                      </div>
+                    )}
+                  />
                 </FormField>
               </div>
+
+              {barcodeValue && (
+                <BarcodeDuplicateNotice barcode={barcodeValue} currency={currency} excludeId={productId} />
+              )}
 
               <FormField id="description" label="Description" error={errors.description}>
                 <Textarea id="description" rows={3} {...register('description')} />
