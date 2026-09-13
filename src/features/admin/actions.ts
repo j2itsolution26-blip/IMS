@@ -10,7 +10,7 @@ import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { runAsProvisioning } from '@/lib/provisioning-context';
 import { recordAudit } from '@/server/services/audit-service';
-import { ALL_PERMISSION_KEYS } from '@/lib/permissions';
+import { ALL_PERMISSION_KEYS, OWNER_ROLE_SLUG } from '@/lib/permissions';
 import { slugify } from '@/lib/utils';
 import { SETTING_DEFINITIONS } from '@/lib/settings-definitions';
 
@@ -77,16 +77,23 @@ export async function updateSettings(input: unknown): Promise<ActionResult<numbe
 
 // --- Users ------------------------------------------------------------------
 
+// Mirrors `validatePassword` in src/lib/password.ts and the hook in
+// src/lib/auth.ts. Without the special-character rule this schema would accept
+// a password that Better Auth then rejects, surfacing the failure against no
+// field at all.
+const passwordSchema = z
+  .string()
+  .min(10, 'Use at least 10 characters.')
+  .max(128)
+  .regex(/[a-z]/, 'Include a lowercase letter.')
+  .regex(/[A-Z]/, 'Include an uppercase letter.')
+  .regex(/[0-9]/, 'Include a number.')
+  .regex(/[^A-Za-z0-9]/, 'Include a special character.');
+
 const createUserSchema = z.object({
   name: z.string().trim().min(2, 'Enter a full name.').max(80),
   email: z.string().trim().toLowerCase().email('Enter a valid email address.'),
-  password: z
-    .string()
-    .min(10, 'Use at least 10 characters.')
-    .max(128)
-    .regex(/[a-z]/, 'Include a lowercase letter.')
-    .regex(/[A-Z]/, 'Include an uppercase letter.')
-    .regex(/[0-9]/, 'Include a number.'),
+  password: passwordSchema,
   roleId: z.string().min(1, 'Choose a role.'),
   phone: z.string().trim().max(40).optional(),
 });
@@ -100,6 +107,14 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     if (!role) {
       throw new ValidationError('That role no longer exists.', {
         roleId: ['Pick a role from the list.'],
+      });
+    }
+
+    // Owner exists only from first-run setup. Enforced here, not just by
+    // filtering the dropdown, so a crafted payload cannot mint a second owner.
+    if (role.slug === OWNER_ROLE_SLUG) {
+      throw new ValidationError('Owner accounts cannot be created here.', {
+        roleId: ['Choose a staff role.'],
       });
     }
 
@@ -221,6 +236,12 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
     const newRole = await prisma.role.findUnique({ where: { id: values.roleId }, select: { slug: true, name: true } });
     if (!newRole) throw new NotFoundError('Role');
 
+    // Promotion to Owner is not an edit — the owner is established once, during
+    // first-run setup. Re-saving the existing owner's own row is still allowed.
+    if (newRole.slug === OWNER_ROLE_SLUG && target.role.slug !== OWNER_ROLE_SLUG) {
+      throw new ConflictError('Staff accounts cannot be promoted to Owner.');
+    }
+
     // The system must always retain at least one active owner.
     if (target.role.slug === 'owner' && (newRole.slug !== 'owner' || !values.isActive)) {
       const otherOwners = await prisma.user.count({
@@ -260,6 +281,48 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
 
     revalidatePath('/settings/users');
     return { id };
+  });
+}
+
+const resetPasswordSchema = z.object({ password: passwordSchema });
+
+/**
+ * Sets a new password for a staff account on the owner's behalf, for when
+ * someone forgets theirs.
+ *
+ * Hashing goes through Better Auth's own context rather than writing to the
+ * `accounts` table directly, so the stored hash is produced by exactly the same
+ * code path that sign-in verifies against.
+ */
+export async function resetUserPassword(id: string, input: unknown): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const admin = await authorize('users.update');
+    const values = parseInput(resetPasswordSchema, input);
+
+    const target = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true },
+    });
+    if (!target) throw new NotFoundError('User');
+
+    const ctx = await auth.$context;
+    const hash = await ctx.password.hash(values.password);
+    await ctx.internalAdapter.updatePassword(id, hash);
+
+    // The old password is gone, so any session opened with it should be too —
+    // this is the same reasoning as `revokeOtherSessions` on a self-service
+    // change, and it forces the staff member to sign in with the new one.
+    await prisma.session.deleteMany({ where: { userId: id } });
+
+    await recordAudit({
+      action: 'UPDATE',
+      entity: 'User',
+      entityId: id,
+      summary: `Reset password for ${target.email}`,
+      userId: admin.id,
+    });
+
+    revalidatePath('/settings/users');
   });
 }
 

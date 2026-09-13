@@ -53,8 +53,8 @@ async function claimOwnerSetupSlot(): Promise<boolean> {
  *
  * The very first account to exist becomes the Owner — that is how the system
  * bootstraps without shipping a seeded admin user with a known password. Every
- * account after that gets the role marked as the sign-up default (Cashier),
- * and an Owner can change it from Settings > Users.
+ * account after that is created by the Owner from Settings > Staff Accounts,
+ * which overrides this default with the role they picked.
  */
 async function resolveRoleIdForNewUser(): Promise<string> {
   const existingUsers = await prisma.user.count();

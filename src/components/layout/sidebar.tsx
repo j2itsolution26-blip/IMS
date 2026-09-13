@@ -6,8 +6,12 @@ import { usePathname } from 'next/navigation';
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronsUpDown,
   LogOut,
   ScanBarcode,
+  Settings as SettingsIcon,
+  User as UserIcon,
+  Users,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -16,6 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/misc';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NAVIGATION } from '@/components/layout/navigation';
 import { authClient } from '@/lib/auth-client';
@@ -256,53 +261,84 @@ export function Sidebar({
 
         {/* Sidebar Footer */}
         <div className="border-t border-sidebar-border p-2 space-y-2 shrink-0">
-          {/* User info card */}
+          {/* User info card — opens the account menu */}
           {user && (
-            <div
-              className={cn(
-                'flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/5 p-2 shadow-2xs transition-all',
-                collapsed ? 'lg:justify-center lg:p-1.5 lg:border-none lg:bg-transparent' : 'justify-between',
-              )}
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <Avatar className="h-8 w-8 border border-primary/20 shrink-0">
-                  {user.image && <AvatarImage src={user.image} alt={user.name} />}
-                  <AvatarFallback>{initials(user.name)}</AvatarFallback>
-                </Avatar>
-
-                <div
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`Account menu for ${user.name}`}
                   className={cn(
-                    'flex flex-col min-w-0 transition-opacity duration-200',
-                    collapsed ? 'lg:hidden' : 'block',
+                    'flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/5 p-2 text-left shadow-2xs transition-all hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    collapsed ? 'lg:justify-center lg:p-1.5 lg:border-none lg:bg-transparent' : 'justify-between',
                   )}
                 >
-                  <p className="truncate text-xs font-semibold text-sidebar-foreground leading-tight">{user.name}</p>
-                  <span className="mt-0.5 inline-block w-fit rounded-full bg-primary/15 px-1.5 py-0.2 text-[10px] font-medium text-primary">
-                    {user.roleName}
-                  </span>
-                </div>
-              </div>
+                  <span className="flex items-center gap-2.5 min-w-0">
+                    <Avatar className="h-8 w-8 border border-primary/20 shrink-0">
+                      {user.image && <AvatarImage src={user.image} alt="" />}
+                      <AvatarFallback>{initials(user.name)}</AvatarFallback>
+                    </Avatar>
 
-              {/* Quick Sign out button */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleSignOut}
-                    disabled={signingOut}
+                    <span
+                      className={cn(
+                        'flex flex-col min-w-0 transition-opacity duration-200',
+                        collapsed ? 'lg:hidden' : 'flex',
+                      )}
+                    >
+                      <span className="truncate text-xs font-semibold text-sidebar-foreground leading-tight">
+                        {user.name}
+                      </span>
+                      <span className="mt-0.5 inline-block w-fit rounded-full bg-primary/15 px-1.5 py-0.2 text-[10px] font-medium text-primary">
+                        {user.roleName}
+                      </span>
+                    </span>
+                  </span>
+
+                  <ChevronsUpDown
                     className={cn(
-                      'h-7 w-7 shrink-0 text-sidebar-muted-foreground hover:text-destructive hover:bg-destructive/10',
-                      collapsed ? 'lg:hidden' : 'flex',
+                      'h-3.5 w-3.5 shrink-0 text-sidebar-muted-foreground',
+                      collapsed ? 'lg:hidden' : 'block',
                     )}
-                    aria-label="Sign out"
-                  >
-                    <LogOut className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">Sign out</TooltipContent>
-              </Tooltip>
-            </div>
+                    aria-hidden="true"
+                  />
+                </button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent side="top" align="start" className="w-56">
+                <DropdownMenuItem asChild>
+                  <Link href="/settings/profile" onClick={onClose}>
+                    <UserIcon /> Profile
+                  </Link>
+                </DropdownMenuItem>
+
+                {granted.has('users.view') && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings/users" onClick={onClose}>
+                      <Users /> Staff Accounts
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+
+                {granted.has('settings.view') && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings" onClick={onClose}>
+                      <SettingsIcon /> Settings
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+
+                <DropdownMenuItem
+                  destructive
+                  disabled={signingOut}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleSignOut();
+                  }}
+                >
+                  <LogOut /> {signingOut ? 'Signing out…' : 'Log Out'}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
 
           {/* Theme switcher control in expanded view */}

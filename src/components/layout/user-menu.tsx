@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { LogOut, Settings, User as UserIcon } from 'lucide-react';
+import { LogOut, Settings, User as UserIcon, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage, Separator } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -21,9 +21,10 @@ interface UserMenuProps {
   image: string | null;
   roleName: string;
   canManageSettings: boolean;
+  canManageStaff: boolean;
 }
 
-export function UserMenu({ name, email, image, roleName, canManageSettings }: UserMenuProps) {
+export function UserMenu({ name, email, image, roleName, canManageSettings, canManageStaff }: UserMenuProps) {
   const [signingOut, setSigningOut] = React.useState(false);
 
   const onSignOut = async () => {
@@ -65,6 +66,14 @@ export function UserMenu({ name, email, image, roleName, canManageSettings }: Us
             <UserIcon /> Profile
           </Link>
         </DropdownMenuItem>
+
+        {canManageStaff && (
+          <DropdownMenuItem asChild>
+            <Link href="/settings/users">
+              <Users /> Staff Accounts
+            </Link>
+          </DropdownMenuItem>
+        )}
 
         {canManageSettings && (
           <DropdownMenuItem asChild>

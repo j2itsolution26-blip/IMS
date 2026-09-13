@@ -37,6 +37,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           image={user.image}
           roleName={user.role.name}
           canManageSettings={userCan(user, 'settings.view')}
+          canManageStaff={userCan(user, 'users.view')}
         />
       }
     >

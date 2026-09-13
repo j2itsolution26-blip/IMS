@@ -97,7 +97,34 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       'reports.view',
     ],
   },
+  {
+    slug: 'inventory-staff',
+    name: 'Inventory Staff',
+    description: 'Manages products and stock. Cannot use the POS or change settings.',
+    permissions: [
+      'dashboard.view',
+      'products.view',
+      'products.create',
+      'products.update',
+      'products.export',
+      'categories.view',
+      'categories.create',
+      'units.view',
+      'inventory.view',
+      'inventory.create',
+      'inventory.update',
+      'inventory.export',
+      'reports.view',
+    ],
+  },
 ];
+
+/**
+ * The Owner role is created once, during first-run setup. Every other role is
+ * a staff role and is what the Add Staff form offers — Owner is deliberately
+ * not assignable from there, so the system keeps exactly one owner.
+ */
+export const OWNER_ROLE_SLUG = 'owner';
 
 export function resolveRolePermissions(role: RoleDefinition): PermissionKey[] {
   return role.permissions === 'ALL' ? ALL_PERMISSION_KEYS : role.permissions;
