@@ -2,9 +2,11 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   Banknote,
-  CreditCard,
+  Check,
+  Copy,
   Loader2,
   Lock,
   LogOut,
@@ -13,6 +15,7 @@ import {
   Plus,
   Printer,
   Search,
+  Settings as SettingsIcon,
   ShoppingCart,
   Smartphone,
   Trash2,
@@ -29,7 +32,6 @@ import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -72,6 +74,9 @@ export interface PosTerminalProps {
     receiptFooter: string;
   };
   cashierName: string;
+  /** Read-only at the till — only an Owner can change these, from Settings. */
+  gcash: { number: string; accountName: string };
+  canEditStoreSettings: boolean;
   openShift: OpenShiftInfo | null;
 }
 
@@ -88,20 +93,43 @@ interface BasketLine {
   unitAbbreviation: string;
 }
 
-interface TenderRow {
-  method: PaymentMethod;
-  amount: string;
-  reference: string;
+/**
+ * A sari-sari store takes cash or GCash. The `PaymentMethod` enum still has
+ * CARD and OTHER for historical sales, so the column and past receipts keep
+ * rendering — the till just never writes them.
+ */
+type PayMethod = Extract<PaymentMethod, 'CASH' | 'GCASH'>;
+
+const METHOD_LABEL: Record<PayMethod, string> = { CASH: 'Cash', GCASH: 'GCash' };
+
+/** The notes customers actually hand over. */
+const QUICK_CASH = [20, 50, 100, 200, 500];
+
+/**
+ * Keeps the money fields to digits and a single decimal point.
+ *
+ * These use `type="text"` with a decimal `inputMode` rather than
+ * `type="number"`: the number spinners land on top of the right-aligned figure
+ * in a field this large, and a decimal inputMode already brings up the numeric
+ * keypad on both Android and iOS.
+ */
+function sanitizeAmount(value: string): string {
+  const cleaned = value.replace(/[^\d.]/g, '');
+  const [whole, ...rest] = cleaned.split('.');
+  return rest.length > 0 ? `${whole}.${rest.join('').slice(0, 2)}` : whole;
 }
 
-const METHOD_META: Record<PaymentMethod, { label: string; icon: typeof Banknote }> = {
-  CASH: { label: 'Cash', icon: Banknote },
-  GCASH: { label: 'GCash', icon: Smartphone },
-  CARD: { label: 'Card', icon: CreditCard },
-  OTHER: { label: 'Other', icon: CreditCard },
-};
-
-const QUICK_METHODS: PaymentMethod[] = ['CASH', 'GCASH', 'CARD', 'OTHER'];
+function currencySymbolFor(currency: string): string {
+  try {
+    return (
+      new Intl.NumberFormat('en-PH', { style: 'currency', currency })
+        .formatToParts(0)
+        .find((part) => part.type === 'currency')?.value ?? '₱'
+    );
+  } catch {
+    return '₱';
+  }
+}
 
 export function PosTerminal({
   initialProducts,
@@ -109,6 +137,8 @@ export function PosTerminal({
   taxRate,
   company,
   cashierName,
+  gcash,
+  canEditStoreSettings,
   openShift,
 }: PosTerminalProps) {
   const router = useRouter();
@@ -122,7 +152,11 @@ export function PosTerminal({
   const [notes, setNotes] = React.useState('');
 
   const [payOpen, setPayOpen] = React.useState(false);
-  const [tenders, setTenders] = React.useState<TenderRow[]>([{ method: 'CASH', amount: '', reference: '' }]);
+  const [method, setMethod] = React.useState<PayMethod>('CASH');
+  const [cashReceived, setCashReceived] = React.useState('');
+  const [gcashAmount, setGcashAmount] = React.useState('');
+  const [gcashReference, setGcashReference] = React.useState('');
+  const [copiedGcash, setCopiedGcash] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
 
   const [receipt, setReceipt] = React.useState<ReceiptData | null>(null);
@@ -339,24 +373,43 @@ export function PosTerminal({
     };
   }, [basket, orderDiscount, taxRate]);
 
-  const tendered = tenders.reduce((acc, row) => acc + (Number(row.amount) || 0), 0);
-  const hasCash = tenders.some((row) => row.method === 'CASH' && Number(row.amount) > 0);
-  const change = hasCash ? Math.max(0, round(tendered - totals.total)) : 0;
-  const outstanding = round(Math.max(0, totals.total - tendered));
+  // --- Payment (one tender, cash or GCash) ---------------------------------
+
+  const paid = round(Math.max(0, Number(method === 'CASH' ? cashReceived : gcashAmount) || 0));
+  const change = method === 'CASH' ? round(Math.max(0, paid - totals.total)) : 0;
+  const outstanding = round(Math.max(0, totals.total - paid));
+  // The sale service takes no partial payments, so the tender has to cover the
+  // whole total before the sale can be completed.
+  const canComplete = totals.total > 0 && outstanding === 0;
+
+  const currencySymbol = React.useMemo(() => currencySymbolFor(currency), [currency]);
+
+  const copyGcashNumber = async () => {
+    try {
+      await navigator.clipboard.writeText(gcash.number);
+      setCopiedGcash(true);
+      setTimeout(() => setCopiedGcash(false), 2000);
+    } catch {
+      toast.error('Could not copy the number automatically.');
+    }
+  };
 
   // --- Checkout ------------------------------------------------------------
 
   const openPayment = () => {
     if (basket.length === 0) return;
-    // Pre-fill exact cash: the common case is a card or e-wallet for the exact
-    // amount, and typing it again is friction.
-    setTenders([{ method: 'CASH', amount: totals.total.toFixed(2), reference: '' }]);
+    setMethod('CASH');
+    // Cash starts blank so the cashier enters what the customer actually
+    // handed over; GCash is almost always for the exact amount.
+    setCashReceived('');
+    setGcashAmount(totals.total.toFixed(2));
+    setGcashReference('');
     setPayOpen(true);
   };
 
   const onCheckout = async () => {
-    if (outstanding > 0) {
-      toast.error('Amount tendered does not cover the total.');
+    if (!canComplete) {
+      toast.error('The payment does not cover the amount due.');
       return;
     }
 
@@ -369,13 +422,13 @@ export function PosTerminal({
         discount: line.discount,
       })),
       discount: Number(orderDiscount) || 0,
-      payments: tenders
-        .filter((row) => Number(row.amount) > 0)
-        .map((row) => ({
-          method: row.method,
-          amount: Number(row.amount),
-          reference: row.reference.trim() || undefined,
-        })),
+      payments: [
+        {
+          method,
+          amount: paid,
+          reference: method === 'GCASH' ? gcashReference.trim() || undefined : undefined,
+        },
+      ],
       notes: notes.trim() || undefined,
     });
 
@@ -404,9 +457,7 @@ export function PosTerminal({
       total: result.data.total,
       paid: result.data.paidAmount,
       change: result.data.changeAmount,
-      payments: tenders
-        .filter((row) => Number(row.amount) > 0)
-        .map((row) => ({ method: METHOD_META[row.method].label, amount: Number(row.amount) })),
+      payments: [{ method: METHOD_LABEL[method], amount: paid }],
       company,
       currency,
     });
@@ -672,138 +723,191 @@ export function PosTerminal({
       <Dialog open={payOpen} onOpenChange={setPayOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Take payment</DialogTitle>
+            <DialogTitle>Take Payment</DialogTitle>
             <DialogDescription>
-              {formatCurrency(totals.total, currency)} due for {formatQuantity(totals.itemCount)} item
-              {totals.itemCount === 1 ? '' : 's'}.
+              {formatQuantity(totals.itemCount)} item{totals.itemCount === 1 ? '' : 's'} in this sale.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-1.5">
-              {QUICK_METHODS.map((method) => {
-                const Icon = METHOD_META[method].icon;
-                return (
-                  <Button
-                    key={method}
-                    type="button"
-                    variant={tenders[0]?.method === method ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() =>
-                      setTenders([
-                        { method, amount: totals.total.toFixed(2), reference: '' },
-                      ])
-                    }
-                  >
-                    <Icon /> {METHOD_META[method].label}
-                  </Button>
-                );
-              })}
+          <div className="space-y-4">
+            {/* Amount due — the number the cashier reads out loud */}
+            <div className="rounded-xl border bg-muted/40 px-4 py-3 text-center">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Amount Due</p>
+              <p className="tabular mt-0.5 text-4xl font-bold leading-tight">
+                {formatCurrency(totals.total, currency)}
+              </p>
             </div>
 
-            {tenders.map((tender, index) => (
-              <div key={index} className="space-y-2 rounded-md border p-2.5">
-                <div className="flex gap-2">
-                  <Select
-                    value={tender.method}
-                    onValueChange={(value) =>
-                      setTenders((current) =>
-                        current.map((row, i) =>
-                          i === index ? { ...row, method: value as PaymentMethod } : row,
-                        ),
-                      )
-                    }
-                  >
-                    <SelectTrigger className="w-[150px]" aria-label="Payment method">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(METHOD_META).map(([value, meta]) => (
-                        <SelectItem key={value} value={value}>
-                          {meta.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            <div className="space-y-2">
+              <Label>Payment Method</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <MethodButton
+                  active={method === 'CASH'}
+                  icon={Banknote}
+                  label="Cash"
+                  onClick={() => setMethod('CASH')}
+                />
+                <MethodButton
+                  active={method === 'GCASH'}
+                  icon={Smartphone}
+                  label="GCash"
+                  onClick={() => setMethod('GCASH')}
+                />
+              </div>
+            </div>
 
-                  <Input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={tender.amount}
-                    onChange={(event) =>
-                      setTenders((current) =>
-                        current.map((row, i) => (i === index ? { ...row, amount: event.target.value } : row)),
-                      )
-                    }
-                    placeholder="0.00"
-                    className="text-right"
-                    aria-label="Amount tendered"
-                  />
-
-                  {tenders.length > 1 && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setTenders((current) => current.filter((_, i) => i !== index))}
-                      aria-label="Remove payment line"
-                    >
-                      <X />
-                    </Button>
-                  )}
+            {method === 'CASH' ? (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cash-received">Cash Received</Label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg font-semibold text-muted-foreground">
+                      {currencySymbol}
+                    </span>
+                    <Input
+                      id="cash-received"
+                      type="text"
+                      inputMode="decimal"
+                      value={cashReceived}
+                      onChange={(event) => setCashReceived(sanitizeAmount(event.target.value))}
+                      placeholder="0.00"
+                      autoFocus
+                      className="tabular h-14 pl-9 text-right text-2xl font-semibold"
+                    />
+                  </div>
                 </div>
 
-                {tender.method !== 'CASH' && (
-                  <Input
-                    value={tender.reference}
-                    onChange={(event) =>
-                      setTenders((current) =>
-                        current.map((row, i) =>
-                          i === index ? { ...row, reference: event.target.value } : row,
-                        ),
-                      )
-                    }
-                    placeholder="Reference number (optional)"
-                    aria-label="Payment reference"
-                  />
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="tabular"
+                    onClick={() => setCashReceived(totals.total.toFixed(2))}
+                  >
+                    Exact
+                  </Button>
+                  {/* Only notes that actually cover the bill — tapping one must
+                      never leave the sale short. */}
+                  {QUICK_CASH.filter((amount) => amount >= totals.total).map((amount) => (
+                    <Button
+                      key={amount}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="tabular"
+                      onClick={() => setCashReceived(amount.toFixed(2))}
+                    >
+                      ₱{amount}
+                    </Button>
+                  ))}
+                </div>
+
+                {outstanding > 0 ? (
+                  <div className="rounded-xl bg-destructive/10 px-4 py-3 text-center">
+                    <p className="text-xs font-medium uppercase tracking-wide text-destructive">
+                      Amount still due
+                    </p>
+                    <p className="tabular mt-0.5 text-3xl font-bold text-destructive">
+                      {formatCurrency(outstanding, currency)}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-success/10 px-4 py-3 text-center">
+                    <p className="text-xs font-medium uppercase tracking-wide text-success">Change</p>
+                    <p className="tabular mt-0.5 text-3xl font-bold text-success">
+                      {formatCurrency(change, currency)}
+                    </p>
+                  </div>
                 )}
               </div>
-            ))}
+            ) : (
+              <div className="space-y-3">
+                {gcash.number ? (
+                  <div className="space-y-2 rounded-xl border bg-muted/30 p-3 text-center">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Send payment to
+                    </p>
+                    <p className="tabular text-2xl font-bold leading-tight">
+                      {formatPhoneNumber(gcash.number)}
+                    </p>
+                    {gcash.accountName && <p className="text-sm text-muted-foreground">{gcash.accountName}</p>}
+                    <Button type="button" variant="outline" size="sm" onClick={copyGcashNumber}>
+                      {copiedGcash ? <Check /> : <Copy />} {copiedGcash ? 'Copied' : 'Copy Number'}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 rounded-xl border border-warning/40 bg-warning/10 p-3 text-center">
+                    <p className="text-sm font-medium text-warning">GCash number has not been set.</p>
+                    {canEditStoreSettings && (
+                      <Button type="button" variant="outline" size="sm" asChild>
+                        <Link href="/settings">
+                          <SettingsIcon /> Set GCash Number
+                        </Link>
+                      </Button>
+                    )}
+                  </div>
+                )}
 
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={() =>
-                setTenders((current) => [
-                  ...current,
-                  { method: 'CASH', amount: outstanding > 0 ? outstanding.toFixed(2) : '', reference: '' },
-                ])
-              }
-            >
-              <Plus /> Split payment
-            </Button>
+                <div className="space-y-1.5">
+                  <Label htmlFor="gcash-amount">Payment Amount</Label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg font-semibold text-muted-foreground">
+                      {currencySymbol}
+                    </span>
+                    <Input
+                      id="gcash-amount"
+                      type="text"
+                      inputMode="decimal"
+                      value={gcashAmount}
+                      onChange={(event) => setGcashAmount(sanitizeAmount(event.target.value))}
+                      placeholder="0.00"
+                      className="tabular h-14 pl-9 text-right text-2xl font-semibold"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="gcash-reference">GCash Reference Number</Label>
+                  <Input
+                    id="gcash-reference"
+                    inputMode="numeric"
+                    value={gcashReference}
+                    onChange={(event) => setGcashReference(event.target.value)}
+                    placeholder="Enter reference number"
+                    maxLength={80}
+                  />
+                </div>
+
+                {outstanding > 0 && (
+                  <div className="rounded-xl bg-destructive/10 px-4 py-3 text-center">
+                    <p className="text-xs font-medium uppercase tracking-wide text-destructive">
+                      Amount still due
+                    </p>
+                    <p className="tabular mt-0.5 text-3xl font-bold text-destructive">
+                      {formatCurrency(outstanding, currency)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <Separator />
 
-            <Row label="Tendered" value={formatCurrency(tendered, currency)} />
-            {change > 0 && (
-              <div className="flex items-center justify-between rounded-md bg-success/10 px-3 py-2">
-                <span className="font-medium text-success">Change</span>
-                <span className="tabular text-lg font-bold text-success">
-                  {formatCurrency(change, currency)}
-                </span>
-              </div>
-            )}
-            {outstanding > 0 && (
-              <div className="flex items-center justify-between rounded-md bg-destructive/10 px-3 py-2">
-                <span className="font-medium text-destructive">Still due</span>
-                <span className="tabular font-bold text-destructive">
-                  {formatCurrency(outstanding, currency)}
-                </span>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <Row label="Amount Due" value={formatCurrency(totals.total, currency)} />
+              {method === 'CASH' ? (
+                <>
+                  <Row label="Cash Received" value={formatCurrency(paid, currency)} />
+                  <Row label="Change" value={formatCurrency(change, currency)} />
+                </>
+              ) : (
+                <>
+                  <Row label="GCash Payment" value={formatCurrency(paid, currency)} />
+                  {gcashReference.trim() && <Row label="Reference" value={gcashReference.trim()} />}
+                </>
+              )}
+            </div>
 
             <Textarea
               value={notes}
@@ -817,8 +921,8 @@ export function PosTerminal({
             <Button variant="outline" onClick={() => setPayOpen(false)} disabled={submitting}>
               Cancel
             </Button>
-            <Button onClick={onCheckout} loading={submitting}>
-              Complete sale
+            <Button onClick={onCheckout} loading={submitting} disabled={!canComplete}>
+              Complete Sale
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -919,6 +1023,42 @@ export function PosTerminal({
       </Dialog>
     </div>
   );
+}
+
+function MethodButton({
+  active,
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: typeof Banknote;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'flex h-14 items-center justify-center gap-2 rounded-xl border-2 text-base font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        active
+          ? 'border-primary bg-primary/10 text-primary'
+          : 'border-border text-muted-foreground hover:bg-accent',
+      )}
+    >
+      <Icon className="h-5 w-5" aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
+/** Groups an 11-digit PH mobile number as 0917 123 4567; anything else is shown as entered. */
+function formatPhoneNumber(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length !== 11) return raw;
+  return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
 }
 
 function Row({ label, value }: { label: string; value: string }) {

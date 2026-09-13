@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/lib/session';
+import { requirePermission, userCan } from '@/lib/session';
 import { searchSellableProducts } from '@/features/products/queries';
 import { getCompanyProfile, getSettings, readNumber } from '@/server/services/settings-service';
 import { getOpenShift } from '@/server/services/shift-service';
@@ -37,6 +37,8 @@ export default async function PosPage() {
           phone: company.phone,
           receiptFooter: company.receiptFooter,
         }}
+        gcash={{ number: company.gcashNumber, accountName: company.gcashName }}
+        canEditStoreSettings={userCan(user, 'settings.update')}
         openShift={openShift ? { id: openShift.id, openedAt: openShift.openedAt.toISOString(), openingCash: openShift.openingCash } : null}
       />
     </>

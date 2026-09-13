@@ -20,8 +20,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 
 const GROUP_META: Record<string, { title: string; description: string }> = {
   company: {
-    title: 'Company',
-    description: 'Printed on receipts and used as headers on exported reports.',
+    title: 'Store Information',
+    description: 'Printed on receipts, used as headers on exported reports, and shown to the cashier at checkout.',
   },
   regional: {
     title: 'Regional',

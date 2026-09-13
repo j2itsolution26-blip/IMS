@@ -22,6 +22,8 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   { key: 'company.address', value: '', type: 'STRING', group: 'company', label: 'Address', description: 'Printed under the store name on receipts.' },
   { key: 'company.phone', value: '', type: 'STRING', group: 'company', label: 'Contact number', description: 'Contact number printed on receipts.' },
   { key: 'company.logoUrl', value: '', type: 'STRING', group: 'company', label: 'Store logo', description: 'Shown on receipts and the sidebar.' },
+  { key: 'company.gcashNumber', value: '', type: 'STRING', group: 'company', label: 'GCash number', description: 'Shown to the cashier at checkout so the customer knows where to send a GCash payment.' },
+  { key: 'company.gcashName', value: '', type: 'STRING', group: 'company', label: 'GCash account name', description: 'The name registered to that GCash number.' },
 
   // Regional.
   { key: 'locale.currency', value: 'PHP', type: 'STRING', group: 'regional', label: 'Currency code', description: 'ISO 4217 code used to format every monetary value.' },

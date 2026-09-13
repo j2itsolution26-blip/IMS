@@ -59,6 +59,8 @@ export interface CompanyProfile {
   logoUrl: string;
   receiptFooter: string;
   currency: string;
+  gcashNumber: string;
+  gcashName: string;
 }
 
 export async function getCompanyProfile(): Promise<CompanyProfile> {
@@ -70,5 +72,7 @@ export async function getCompanyProfile(): Promise<CompanyProfile> {
     logoUrl: readString(settings, 'company.logoUrl'),
     receiptFooter: readString(settings, 'pos.receiptFooter'),
     currency: readString(settings, 'locale.currency') || 'PHP',
+    gcashNumber: readString(settings, 'company.gcashNumber'),
+    gcashName: readString(settings, 'company.gcashName'),
   };
 }
