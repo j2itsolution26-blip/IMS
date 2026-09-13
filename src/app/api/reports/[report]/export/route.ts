@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { getCurrentUser } from '@/lib/session';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { RateLimitError } from '@/lib/errors';
-import { parsePeriod, resolveRange } from '@/server/analytics/date-range';
+import { resolveReportWindow, toDateRange } from '@/server/reports/report-window';
 import { getReport } from '@/server/reports/registry';
 import {
   CONTENT_TYPES,
@@ -55,8 +55,18 @@ export async function GET(
   const formatParam = (request.nextUrl.searchParams.get('format') ?? 'csv').toLowerCase();
   const format = FORMATS.includes(formatParam as ExportFormat) ? (formatParam as ExportFormat) : 'csv';
 
-  const period = parsePeriod(request.nextUrl.searchParams.get('period') ?? undefined, 'last30');
-  const range = resolveRange(period);
+  // Resolved through the same helper the Reports dashboard uses, so a download
+  // covers exactly the window that was on screen — custom ranges included.
+  const range = toDateRange(
+    resolveReportWindow(
+      {
+        period: request.nextUrl.searchParams.get('period') ?? undefined,
+        from: request.nextUrl.searchParams.get('from') ?? undefined,
+        to: request.nextUrl.searchParams.get('to') ?? undefined,
+      },
+      'last30',
+    ),
+  );
 
   try {
     const company = await getCompanyProfile();

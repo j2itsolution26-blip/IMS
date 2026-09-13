@@ -23,7 +23,18 @@ const FORMATS = [
  * Fetches the file rather than navigating so a server-side failure surfaces as
  * a toast instead of replacing the page with a raw JSON error.
  */
-export function ExportMenu({ reportId, period }: { reportId: string; period?: string }) {
+export function ExportMenu({
+  reportId,
+  period,
+  from,
+  to,
+}: {
+  reportId: string;
+  period?: string;
+  /** Custom window as yyyy-MM-dd. Both are required for the range to apply. */
+  from?: string;
+  to?: string;
+}) {
   const [busy, setBusy] = React.useState<string | null>(null);
 
   const download = async (format: string) => {
@@ -32,6 +43,10 @@ export function ExportMenu({ reportId, period }: { reportId: string; period?: st
     try {
       const params = new URLSearchParams({ format });
       if (period) params.set('period', period);
+      if (from && to) {
+        params.set('from', from);
+        params.set('to', to);
+      }
 
       const response = await fetch(`/api/reports/${reportId}/export?${params.toString()}`);
 
