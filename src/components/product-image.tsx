@@ -50,11 +50,19 @@ export function ProductImage({
   showFailureText?: boolean;
 }) {
   const [status, setStatus] = React.useState<'idle' | 'loaded' | 'error'>('idle');
+  const imgRef = React.useRef<HTMLImageElement>(null);
 
   // A changed src is a fresh attempt — otherwise a previous failure would stick
   // and a newly uploaded image would render as broken.
   React.useEffect(() => {
     setStatus('idle');
+
+    // An image served from cache can finish before React attaches onLoad, so
+    // that event never fires and the picture would sit at opacity-0 behind the
+    // placeholder forever. Revisiting any page hits this, so ask the element
+    // directly rather than waiting to be told.
+    const img = imgRef.current;
+    if (img?.complete) setStatus(img.naturalWidth > 0 ? 'loaded' : 'error');
   }, [src]);
 
   const frame = cn(
@@ -88,6 +96,7 @@ export function ProductImage({
     <div className={frame}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        ref={imgRef}
         src={src}
         alt={alt}
         loading="lazy"

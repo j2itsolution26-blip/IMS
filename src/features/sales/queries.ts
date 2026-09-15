@@ -49,6 +49,17 @@ export async function listSales(query: SaleListQuery = {}) {
         createdAt: true,
         user: { select: { name: true } },
         payments: { select: { method: true }, orderBy: { createdAt: 'asc' } },
+        // Just enough of the first line to show what was sold without opening
+        // the invoice; `_count` says how many more there were.
+        items: {
+          orderBy: { id: 'asc' },
+          take: 1,
+          select: {
+            quantity: true,
+            unitPrice: true,
+            product: { select: { name: true, imageUrl: true } },
+          },
+        },
         _count: { select: { items: true } },
       },
     }),
@@ -78,6 +89,15 @@ export async function listSales(query: SaleListQuery = {}) {
       cashierName: row.user.name,
       paymentMethod: row.payments.length === 0 ? null : row.payments.length > 1 ? 'Split' : row.payments[0].method,
       itemCount: row._count.items,
+      firstItem: row.items[0]
+        ? {
+            name: row.items[0].product.name,
+            imageUrl: row.items[0].product.imageUrl,
+            quantity: toNum(row.items[0].quantity),
+            unitPrice: toNum(row.items[0].unitPrice),
+          }
+        : null,
+      extraItemCount: Math.max(0, row._count.items - 1),
     })),
     total,
     page,
@@ -96,7 +116,11 @@ export async function getSale(id: string) {
       warehouse: { select: { id: true, name: true } },
       user: { select: { id: true, name: true } },
       items: {
-        include: { product: { select: { id: true, name: true, sku: true, unit: { select: { abbreviation: true } } } } },
+        include: {
+          product: {
+            select: { id: true, name: true, sku: true, imageUrl: true, unit: { select: { abbreviation: true } } },
+          },
+        },
       },
       payments: { orderBy: { createdAt: 'asc' } },
       returns: {
@@ -131,6 +155,7 @@ export async function getSale(id: string) {
       productId: item.product.id,
       name: item.product.name,
       sku: item.product.sku,
+      imageUrl: item.product.imageUrl,
       unit: item.product.unit.abbreviation,
       quantity: toNum(item.quantity),
       returnedQuantity: toNum(item.returnedQuantity),

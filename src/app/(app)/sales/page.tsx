@@ -7,6 +7,7 @@ import { listSales } from '@/features/sales/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { resolveRange, parsePeriod } from '@/server/analytics/date-range';
 import { formatCurrency, formatDateTime, humanizeEnum } from '@/lib/format';
+import { SaleItemPreview } from '@/features/sales/sale-item-preview';
 import { SALE_STATUS_LABEL, SALE_STATUS_BADGE } from '@/lib/sale-status';
 import { PageHeader } from '@/components/page-header';
 import { PeriodPicker } from '@/components/period-picker';
@@ -109,6 +110,7 @@ export default async function SalesPage({
               <TableHeader>
                 <TableRow>
                   <TableHead>Invoice</TableHead>
+                  <TableHead>Item</TableHead>
                   <TableHead className="hidden lg:table-cell">Cashier</TableHead>
                   <TableHead className="hidden md:table-cell">Payment</TableHead>
                   <TableHead className="text-right">Total</TableHead>
@@ -119,13 +121,24 @@ export default async function SalesPage({
                 {result.rows.map((sale) => (
                   <TableRow key={sale.id}>
                     <TableCell>
-                      <Link href={`/sales/${sale.id}`} className="font-medium hover:underline">
+                      <Link
+                        href={`/sales/${sale.id}`}
+                        className="whitespace-nowrap font-medium hover:underline"
+                      >
                         {sale.invoiceNumber}
                       </Link>
-                      <p className="text-xs text-muted-foreground">
-                        {formatDateTime(sale.createdAt)} · {sale.itemCount} item
-                        {sale.itemCount === 1 ? '' : 's'}
+                      <p className="whitespace-nowrap text-xs text-muted-foreground">
+                        {formatDateTime(sale.createdAt)}
                       </p>
+                    </TableCell>
+
+                    <TableCell>
+                      <SaleItemPreview
+                        href={`/sales/${sale.id}`}
+                        item={sale.firstItem}
+                        extraCount={sale.extraItemCount}
+                        currency={currency}
+                      />
                     </TableCell>
                     <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
                       {sale.cashierName}

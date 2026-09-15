@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ProductImage } from '@/components/product-image';
 import { SaleActions } from '@/features/sales/sale-actions';
 import { ReceiptButton } from '@/features/sales/receipt-button';
 
@@ -88,17 +89,30 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                 {sale.items.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell>
-                      <Link href={`/products/${item.productId}`} className="font-medium hover:underline">
-                        {item.name}
-                      </Link>
-                      <p className="text-xs text-muted-foreground">
-                        {item.sku}
-                        {item.returnedQuantity > 0 && (
-                          <span className="ml-1 text-warning">
-                            · {formatQuantity(item.returnedQuantity)} returned
-                          </span>
-                        )}
-                      </p>
+                      <div className="flex items-center gap-3">
+                        <ProductImage
+                          src={item.imageUrl}
+                          alt={item.name}
+                          size="sm"
+                          className="h-11 w-11 rounded-lg"
+                        />
+                        <div className="min-w-0">
+                          <Link
+                            href={`/products/${item.productId}`}
+                            className="font-medium hover:underline"
+                          >
+                            {item.name}
+                          </Link>
+                          <p className="text-xs text-muted-foreground">
+                            {item.sku}
+                            {item.returnedQuantity > 0 && (
+                              <span className="ml-1 text-warning">
+                                · {formatQuantity(item.returnedQuantity)} returned
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
                     </TableCell>
                     <TableCell className="tabular text-right">
                       {formatQuantity(item.quantity)} {item.unit}
