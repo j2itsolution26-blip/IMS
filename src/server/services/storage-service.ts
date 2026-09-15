@@ -447,8 +447,12 @@ export async function verifyStorage(): Promise<StorageDiagnosis> {
       bucketExists: true,
       publicBucket: Boolean(data?.public),
       ok: true,
+      // `problem` is for something that is actually impaired. A project URL
+      // that disagrees with the database is reported through `urlNote`, since
+      // storage is reconciled to the database and keeps working regardless —
+      // calling that a problem makes a healthy deployment read as a broken one.
       problem: data?.public
-        ? resolution.note
+        ? undefined
         : `The bucket "${configuredBucket}" exists but is not public, so saved photos will not display. Make it public in Storage → Buckets.`,
     };
   } catch (error) {
