@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAppUrl, getSupabaseUrl, getTrustedOrigins, isStorageConfigured } from '@/lib/env';
+import { verifyStorage } from '@/server/services/storage-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,11 +45,22 @@ export async function GET() {
   // Product image upload is optional, so it is reported separately and does
   // not affect `healthy`. Presence only — never the value, and never a prefix
   // or length that would narrow a guess at the secret.
+  // Presence of the variables is not the same as uploads working: the bucket
+  // may not exist, or the URL may point at a project that no longer does. Both
+  // are checked for real, because they are exactly the failures that otherwise
+  // surface to a shop owner as an unexplained "fetch failed".
+  const diagnosis = await verifyStorage();
+
   const storage = {
     supabaseUrl: Boolean(getSupabaseUrl()),
     SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
-    bucket: process.env.SUPABASE_STORAGE_BUCKET?.trim() || 'product-images',
+    host: diagnosis.host,
+    bucket: diagnosis.bucket,
     uploadEnabled: isStorageConfigured(),
+    bucketExists: diagnosis.bucketExists,
+    bucketIsPublic: diagnosis.publicBucket,
+    uploadsWorking: diagnosis.ok,
+    problem: diagnosis.problem,
     // Names what is missing, so "upload unavailable" is never a dead end.
     missing: [
       ...(getSupabaseUrl() ? [] : ['NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL)']),

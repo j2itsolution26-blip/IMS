@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { FormField, FormError } from '@/components/form';
 import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
 import { BarcodeDuplicateNotice } from '@/features/inventory/barcode-duplicate-notice';
-import { ProductPhotoField } from '@/features/inventory/product-photo-field';
+import { ProductPhotoField, type PhotoUploadStatus } from '@/features/inventory/product-photo-field';
 
 const quickAddSchema = z.object({
   name: z.string().trim().min(2, 'Give the product a name.').max(160),
@@ -75,6 +75,7 @@ export function AddProductDialog({
   const [newCategoryName, setNewCategoryName] = React.useState('');
   const [savingCategory, setSavingCategory] = React.useState(false);
   const [photoUrl, setPhotoUrl] = React.useState('');
+  const [photoStatus, setPhotoStatus] = React.useState<PhotoUploadStatus>('idle');
 
   const {
     register,
@@ -99,6 +100,7 @@ export function AddProductDialog({
       setAddingCategory(false);
       setNewCategoryName('');
       setPhotoUrl('');
+      setPhotoStatus('idle');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -126,8 +128,15 @@ export function AddProductDialog({
     toast.success('Category added.');
   };
 
+  const photoBusy = photoStatus === 'preparing' || photoStatus === 'uploading';
+
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
+
+    if (photoBusy) {
+      setFormError('The product photo is still uploading. It will only take a moment.');
+      return;
+    }
 
     if (!defaultUnitId) {
       setFormError('Add a unit of measure first — see More → Categories & units.');
@@ -203,6 +212,7 @@ export function AddProductDialog({
             <ProductPhotoField
               value={photoUrl}
               onChange={setPhotoUrl}
+              onStatusChange={setPhotoStatus}
               fileNameHint={watch('name') || 'product'}
               disabled={!storageEnabled}
             />
@@ -327,8 +337,10 @@ export function AddProductDialog({
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" loading={isSubmitting}>
-                Save Product
+              {/* A product must not be saved while its photo is still on the
+                  way up, or it would be saved without one. */}
+              <Button type="submit" loading={isSubmitting} disabled={photoBusy}>
+                {photoBusy ? 'Uploading photo…' : 'Save Product'}
               </Button>
             </DialogFooter>
           </form>

@@ -19,6 +19,15 @@ const nextConfig: NextConfig = {
   // naming it here is both wrong and a hard startup error ("the packages
   // specified in 'transpilePackages' conflict with 'serverExternalPackages'").
   serverExternalPackages: ['@prisma/client', 'exceljs', 'better-auth', 'kysely'],
+  experimental: {
+    serverActions: {
+      // Product photos are uploaded through a server action, and the storage
+      // service accepts up to 5 MB. Without this the default 1 MB cap rejects
+      // mid-size camera photos first, with an error that says nothing about
+      // size. The extra megabyte covers multipart encoding overhead.
+      bodySizeLimit: '6mb',
+    },
+  },
   // Lint and type-check are run as their own steps (`npm run verify`) rather
   // than inside `next build`. Both pass in seconds standalone, but Next's
   // combined lint+typecheck worker is killed part-way through on this
