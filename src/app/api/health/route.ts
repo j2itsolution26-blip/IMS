@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {
   getAppUrl,
+  getDatabaseProjectRef,
+  getSupabaseKeyProjectRef,
   getSupabasePublishableKey,
   getSupabaseSecretKey,
   getSupabaseSecretKeySource,
@@ -70,6 +72,17 @@ export async function GET() {
     secretKey: getSupabaseSecretKey() ? 'present' : 'missing',
     /** Which variable the key came from, so a legacy name can be migrated. */
     secretKeyVariable: getSupabaseSecretKeySource(),
+    /**
+     * The project each half of the configuration belongs to. These must match.
+     * Both are public project refs read from a JWT claim and a connection
+     * string host — never the key or the password.
+     */
+    databaseProject: getDatabaseProjectRef() ?? null,
+    secretKeyProject: getSupabaseKeyProjectRef() ?? null,
+    projectsMatch:
+      getDatabaseProjectRef() && getSupabaseKeyProjectRef()
+        ? getDatabaseProjectRef() === getSupabaseKeyProjectRef()
+        : null,
     publishableKey: getSupabasePublishableKey() ? 'present' : 'missing',
     bucket: diagnosis.bucket,
     bucketExists: diagnosis.bucketExists,

@@ -163,6 +163,40 @@ export function getSupabaseSecretKeySource(): string | null {
 }
 
 /**
+ * The project a `service_role` key was issued for.
+ *
+ * Legacy Supabase keys are JWTs whose payload carries a public `ref` claim —
+ * the project's subdomain, which appears in every image URL and is not
+ * sensitive. Reading it turns "the credentials were rejected" into "this key
+ * is for a different project", which is the difference between a guess and an
+ * instruction. Only the claim is ever surfaced; the token never is.
+ *
+ * Returns undefined for the newer opaque `sb_secret_…` keys, which carry no
+ * readable claims — absence of an answer, never a wrong one.
+ */
+export function getSupabaseKeyProjectRef(): string | undefined {
+  const key = getSupabaseSecretKey();
+  if (!key) return undefined;
+
+  const segments = key.split('.');
+  if (segments.length !== 3) return undefined;
+
+  try {
+    const payload = segments[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4);
+    const claims = JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as { ref?: unknown };
+    return typeof claims.ref === 'string' ? claims.ref : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The Supabase project the database connects to, when it names one. */
+export function getDatabaseProjectRef(): string | undefined {
+  return projectRefFromDatabase();
+}
+
+/**
  * The browser-safe Supabase key.
  *
  * Accepted under both the current and legacy names. This application talks to

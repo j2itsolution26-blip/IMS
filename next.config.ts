@@ -1,13 +1,40 @@
 import type { NextConfig } from 'next';
 
-const supabaseHost = (() => {
-  try {
-    return process.env.NEXT_PUBLIC_SUPABASE_URL
-      ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname
-      : null;
-  } catch {
-    return null;
+/**
+ * Storage hosts images may be served from.
+ *
+ * Both the configured URL and the project named by DATABASE_URL are allowed:
+ * when the two disagree, the application serves images from the database's
+ * project (see `resolveSupabaseUrl`), so listing only the configured host
+ * would block the very images it does load. Duplicating the small ref
+ * extraction here rather than importing it keeps `next.config` free of
+ * application code, which is loaded in a different context.
+ */
+const supabaseHosts = (() => {
+  const hosts = new Set<string>();
+
+  for (const value of [process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_URL]) {
+    try {
+      if (value) hosts.add(new URL(value).hostname);
+    } catch {
+      // Ignore an unparseable value; the derived host below still applies.
+    }
   }
+
+  for (const value of [process.env.DATABASE_URL, process.env.DIRECT_URL]) {
+    try {
+      if (!value) continue;
+      const url = new URL(value);
+      const ref =
+        /^postgres\.([a-z0-9]{16,})$/i.exec(decodeURIComponent(url.username))?.[1] ??
+        /^db\.([a-z0-9]{16,})\.supabase\.co$/i.exec(url.hostname)?.[1];
+      if (ref) hosts.add(`${ref}.supabase.co`);
+    } catch {
+      // Not a connection string we can read.
+    }
+  }
+
+  return [...hosts];
 })();
 
 const nextConfig: NextConfig = {
@@ -35,9 +62,11 @@ const nextConfig: NextConfig = {
   // output readable — without the build inheriting that instability.
   eslint: { ignoreDuringBuilds: true },
   images: {
-    remotePatterns: supabaseHost
-      ? [{ protocol: 'https', hostname: supabaseHost, pathname: '/storage/v1/object/public/**' }]
-      : [],
+    remotePatterns: supabaseHosts.map((hostname) => ({
+      protocol: 'https' as const,
+      hostname,
+      pathname: '/storage/v1/object/public/**',
+    })),
   },
   async headers() {
     return [

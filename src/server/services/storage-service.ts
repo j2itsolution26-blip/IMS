@@ -2,7 +2,15 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { getSupabaseSecretKey, getSupabaseUrl, isStorageConfigured, resolveSupabaseUrl } from '@/lib/env';
+import {
+  getDatabaseProjectRef,
+  getSupabaseKeyProjectRef,
+  getSupabaseSecretKey,
+  getSupabaseSecretKeySource,
+  getSupabaseUrl,
+  isStorageConfigured,
+  resolveSupabaseUrl,
+} from '@/lib/env';
 import { AppError, ValidationError } from '@/lib/errors';
 
 /**
@@ -183,6 +191,17 @@ function describeFailure(error: unknown): string {
   }
 
   if (/invalid|jwt|unauthor|signature/i.test(message)) {
+    // A key issued for another project is the usual cause, and the key itself
+    // says which one — so name it rather than leaving the operator guessing.
+    const keyProject = getSupabaseKeyProjectRef();
+    const databaseProject = getDatabaseProjectRef();
+
+    if (keyProject && databaseProject && keyProject !== databaseProject) {
+      return `Image storage rejected the credentials: the key is for Supabase project "${keyProject}", but this application uses project "${databaseProject}". Replace ${
+        getSupabaseSecretKeySource() ?? 'SUPABASE_SECRET_KEY'
+      } with the key from project "${databaseProject}" and redeploy.`;
+    }
+
     return 'Image storage rejected the credentials. Check SUPABASE_SECRET_KEY belongs to this Supabase project.';
   }
 
