@@ -115,32 +115,42 @@ export function Sidebar({
         )}
         aria-label="Main navigation"
       >
-        {/* Brand Header */}
+        {/* Brand Header.
+
+            The logo never shrinks and the text column is allowed to (min-w-0),
+            which is what lets a long store name truncate instead of pushing
+            across the logo. Both lines are single-line: the name ellipsises,
+            and the subtitle is never broken into "POINT OF" / "SALE". */}
         <div
           className={cn(
-            'flex h-14 items-center border-b border-sidebar-border px-3 shrink-0 transition-all duration-200',
-            collapsed ? 'lg:justify-center' : 'justify-between',
+            'flex h-14 shrink-0 items-center gap-2 border-b border-sidebar-border px-3 transition-all duration-200',
+            // The collapsed rail is 4.25rem; px-3 plus the link's padding would
+            // leave only 36px, so the 40px logo needs the tighter inset there.
+            collapsed ? 'lg:justify-center lg:px-2' : 'justify-between',
           )}
         >
           <Link
             href="/dashboard"
-            className={cn('flex items-center gap-2.5 min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg p-1', collapsed && 'lg:justify-center')}
+            className={cn(
+              'flex min-w-0 flex-1 items-center gap-3 rounded-lg p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              collapsed && 'lg:flex-none lg:justify-center',
+            )}
             onClick={onClose}
             title={companyName}
           >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-transform hover:scale-105">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-transform hover:scale-105">
               <ScanBarcode className="h-5 w-5" />
             </span>
             <div
               className={cn(
-                'flex flex-col min-w-0 transition-opacity duration-200',
-                collapsed ? 'lg:hidden' : 'block',
+                'flex min-w-0 flex-col justify-center transition-opacity duration-200',
+                collapsed ? 'lg:hidden' : 'flex',
               )}
             >
-              <span className="truncate text-sm font-semibold tracking-tight leading-tight text-sidebar-foreground">
+              <span className="truncate text-sm font-semibold leading-tight tracking-tight text-sidebar-foreground">
                 {companyName}
               </span>
-              <span className="text-[10px] font-medium text-sidebar-muted-foreground uppercase tracking-wider">
+              <span className="truncate text-[10px] font-medium uppercase leading-tight tracking-wider text-sidebar-muted-foreground">
                 Point of Sale
               </span>
             </div>
@@ -149,7 +159,7 @@ export function Sidebar({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 lg:hidden text-sidebar-muted-foreground hover:text-sidebar-foreground"
+            className="h-8 w-8 shrink-0 lg:hidden text-sidebar-muted-foreground hover:text-sidebar-foreground"
             onClick={onClose}
             aria-label="Close navigation"
           >
