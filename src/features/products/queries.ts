@@ -4,6 +4,7 @@ import type { Prisma, ProductStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { toNum } from '@/lib/decimal';
 import { getDefaultWarehouseId } from '@/server/services/warehouse-service';
+import { normalizeBarcode } from '@/lib/barcode';
 
 /**
  * Product reads.
@@ -292,6 +293,33 @@ export async function searchSellableProducts(term: string, limit = 24) {
 }
 
 export type SellableProduct = Awaited<ReturnType<typeof searchSellableProducts>>[number];
+
+/**
+ * Finds a sellable product by barcode the way a scanner reads it.
+ *
+ * An EAN-13 is printed on the pack as "4 800365 221029" but scans as
+ * "4800365221029", and catalogues end up holding either form depending on
+ * whether the code was typed or scanned when the product was added. Comparing
+ * both sides with the separators removed means a scan matches regardless.
+ */
+export async function findSellableByBarcode(barcode: string): Promise<SellableProduct | null> {
+  const normalized = normalizeBarcode(barcode);
+  if (!normalized) return null;
+
+  const rows = await prisma.$queryRaw<{ barcode: string }[]>`
+    SELECT barcode FROM products
+    WHERE status = 'ACTIVE'
+      AND barcode IS NOT NULL
+      AND upper(regexp_replace(barcode, '[^0-9A-Za-z]', '', 'g')) = ${normalized}
+    LIMIT 1
+  `;
+  if (rows.length === 0) return null;
+
+  // Hand the stored spelling back to the main query so price and stock are
+  // still read in exactly one place.
+  const matches = await searchSellableProducts(rows[0].barcode, 5);
+  return matches.find((p) => p.barcode === rows[0].barcode) ?? null;
+}
 
 /**
  * Looks up a product by its exact barcode, so the barcode field (whether

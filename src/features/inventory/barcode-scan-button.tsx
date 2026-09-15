@@ -38,11 +38,12 @@ const ZXING_HINTS = new Map([
       BarcodeFormat.UPC_E,
       BarcodeFormat.CODE_128,
       BarcodeFormat.CODE_39,
+      BarcodeFormat.ITF,
     ],
   ],
 ]);
 
-const NATIVE_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39'];
+const NATIVE_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'];
 
 /** ~8 decode attempts a second reads fast without cooking the battery. */
 const DECODE_INTERVAL_MS = 120;
@@ -297,7 +298,17 @@ function CameraStage({
   return <video ref={videoRef} className="h-full w-full object-contain" muted playsInline autoPlay />;
 }
 
-export function BarcodeScanButton({ onScan }: { onScan: (code: string) => void }) {
+export function BarcodeScanButton({
+  onScan,
+  label = 'Scan Barcode',
+  size,
+  className,
+}: {
+  onScan: (code: string) => void;
+  label?: string;
+  size?: React.ComponentProps<typeof Button>['size'];
+  className?: string;
+}) {
   const [open, setOpen] = React.useState(false);
   const [state, setState] = React.useState<ScanState>('starting');
 
@@ -327,8 +338,8 @@ export function BarcodeScanButton({ onScan }: { onScan: (code: string) => void }
 
   return (
     <>
-      <Button type="button" variant="outline" onClick={openScanner}>
-        <Camera /> Scan Barcode
+      <Button type="button" variant="outline" size={size} className={className} onClick={openScanner}>
+        <Camera /> {label}
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>

@@ -6,7 +6,7 @@ import { authorize } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createSale, type CompletedSale } from '@/server/services/sale-service';
-import { searchSellableProducts, type SellableProduct } from '@/features/products/queries';
+import { findSellableByBarcode, searchSellableProducts, type SellableProduct } from '@/features/products/queries';
 
 /**
  * Point-of-sale actions.
@@ -77,5 +77,13 @@ export async function lookupProducts(term: string): Promise<ActionResult<Sellabl
   return runAction(async () => {
     await authorize('pos.view');
     return searchSellableProducts(term, 40);
+  });
+}
+
+/** Exact barcode lookup for a scan, tolerant of how the code was spelled. */
+export async function lookupBarcode(code: string): Promise<ActionResult<SellableProduct | null>> {
+  return runAction(async () => {
+    await authorize('pos.view');
+    return findSellableByBarcode(code);
   });
 }

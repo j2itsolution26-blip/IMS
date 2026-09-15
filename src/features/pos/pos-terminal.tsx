@@ -24,8 +24,9 @@ import {
 import { toast } from 'sonner';
 import type { PaymentMethod } from '@prisma/client';
 import type { SellableProduct } from '@/features/products/queries';
+import { normalizeBarcode } from '@/lib/barcode';
 import { ProductImage } from '@/components/product-image';
-import { checkout, lookupProducts } from '@/features/pos/actions';
+import { checkout, lookupBarcode, lookupProducts } from '@/features/pos/actions';
 import { openShiftAction, closeShiftAction, previewShiftCloseAction } from '@/features/pos/shift-actions';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -42,6 +43,7 @@ import {
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/misc';
 import { Receipt, type ReceiptData } from '@/features/pos/receipt';
+import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
 import { formatCurrency, formatDateTime, formatQuantity } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -77,6 +79,7 @@ export interface PosTerminalProps {
   /** Read-only at the till — only an Owner can change these, from Settings. */
   gcash: { number: string; accountName: string };
   canEditStoreSettings: boolean;
+  canCreateProducts: boolean;
   openShift: OpenShiftInfo | null;
 }
 
@@ -101,6 +104,15 @@ interface BasketLine {
 type PayMethod = Extract<PaymentMethod, 'CASH' | 'GCASH'>;
 
 const METHOD_LABEL: Record<PayMethod, string> = { CASH: 'Cash', GCASH: 'GCash' };
+
+/** Matches a scanned or typed code against a loaded list, ignoring pack spacing. */
+function matchExact(list: SellableProduct[], value: string): SellableProduct | undefined {
+  const code = normalizeBarcode(value);
+  return (
+    list.find((p) => p.barcode && normalizeBarcode(p.barcode) === code) ??
+    list.find((p) => normalizeBarcode(p.sku) === code)
+  );
+}
 
 /** The notes customers actually hand over. */
 const QUICK_CASH = [20, 50, 100, 200, 500];
@@ -139,6 +151,7 @@ export function PosTerminal({
   cashierName,
   gcash,
   canEditStoreSettings,
+  canCreateProducts,
   openShift,
 }: PosTerminalProps) {
   const router = useRouter();
@@ -261,6 +274,13 @@ export function PosTerminal({
 
   // --- Basket --------------------------------------------------------------
 
+  // Mirrors the basket for the scan path, which has to know the current
+  // quantity *before* deciding whether one more would exceed stock.
+  const basketRef = React.useRef<BasketLine[]>([]);
+  React.useEffect(() => {
+    basketRef.current = basket;
+  }, [basket]);
+
   const addToBasket = React.useCallback((product: SellableProduct, quantity = 1) => {
     setBasket((current) => {
       const existing = current.find((line) => line.productId === product.id);
@@ -299,26 +319,158 @@ export function PosTerminal({
     });
   }, []);
 
-  /** Enter in the search field: an exact barcode match rings straight through. */
+  /**
+   * Rings one scanned or typed code straight into the cart.
+   *
+   * Shared by all three ways a code can arrive: the camera scanner, a
+   * USB/Bluetooth scanner typing into the search box, and the cashier typing
+   * it by hand. Stock is only checked here — nothing is deducted until the
+   * sale is completed.
+   */
+  const addScannedProduct = React.useCallback(
+    (product: SellableProduct) => {
+      const existing = basketRef.current.find((line) => line.productId === product.id);
+      const nextQuantity = (existing?.quantity ?? 0) + 1;
+
+      if (product.isTrackable && nextQuantity > product.available) {
+        toast.error(
+          product.available <= 0
+            ? `${product.name} — out of stock.`
+            : `Only ${formatQuantity(product.available)} of ${product.name} left.`,
+        );
+        return;
+      }
+
+      addToBasket(product);
+      toast.success(`${product.name} × ${formatQuantity(nextQuantity)}`, { duration: 1500 });
+    },
+    [addToBasket],
+  );
+
+  const resolveCode = React.useCallback(
+    async (raw: string) => {
+      const value = raw.trim();
+      if (!value) return;
+
+      const accept = (product: SellableProduct) => {
+        addScannedProduct(product);
+        setTerm('');
+        searchRef.current?.focus();
+      };
+
+      // Already on screen — the usual case for a small catalogue.
+      const onScreen = matchExact(products, value);
+      if (onScreen) {
+        accept(onScreen);
+        return;
+      }
+
+      setSearching(true);
+      // Barcode first, and tolerant of separators: a code typed into the
+      // catalogue as it reads on the pack still matches what the scanner sends.
+      const byBarcode = await lookupBarcode(value);
+      if (byBarcode.ok && byBarcode.data) {
+        setSearching(false);
+        accept(byBarcode.data);
+        return;
+      }
+
+      const result = await lookupProducts(value);
+      setSearching(false);
+
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+
+      const matches = result.data;
+      const exact = matchExact(matches, value);
+      const only = matches.length === 1 ? matches[0] : undefined;
+      const hit = exact ?? only;
+
+      if (hit) {
+        accept(hit);
+        return;
+      }
+
+      if (matches.length === 0) {
+        toast.error('Product not found', {
+          description: value,
+          duration: 8000,
+          ...(canCreateProducts
+            ? {
+                action: {
+                  label: 'Add to Inventory',
+                  onClick: () => router.push('/products/new'),
+                },
+              }
+            : {}),
+        });
+        return;
+      }
+
+      // Several name matches — show them and let the cashier tap one.
+      setProducts(matches);
+    },
+    [products, addScannedProduct, canCreateProducts, router],
+  );
+
   const onSearchSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    const value = term.trim();
-    if (!value) return;
+    void resolveCode(term);
+  };
 
-    const exact =
-      products.find((p) => p.barcode && p.barcode.toLowerCase() === value.toLowerCase()) ??
-      products.find((p) => p.sku.toLowerCase() === value.toLowerCase());
+  const termRef = React.useRef(term);
+  React.useEffect(() => {
+    termRef.current = term;
+  }, [term]);
 
-    if (exact) {
-      addToBasket(exact);
-      setTerm('');
-      return;
-    }
+  /**
+   * Keeps a barcode field ready at all times for USB/Bluetooth scanners,
+   * which are just keyboards that type fast and press Enter.
+   *
+   * The cashier should never have to click the search box first, so any
+   * stray keystroke that lands on the page rather than in a field is pulled
+   * into the search input. Once it has focus the remaining characters arrive
+   * there natively.
+   */
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      // A dialog is open — payment, receipt, shift or the camera scanner.
+      if (document.querySelector('[role="dialog"]')) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
 
-    if (products.length === 1) {
-      addToBasket(products[0]);
-      setTerm('');
-    }
+      const target = event.target as HTMLElement | null;
+      const alreadyTyping =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target?.isContentEditable === true;
+      if (alreadyTyping) return;
+
+      if (event.key === 'Enter') {
+        if (termRef.current.trim()) {
+          event.preventDefault();
+          void resolveCode(termRef.current);
+        }
+        return;
+      }
+
+      if (event.key.length === 1) {
+        event.preventDefault();
+        searchRef.current?.focus();
+        setTerm((current) => current + event.key);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [resolveCode]);
+
+  const focusSearch = () => {
+    // After a dialog closes, Radix restores focus to its trigger on the next
+    // tick — so claim it back after that.
+    setTimeout(() => searchRef.current?.focus(), 0);
   };
 
   const setQuantity = (productId: string, quantity: number) => {
@@ -510,7 +662,7 @@ export function PosTerminal({
           </Button>
         </div>
 
-        <form onSubmit={onSearchSubmit} className="flex gap-2">
+        <form onSubmit={onSearchSubmit} className="flex flex-col gap-2 sm:flex-row">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -518,15 +670,21 @@ export function PosTerminal({
               value={term}
               onChange={(event) => setTerm(event.target.value)}
               placeholder="Scan a barcode or search by name / SKU… (F2)"
-              className="pl-8"
+              className="h-11 pl-8"
               autoFocus
               autoComplete="off"
+              inputMode="search"
               aria-label="Scan or search products"
             />
             {searching && (
               <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
             )}
           </div>
+          <BarcodeScanButton
+            onScan={(code) => void resolveCode(code)}
+            size="lg"
+            className="h-11 w-full shrink-0 sm:w-auto"
+          />
         </form>
 
         {products.length === 0 ? (
@@ -929,7 +1087,15 @@ export function PosTerminal({
       </Dialog>
 
       {/* Receipt */}
-      <Dialog open={receipt !== null} onOpenChange={(open) => !open && setReceipt(null)}>
+      <Dialog
+        open={receipt !== null}
+        onOpenChange={(open) => {
+          if (open) return;
+          setReceipt(null);
+          // Ready for the next customer without clicking anything.
+          focusSearch();
+        }}
+      >
         <DialogContent className="max-w-sm">
           <DialogHeader className="no-print">
             <DialogTitle>Sale complete</DialogTitle>
@@ -939,7 +1105,13 @@ export function PosTerminal({
           {receipt && <Receipt data={receipt} />}
 
           <DialogFooter className="no-print">
-            <Button variant="outline" onClick={() => setReceipt(null)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReceipt(null);
+                focusSearch();
+              }}
+            >
               Close
             </Button>
             <Button onClick={() => window.print()}>
