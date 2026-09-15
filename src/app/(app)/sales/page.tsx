@@ -22,6 +22,9 @@ export const dynamic = 'force-dynamic';
 
 const STATUSES: SaleStatus[] = ['COMPLETED', 'PARTIALLY_RETURNED', 'RETURNED', 'VOIDED'];
 
+/** Column header treatment, shared by the nine headings below. */
+const HEAD = 'h-11 whitespace-nowrap px-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground';
+
 export default async function SalesPage({
   searchParams,
 }: {
@@ -61,35 +64,54 @@ export default async function SalesPage({
         }
       />
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        <Card className="p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Revenue</p>
-          <p className="mt-1 text-xl font-semibold">{formatCurrency(result.summary.revenue, currency)}</p>
+      {/* Styling here is applied per instance rather than to the shared Card,
+          Table, and FilterBar components, which a dozen other pages render. */}
+      <div className="mb-5 grid gap-4 sm:grid-cols-3">
+        <Card className="h-full p-5 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Revenue
+          </p>
+          <p className="tabular mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+            {formatCurrency(result.summary.revenue, currency)}
+          </p>
         </Card>
-        <Card className="p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Gross profit</p>
-          <p className="mt-1 text-xl font-semibold">{formatCurrency(result.summary.profit, currency)}</p>
+        <Card className="h-full p-5 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Gross profit
+          </p>
+          <p className="tabular mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+            {formatCurrency(result.summary.profit, currency)}
+          </p>
         </Card>
-        <Card className="p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Invoices</p>
-          <p className="mt-1 text-xl font-semibold">{result.summary.count.toLocaleString()}</p>
+        <Card className="h-full p-5 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Invoices
+          </p>
+          <p className="tabular mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+            {result.summary.count.toLocaleString()}
+          </p>
         </Card>
       </div>
 
-      <FilterBar
-        searchPlaceholder="Search invoice number…"
-        selects={[
-          {
-            name: 'status',
-            label: 'Status',
-            allLabel: 'All statuses',
-            width: 'w-[180px]',
-            options: STATUSES.map((status) => ({ value: status, label: SALE_STATUS_LABEL[status] })),
-          },
-        ]}
-      />
+      {/* The filter row sits on its own surface so it reads as a toolbar rather
+          than as loose controls. The child override cancels FilterBar's own
+          bottom margin, which belongs to the layouts that use it bare. */}
+      <div className="mb-4 rounded-xl border bg-card p-3 shadow-sm [&>div]:mb-0">
+        <FilterBar
+          searchPlaceholder="Search invoice number…"
+          selects={[
+            {
+              name: 'status',
+              label: 'Status',
+              allLabel: 'All statuses',
+              width: 'w-[180px]',
+              options: STATUSES.map((status) => ({ value: status, label: SALE_STATUS_LABEL[status] })),
+            },
+          ]}
+        />
+      </div>
 
-      <div className="rounded-lg border">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
         {result.rows.length === 0 ? (
           <EmptyState
             icon={Receipt}
@@ -105,18 +127,21 @@ export default async function SalesPage({
           />
         ) : (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Item</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="hidden text-right sm:table-cell">Unit price</TableHead>
-                  <TableHead className="text-right">Line total</TableHead>
-                  <TableHead className="hidden lg:table-cell">Cashier</TableHead>
-                  <TableHead className="hidden md:table-cell">Payment</TableHead>
-                  <TableHead className="text-right">Invoice total</TableHead>
-                  <TableHead>Status</TableHead>
+            {/* Every column stays present at every width and the table scrolls
+                sideways instead, rather than dropping the unit price, cashier,
+                or payment method on a narrow screen. */}
+            <Table className="min-w-[1000px]">
+              <TableHeader className="bg-muted/40">
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className={HEAD}>Invoice</TableHead>
+                  <TableHead className={HEAD}>Item</TableHead>
+                  <TableHead className={`${HEAD} text-right`}>Qty</TableHead>
+                  <TableHead className={`${HEAD} text-right`}>Unit price</TableHead>
+                  <TableHead className={`${HEAD} text-right`}>Line total</TableHead>
+                  <TableHead className={HEAD}>Cashier</TableHead>
+                  <TableHead className={HEAD}>Payment</TableHead>
+                  <TableHead className={`${HEAD} text-right`}>Invoice total</TableHead>
+                  <TableHead className={HEAD}>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
