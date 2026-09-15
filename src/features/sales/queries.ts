@@ -49,18 +49,17 @@ export async function listSales(query: SaleListQuery = {}) {
         createdAt: true,
         user: { select: { name: true } },
         payments: { select: { method: true }, orderBy: { createdAt: 'asc' } },
-        // Just enough of the first line to show what was sold without opening
-        // the invoice; `_count` says how many more there were.
+        // Every line, because the list gives each product its own row.
         items: {
           orderBy: { id: 'asc' },
-          take: 1,
           select: {
+            id: true,
             quantity: true,
             unitPrice: true,
-            product: { select: { name: true, imageUrl: true } },
+            total: true,
+            product: { select: { id: true, name: true, imageUrl: true } },
           },
         },
-        _count: { select: { items: true } },
       },
     }),
     prisma.sale.count({ where }),
@@ -88,16 +87,16 @@ export async function listSales(query: SaleListQuery = {}) {
       createdAt: row.createdAt,
       cashierName: row.user.name,
       paymentMethod: row.payments.length === 0 ? null : row.payments.length > 1 ? 'Split' : row.payments[0].method,
-      itemCount: row._count.items,
-      firstItem: row.items[0]
-        ? {
-            name: row.items[0].product.name,
-            imageUrl: row.items[0].product.imageUrl,
-            quantity: toNum(row.items[0].quantity),
-            unitPrice: toNum(row.items[0].unitPrice),
-          }
-        : null,
-      extraItemCount: Math.max(0, row._count.items - 1),
+      itemCount: row.items.length,
+      items: row.items.map((item) => ({
+        id: item.id,
+        productId: item.product.id,
+        name: item.product.name,
+        imageUrl: item.product.imageUrl,
+        quantity: toNum(item.quantity),
+        unitPrice: toNum(item.unitPrice),
+        lineTotal: toNum(item.total),
+      })),
     })),
     total,
     page,

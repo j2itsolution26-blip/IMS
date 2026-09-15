@@ -6,17 +6,16 @@ import { requirePermission, userCan } from '@/lib/session';
 import { listSales } from '@/features/sales/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { resolveRange, parsePeriod } from '@/server/analytics/date-range';
-import { formatCurrency, formatDateTime, humanizeEnum } from '@/lib/format';
-import { SaleItemPreview } from '@/features/sales/sale-item-preview';
-import { SALE_STATUS_LABEL, SALE_STATUS_BADGE } from '@/lib/sale-status';
+import { formatCurrency } from '@/lib/format';
+import { SaleInvoiceRows } from '@/features/sales/sale-invoice-rows';
+import { SALE_STATUS_LABEL } from '@/lib/sale-status';
 import { PageHeader } from '@/components/page-header';
 import { PeriodPicker } from '@/components/period-picker';
 import { FilterBar, PaginationBar } from '@/components/filter-bar';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 export const metadata: Metadata = { title: 'Sales' };
 export const dynamic = 'force-dynamic';
@@ -111,48 +110,18 @@ export default async function SalesPage({
                 <TableRow>
                   <TableHead>Invoice</TableHead>
                   <TableHead>Item</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="hidden text-right sm:table-cell">Unit price</TableHead>
+                  <TableHead className="text-right">Line total</TableHead>
                   <TableHead className="hidden lg:table-cell">Cashier</TableHead>
                   <TableHead className="hidden md:table-cell">Payment</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Invoice total</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {result.rows.map((sale) => (
-                  <TableRow key={sale.id}>
-                    <TableCell>
-                      <Link
-                        href={`/sales/${sale.id}`}
-                        className="whitespace-nowrap font-medium hover:underline"
-                      >
-                        {sale.invoiceNumber}
-                      </Link>
-                      <p className="whitespace-nowrap text-xs text-muted-foreground">
-                        {formatDateTime(sale.createdAt)}
-                      </p>
-                    </TableCell>
-
-                    <TableCell>
-                      <SaleItemPreview
-                        href={`/sales/${sale.id}`}
-                        item={sale.firstItem}
-                        extraCount={sale.extraItemCount}
-                        currency={currency}
-                      />
-                    </TableCell>
-                    <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
-                      {sale.cashierName}
-                    </TableCell>
-                    <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
-                      {sale.paymentMethod ? humanizeEnum(sale.paymentMethod) : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="tabular font-medium">{formatCurrency(sale.total, currency)}</span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={SALE_STATUS_BADGE[sale.status]}>{SALE_STATUS_LABEL[sale.status]}</Badge>
-                    </TableCell>
-                  </TableRow>
+                  <SaleInvoiceRows key={sale.id} sale={sale} currency={currency} />
                 ))}
               </TableBody>
             </Table>
