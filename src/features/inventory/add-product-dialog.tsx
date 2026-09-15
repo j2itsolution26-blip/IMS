@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { FormField, FormError } from '@/components/form';
 import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
 import { BarcodeDuplicateNotice } from '@/features/inventory/barcode-duplicate-notice';
-import { ProductPhotoField, type PhotoUploadStatus } from '@/features/inventory/product-photo-field';
+import { ProductPhotoField, type PhotoUploadStatus } from '@/components/product-photo-field';
 
 const quickAddSchema = z.object({
   name: z.string().trim().min(2, 'Give the product a name.').max(160),
@@ -209,13 +209,19 @@ export function AddProductDialog({
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
             <FormError message={formError} />
 
-            <ProductPhotoField
-              value={photoUrl}
-              onChange={setPhotoUrl}
-              onStatusChange={setPhotoStatus}
-              fileNameHint={watch('name') || 'product'}
-              disabled={!storageEnabled}
-            />
+            <div>
+              <p className="text-sm font-medium">Product Photo</p>
+              <p className="mb-2 text-xs text-muted-foreground">
+                Add a photo so the product is easy to recognize.
+              </p>
+              <ProductPhotoField
+                value={photoUrl}
+                onChange={setPhotoUrl}
+                onStatusChange={setPhotoStatus}
+                fileNameHint={watch('name') || 'product'}
+                disabled={!storageEnabled}
+              />
+            </div>
 
             <FormField id="name" label="Product Name" error={errors.name} required>
               <Input id="name" {...register('name')} aria-invalid={Boolean(errors.name)} autoFocus />

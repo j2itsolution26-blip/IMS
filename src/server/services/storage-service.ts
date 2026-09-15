@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { getSupabaseUrl, isStorageConfigured } from '@/lib/env';
+import { getSupabaseSecretKey, getSupabaseUrl, isStorageConfigured, resolveSupabaseUrl } from '@/lib/env';
 import { AppError, ValidationError } from '@/lib/errors';
 
 /**
@@ -46,7 +46,7 @@ function requireSupabaseUrl(): string {
   const raw = getSupabaseUrl();
   if (!raw) {
     throw new AppError(
-      'Image storage is not configured. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.',
+      'Image storage is not configured. Set SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_SECRET_KEY.',
       'STORAGE_NOT_CONFIGURED',
       503,
     );
@@ -57,7 +57,7 @@ function requireSupabaseUrl(): string {
     parsed = new URL(raw);
   } catch {
     throw new AppError(
-      `NEXT_PUBLIC_SUPABASE_URL is not a valid URL (received "${raw}"). It must look like https://your-project.supabase.co`,
+      `The configured Supabase URL is not valid (received "${raw}"). SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL must look like https://your-project.supabase.co`,
       'STORAGE_URL_INVALID',
       503,
     );
@@ -65,7 +65,7 @@ function requireSupabaseUrl(): string {
 
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new AppError(
-      `NEXT_PUBLIC_SUPABASE_URL must start with https:// (received "${raw}").`,
+      `The configured Supabase URL must start with https:// (received "${raw}").`,
       'STORAGE_URL_INVALID',
       503,
     );
@@ -77,13 +77,13 @@ function requireSupabaseUrl(): string {
 function getClient(): SupabaseClient {
   if (!isStorageConfigured()) {
     throw new AppError(
-      'Image storage is not configured. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.',
+      'Image storage is not configured. Set SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_SECRET_KEY.',
       'STORAGE_NOT_CONFIGURED',
       503,
     );
   }
   if (!client) {
-    client = createClient(requireSupabaseUrl(), process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+    client = createClient(requireSupabaseUrl(), getSupabaseSecretKey()!, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
   }
@@ -163,7 +163,7 @@ function describeFailure(error: unknown): string {
   }
 
   if (codes.includes('ENOTFOUND') || codes.includes('EAI_AGAIN')) {
-    return `Could not reach image storage: the address ${host} could not be resolved. Check NEXT_PUBLIC_SUPABASE_URL points at the right Supabase project.`;
+    return `Could not reach image storage: the address ${host} could not be resolved. Check SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL points at the right Supabase project.`;
   }
 
   if (codes.includes('ECONNREFUSED')) {
@@ -183,17 +183,64 @@ function describeFailure(error: unknown): string {
   }
 
   if (/invalid|jwt|unauthor|signature/i.test(message)) {
-    return 'Image storage rejected the credentials. Check SUPABASE_SERVICE_ROLE_KEY belongs to this Supabase project.';
+    return 'Image storage rejected the credentials. Check SUPABASE_SECRET_KEY belongs to this Supabase project.';
   }
 
   if (isTransportFailure(error)) {
-    return `Could not reach image storage at ${host}. Check the connection and that NEXT_PUBLIC_SUPABASE_URL is correct.`;
+    return `Could not reach image storage at ${host}. Check the connection and that SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL is correct.`;
   }
 
   return `Image upload failed: ${message}`;
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Set once the bucket is known to exist, so this costs one round trip per boot. */
+let bucketReady = false;
+
+/**
+ * Makes sure the configured bucket exists, creating it if it does not.
+ *
+ * A shop owner has no reason to know what a storage bucket is, and a missing
+ * one is otherwise a dead end that can only be cleared from the Supabase
+ * dashboard. Creation is idempotent and uses the same limits the upload path
+ * enforces, so the bucket can never be more permissive than the application.
+ */
+async function ensureBucket(supabase: SupabaseClient): Promise<void> {
+  if (bucketReady) return;
+
+  const name = bucket();
+  const { data, error } = await supabase.storage.getBucket(name);
+
+  if (data && !error) {
+    if (!data.public) {
+      console.warn(
+        `[storage] bucket "${name}" is private — saved product photos will not be viewable. Make it public in Storage → Buckets.`,
+      );
+    }
+    bucketReady = true;
+    return;
+  }
+
+  if (error && !/bucket not found/i.test(messageOf(error))) {
+    // Something other than absence — let the caller's error handling describe it.
+    throw error;
+  }
+
+  const created = await supabase.storage.createBucket(name, {
+    public: true,
+    fileSizeLimit: MAX_BYTES,
+    allowedMimeTypes: [...ALLOWED_MIME],
+  });
+
+  // Another request may have won the race; an existing bucket is success here.
+  if (created.error && !/already exists/i.test(messageOf(created.error))) {
+    throw created.error;
+  }
+
+  console.info(`[storage] created public bucket "${name}"`);
+  bucketReady = true;
+}
 
 export async function uploadProductImage(file: File, productSku: string): Promise<string> {
   if (file.size === 0) throw new ValidationError('The selected file is empty.', { image: ['File is empty.'] });
@@ -217,6 +264,18 @@ export async function uploadProductImage(file: File, productSku: string): Promis
   // the sole filename, so a user-supplied name can never determine the path.
   const path = `products/${safeSku}-${randomUUID()}.${extension}`;
   const body = await file.arrayBuffer();
+
+  try {
+    await ensureBucket(supabase);
+  } catch (error) {
+    console.error('[storage] could not prepare the bucket', {
+      host: storageHost(),
+      bucket: bucket(),
+      message: messageOf(error),
+      causes: causeCodes(error),
+    });
+    throw new AppError(describeFailure(error), 'STORAGE_UPLOAD_FAILED', 502);
+  }
 
   let lastError: unknown = null;
 
@@ -304,6 +363,9 @@ export async function deleteProductImage(publicUrl: string): Promise<DeleteImage
 export interface StorageDiagnosis {
   configured: boolean;
   host: string | null;
+  /** Where the project URL came from — configured, or repaired from the database. */
+  urlSource: string;
+  urlNote?: string;
   bucket: string;
   /** Null when the check could not run because nothing is configured. */
   bucketExists: boolean | null;
@@ -319,17 +381,21 @@ export interface StorageDiagnosis {
  */
 export async function verifyStorage(): Promise<StorageDiagnosis> {
   const configuredBucket = bucket();
+  const resolution = resolveSupabaseUrl();
 
   if (!isStorageConfigured()) {
     return {
       configured: false,
       host: null,
+      urlSource: resolution.source,
+      urlNote: resolution.note,
       bucket: configuredBucket,
       bucketExists: null,
       publicBucket: null,
       ok: false,
-      problem:
-        'Image upload is disabled: set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, then redeploy.',
+      problem: resolution.url
+        ? 'Image upload is disabled: SUPABASE_SECRET_KEY is not set. Copy it from Supabase → Project Settings → API Keys → secret key, add it to the deployment as a server-side variable, and redeploy.'
+        : 'Image upload is disabled: no Supabase project could be determined. Set SUPABASE_URL and SUPABASE_SECRET_KEY, then redeploy.',
     };
   }
 
@@ -341,29 +407,37 @@ export async function verifyStorage(): Promise<StorageDiagnosis> {
       return {
         configured: true,
         host: storageHost(),
+        urlSource: resolution.source,
+        urlNote: resolution.note,
         bucket: configuredBucket,
         bucketExists: /bucket not found/i.test(messageOf(error)) ? false : null,
         publicBucket: null,
         ok: false,
-        problem: describeFailure(error),
+        problem: /bucket not found/i.test(messageOf(error))
+          ? `The bucket "${configuredBucket}" does not exist yet. It is created automatically the first time a photo is uploaded.`
+          : describeFailure(error),
       };
     }
 
     return {
       configured: true,
       host: storageHost(),
+      urlSource: resolution.source,
+      urlNote: resolution.note,
       bucket: configuredBucket,
       bucketExists: true,
       publicBucket: Boolean(data?.public),
       ok: true,
       problem: data?.public
-        ? undefined
+        ? resolution.note
         : `The bucket "${configuredBucket}" exists but is not public, so saved photos will not display. Make it public in Storage → Buckets.`,
     };
   } catch (error) {
     return {
       configured: true,
       host: storageHost(),
+      urlSource: resolution.source,
+      urlNote: resolution.note,
       bucket: configuredBucket,
       bucketExists: null,
       publicBucket: null,

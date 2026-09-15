@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getAppUrl, getSupabaseUrl, getTrustedOrigins, isStorageConfigured } from '@/lib/env';
+import {
+  getAppUrl,
+  getSupabasePublishableKey,
+  getSupabaseSecretKey,
+  getSupabaseSecretKeySource,
+  getSupabaseUrl,
+  getTrustedOrigins,
+  isStorageConfigured,
+} from '@/lib/env';
 import { verifyStorage } from '@/server/services/storage-service';
 
 export const dynamic = 'force-dynamic';
@@ -51,20 +59,27 @@ export async function GET() {
   // surface to a shop owner as an unexplained "fetch failed".
   const diagnosis = await verifyStorage();
 
+  // Presence and provenance only. No key, prefix, or length is ever reported —
+  // a length alone narrows a guess, and the secret key bypasses row level
+  // security.
   const storage = {
-    supabaseUrl: Boolean(getSupabaseUrl()),
-    SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
     host: diagnosis.host,
+    connected: diagnosis.ok,
+    urlSource: diagnosis.urlSource,
+    urlNote: diagnosis.urlNote,
+    secretKey: getSupabaseSecretKey() ? 'present' : 'missing',
+    /** Which variable the key came from, so a legacy name can be migrated. */
+    secretKeyVariable: getSupabaseSecretKeySource(),
+    publishableKey: getSupabasePublishableKey() ? 'present' : 'missing',
     bucket: diagnosis.bucket,
-    uploadEnabled: isStorageConfigured(),
     bucketExists: diagnosis.bucketExists,
-    bucketIsPublic: diagnosis.publicBucket,
-    uploadsWorking: diagnosis.ok,
+    bucketPublic: diagnosis.publicBucket,
+    uploadEnabled: isStorageConfigured(),
     problem: diagnosis.problem,
     // Names what is missing, so "upload unavailable" is never a dead end.
     missing: [
-      ...(getSupabaseUrl() ? [] : ['NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL)']),
-      ...(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ? [] : ['SUPABASE_SERVICE_ROLE_KEY']),
+      ...(getSupabaseUrl() ? [] : ['SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)']),
+      ...(getSupabaseSecretKey() ? [] : ['SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY)']),
     ],
   };
 

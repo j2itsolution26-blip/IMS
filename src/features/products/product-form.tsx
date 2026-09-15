@@ -5,10 +5,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ImagePlus, Loader2, Plus, Trash2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { productSchema, PRODUCT_STATUS_OPTIONS, type ProductInput } from '@/features/products/schema';
-import { createProduct, updateProduct, uploadProductImageAction } from '@/features/products/actions';
+import { createProduct, updateProduct } from '@/features/products/actions';
 import { createCategory, createUnit } from '@/features/catalogue/actions';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -19,8 +19,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { FormField, FormError, applyServerErrors } from '@/components/form';
 import { Label } from '@/components/ui/label';
 import { formatCurrency } from '@/lib/format';
-import { ProductImage } from '@/components/product-image';
-import { validateImageUrl } from '@/lib/image-url';
+import { ProductPhotoField, type PhotoUploadStatus } from '@/components/product-photo-field';
 import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
 import { BarcodeDuplicateNotice } from '@/features/inventory/barcode-duplicate-notice';
 
@@ -162,8 +161,7 @@ export function ProductForm({
   const router = useRouter();
   const isEdit = Boolean(productId);
   const [formError, setFormError] = React.useState<string | null>(null);
-  const [uploading, setUploading] = React.useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [photoStatus, setPhotoStatus] = React.useState<PhotoUploadStatus>('idle');
   const [categoryOptions, setCategoryOptions] = React.useState(options.categories);
   const [unitOptions, setUnitOptions] = React.useState(options.units);
 
@@ -181,9 +179,6 @@ export function ProductForm({
   });
 
   const imageUrl = watch('imageUrl');
-  // Same rule the server applies, so the field cannot look accepted here
-  // and then be rejected on submit.
-  const imageCheck = React.useMemo(() => validateImageUrl(imageUrl), [imageUrl]);
   const barcodeValue = watch('barcode');
   const costPrice = Number(watch('costPrice')) || 0;
   const sellingPrice = Number(watch('sellingPrice')) || 0;
@@ -193,30 +188,17 @@ export function ProductForm({
   const margin = sellingPrice > 0 ? ((sellingPrice - costPrice) / sellingPrice) * 100 : 0;
   const profitPerUnit = sellingPrice - costPrice;
 
-  const onUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('sku', watch('sku') || 'product');
-
-    const result = await uploadProductImageAction(formData);
-    setUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
-    }
-
-    setValue('imageUrl', result.data.url, { shouldDirty: true });
-    toast.success('Image uploaded.');
-  };
+  const photoBusy = photoStatus === 'preparing' || photoStatus === 'uploading';
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
+
+    // Saving mid-upload would store the product without the photo that is
+    // visibly sitting in the form.
+    if (photoBusy) {
+      setFormError('The product photo is still uploading. It will only take a moment.');
+      return;
+    }
 
     const result = isEdit ? await updateProduct(productId!, values) : await createProduct(values);
 
@@ -491,84 +473,25 @@ export function ProductForm({
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Image</CardTitle>
-              <CardDescription>Shown in the POS grid and product lists.</CardDescription>
+              <CardTitle className="text-base">Product Photo</CardTitle>
+              <CardDescription>Add a photo so the product is easy to recognize.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {/* Only a URL that passes validation is previewed — otherwise a
-                  rejected address would still render (and fail) below the very
-                  error explaining why it is not usable. */}
-              <ProductImage
-                src={imageCheck.ok && imageUrl ? imageUrl : null}
-                alt={watch('name') || 'Product'}
-                size="lg"
-                showFailureText
+              <ProductPhotoField
+                value={imageUrl ?? ''}
+                onChange={(url) => setValue('imageUrl', url, { shouldDirty: true, shouldValidate: true })}
+                onStatusChange={setPhotoStatus}
+                fileNameHint={watch('sku') || watch('name') || 'product'}
+                disabled={!storageEnabled}
               />
 
-              {/* The unavailable message below deliberately says nothing about
-                  environment variables or bucket names. It is shown to whoever
-                  is adding a product — usually a shop-floor user who cannot act
-                  on server configuration. The administrator's version of this
-                  lives in /api/health. */}
-              {storageEnabled ? (
-                <div className="flex gap-2">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    onChange={onUpload}
-                    className="hidden"
-                    id="product-image"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    disabled={uploading}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {uploading ? <Loader2 className="animate-spin" /> : <ImagePlus />}
-                    {uploading ? 'Uploading…' : 'Upload'}
-                  </Button>
-                  {imageUrl && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setValue('imageUrl', '', { shouldDirty: true })}
-                      aria-label="Remove image"
-                    >
-                      <Trash2 />
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
-                  <p className="font-medium">Image upload is temporarily unavailable</p>
-                  <p className="mt-1 opacity-90">
-                    You can still add a picture by pasting a direct image link below.
-                  </p>
-                </div>
-              )}
-
-              <FormField
-                id="imageUrl"
-                label="Image URL"
-                error={errors.imageUrl}
-                description="Must link directly to an image file, not to a page showing one."
-              >
-                <Input
-                  id="imageUrl"
-                  placeholder="https://example.com/photo.jpg"
-                  aria-invalid={Boolean(imageUrl) && !imageCheck.ok}
-                  {...register('imageUrl')}
-                />
-              </FormField>
-
-              {/* Immediate feedback while typing, before the form is submitted. */}
-              {imageUrl && !imageCheck.ok && !errors.imageUrl && (
-                <p className="text-xs text-destructive">{imageCheck.reason}</p>
+              {/* `imageUrl` stays an internal value: it is written by the
+                  upload above and read back as the preview. A shop owner never
+                  types a URL, so no input for it is rendered. A rejected value
+                  can still arrive from an older record, so its error is kept
+                  visible rather than being silently unfixable. */}
+              {errors.imageUrl?.message && (
+                <p className="text-xs text-destructive">{errors.imageUrl.message}</p>
               )}
 
               <p className="text-xs text-muted-foreground">
@@ -583,8 +506,8 @@ export function ProductForm({
         <Button type="button" variant="outline" asChild>
           <Link href={productId ? `/products/${productId}` : '/products'}>Cancel</Link>
         </Button>
-        <Button type="submit" loading={isSubmitting}>
-          {isEdit ? 'Save changes' : 'Create product'}
+        <Button type="submit" loading={isSubmitting} disabled={photoBusy}>
+          {photoBusy ? 'Uploading photo…' : isEdit ? 'Save changes' : 'Create product'}
         </Button>
       </div>
     </form>
