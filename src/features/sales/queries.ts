@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { Prisma, SaleStatus } from '@prisma/client';
+import type { PaymentMethod, Prisma, SaleStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { toNum } from '@/lib/decimal';
 
@@ -10,10 +10,20 @@ export interface SaleListQuery {
   search?: string;
   status?: SaleStatus | 'ALL';
   userId?: string;
+  paymentMethod?: PaymentMethod;
   from?: Date;
   to?: Date;
   page?: number;
   pageSize?: number;
+}
+
+/** Cashiers who actually have sales, for the sales-history filter. */
+export async function listCashiers(): Promise<{ id: string; name: string }[]> {
+  return prisma.user.findMany({
+    where: { sales: { some: {} } },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
 }
 
 export async function listSales(query: SaleListQuery = {}) {
@@ -23,6 +33,7 @@ export async function listSales(query: SaleListQuery = {}) {
   const where: Prisma.SaleWhereInput = {
     ...(query.status && query.status !== 'ALL' ? { status: query.status } : {}),
     ...(query.userId ? { userId: query.userId } : {}),
+    ...(query.paymentMethod ? { payments: { some: { method: query.paymentMethod } } } : {}),
     ...(query.from || query.to
       ? { createdAt: { ...(query.from ? { gte: query.from } : {}), ...(query.to ? { lte: query.to } : {}) } }
       : {}),

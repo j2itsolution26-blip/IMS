@@ -62,5 +62,7 @@ export function toDateRange(window: ReportWindow): DateRange {
     to: window.to,
     label: window.label,
     previous: { from: new Date(window.from.getTime() - span), to: new Date(window.from.getTime() - 1) },
+    // Reached only for an explicit from/to, whose label is already dates.
+    isCustom: true,
   };
 }
