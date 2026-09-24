@@ -52,15 +52,14 @@ export function StatCard({
 
   const body = (
     <Card
-      className={cn(
-        'h-full p-4 transition-colors',
-        href && 'hover:border-primary/40 hover:bg-accent/40',
-      )}
+      className={cn('h-full p-4 transition-colors', href && 'hover:border-primary/40 hover:bg-accent/40')}
     >
       <div className="flex items-start justify-between gap-3">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
         {Icon && (
-          <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-md', TONE_ICON[tone])}>
+          <span
+            className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-md', TONE_ICON[tone])}
+          >
             <Icon className="h-3.5 w-3.5" aria-hidden="true" />
           </span>
         )}
@@ -68,27 +67,31 @@ export function StatCard({
 
       <p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>
 
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
-        {change != null && (
-          <span
-            className={cn(
-              'inline-flex items-center gap-0.5 font-medium',
-              isFlat ? 'text-muted-foreground' : isGood ? 'text-success' : 'text-destructive',
-            )}
-          >
-            {isFlat ? (
-              <ArrowRight className="h-3 w-3" aria-hidden="true" />
-            ) : isUp ? (
-              <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
-            ) : (
-              <ArrowDownRight className="h-3 w-3" aria-hidden="true" />
-            )}
-            {formatSignedPercent(change)}
-          </span>
-        )}
-        {changeLabel && change != null && <span className="text-muted-foreground">{changeLabel}</span>}
-        {hint && <span className="text-muted-foreground">{hint}</span>}
-      </div>
+      {/* Rendered only when there is something to say, so a card carrying just
+          a label and a number stays compact instead of padding itself out. */}
+      {(change != null || hint) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+          {change != null && (
+            <span
+              className={cn(
+                'inline-flex items-center gap-0.5 font-medium',
+                isFlat ? 'text-muted-foreground' : isGood ? 'text-success' : 'text-destructive',
+              )}
+            >
+              {isFlat ? (
+                <ArrowRight className="h-3 w-3" aria-hidden="true" />
+              ) : isUp ? (
+                <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+              ) : (
+                <ArrowDownRight className="h-3 w-3" aria-hidden="true" />
+              )}
+              {formatSignedPercent(change)}
+            </span>
+          )}
+          {changeLabel && change != null && <span className="text-muted-foreground">{changeLabel}</span>}
+          {hint && <span className="text-muted-foreground">{hint}</span>}
+        </div>
+      )}
     </Card>
   );
 

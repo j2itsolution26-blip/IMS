@@ -41,7 +41,13 @@ export function ProductRowActions({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label={`Actions for ${productName}`}>
+          <Button
+            variant="ghost"
+            size="icon"
+            // Roomier than the 36px default so it stays an easy tap target.
+            className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground"
+            aria-label={`Actions for ${productName}`}
+          >
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>

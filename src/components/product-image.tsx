@@ -40,6 +40,11 @@ export function ProductImage({
   alt,
   size = 'md',
   className,
+  /**
+   * `contain` shows the whole picture, which suits a large preview; `cover`
+   * fills a small square thumbnail so a row of them lines up evenly.
+   */
+  fit = 'contain',
   /** Shows a short reason under the placeholder when the image fails. */
   showFailureText = false,
 }: {
@@ -47,6 +52,7 @@ export function ProductImage({
   alt: string;
   size?: ProductImageSize;
   className?: string;
+  fit?: 'contain' | 'cover';
   showFailureText?: boolean;
 }) {
   const [status, setStatus] = React.useState<'idle' | 'loaded' | 'error'>('idle');
@@ -104,7 +110,8 @@ export function ProductImage({
         onLoad={() => setStatus('loaded')}
         onError={() => setStatus('error')}
         className={cn(
-          'h-full w-full object-contain transition-opacity',
+          'h-full w-full transition-opacity',
+          fit === 'cover' ? 'object-cover' : 'object-contain',
           status === 'loaded' ? 'opacity-100' : 'opacity-0',
         )}
       />

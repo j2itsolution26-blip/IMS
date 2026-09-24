@@ -15,7 +15,7 @@ export function InventoryMoreMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline">
+        <Button variant="outline" size="lg">
           More <ChevronDown className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>

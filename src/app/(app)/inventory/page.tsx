@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Package } from 'lucide-react';
+import { Boxes, Package, PackageX, TriangleAlert } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
 import { getStockLevels, type StockStatus } from '@/server/analytics/inventory-analytics';
 import { getInventorySnapshot } from '@/server/analytics/dashboard';
@@ -88,15 +88,17 @@ export default async function InventoryPage({
       />
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <StatCard label="Total products" value={formatNumber(snapshot.distinctProducts, 0)} />
+        <StatCard label="Total products" value={formatNumber(snapshot.distinctProducts, 0)} icon={Boxes} />
         <StatCard
           label="Low stock"
           value={formatNumber(snapshot.lowStock + snapshot.criticalStock, 0)}
+          icon={TriangleAlert}
           tone={snapshot.lowStock + snapshot.criticalStock > 0 ? 'warning' : 'default'}
         />
         <StatCard
           label="Out of stock"
           value={formatNumber(snapshot.outOfStock, 0)}
+          icon={PackageX}
           tone={snapshot.outOfStock > 0 ? 'destructive' : 'success'}
         />
       </div>
