@@ -19,11 +19,12 @@ import {
   ShoppingCart,
   Smartphone,
   Trash2,
+  Undo2,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PaymentMethod } from '@prisma/client';
-import type { SellableProduct } from '@/features/products/queries';
+import type { PosCategoryChip, SellableProduct, SellableSort } from '@/features/products/queries';
 import { normalizeBarcode } from '@/lib/barcode';
 import { ProductImage } from '@/components/product-image';
 import { checkout, lookupBarcode, lookupProducts } from '@/features/pos/actions';
@@ -31,8 +32,8 @@ import { openShiftAction, closeShiftAction, previewShiftCloseAction } from '@/fe
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -80,6 +81,8 @@ export interface PosTerminalProps {
   gcash: { number: string; accountName: string };
   canEditStoreSettings: boolean;
   canCreateProducts: boolean;
+  categoryChips: { total: number; lowStock: number; categories: PosCategoryChip[] };
+  lowStockLevel: number;
   openShift: OpenShiftInfo | null;
 }
 
@@ -87,6 +90,7 @@ interface BasketLine {
   productId: string;
   name: string;
   sku: string;
+  imageUrl: string | null;
   unitPrice: number;
   quantity: number;
   discount: number;
@@ -152,6 +156,8 @@ export function PosTerminal({
   gcash,
   canEditStoreSettings,
   canCreateProducts,
+  categoryChips,
+  lowStockLevel,
   openShift,
 }: PosTerminalProps) {
   const router = useRouter();
@@ -160,7 +166,16 @@ export function PosTerminal({
   const [products, setProducts] = React.useState(initialProducts);
   const [searching, setSearching] = React.useState(false);
 
+  // Grid filters. Applied on the server so a chip's count always matches what
+  // the grid can actually show, not just the page already loaded.
+  const [categoryId, setCategoryId] = React.useState<string | null>(null);
+  const [lowStockOnly, setLowStockOnly] = React.useState(false);
+  const [sort, setSort] = React.useState<SellableSort>('name');
+
   const [basket, setBasket] = React.useState<BasketLine[]>([]);
+  // A parked order lives in this browser only — nothing reaches the database
+  // until the sale is actually charged.
+  const [heldOrder, setHeldOrder] = React.useState<HeldOrder | null>(null);
   const [orderDiscount, setOrderDiscount] = React.useState('0');
   const [notes, setNotes] = React.useState('');
 
@@ -246,23 +261,36 @@ export function PosTerminal({
 
   // --- Product lookup ------------------------------------------------------
 
-  const runLookup = React.useCallback(async (value: string) => {
-    setSearching(true);
-    const result = await lookupProducts(value);
-    setSearching(false);
-    if (result.ok) setProducts(result.data);
-  }, []);
+  const runLookup = React.useCallback(
+    async (value: string) => {
+      setSearching(true);
+      const result = await lookupProducts(value, {
+        categoryId: categoryId ?? undefined,
+        lowStockAtOrBelow: lowStockOnly ? lowStockLevel : undefined,
+        sort,
+      });
+      setSearching(false);
+      if (result.ok) setProducts(result.data);
+    },
+    [categoryId, lowStockOnly, lowStockLevel, sort],
+  );
 
   React.useEffect(() => {
     const timer = setTimeout(() => void runLookup(term), 250);
     return () => clearTimeout(timer);
   }, [term, runLookup]);
 
-  // F2 jumps to the search/scan field from anywhere on the page.
+  // F2 or "/" jumps to the search/scan field from anywhere on the page.
   const searchRef = React.useRef<HTMLInputElement>(null);
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'F2') {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable === true;
+
+      if (event.key === 'F2' || (event.key === '/' && !typing)) {
         event.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();
@@ -307,6 +335,7 @@ export function PosTerminal({
           productId: product.id,
           name: product.name,
           sku: product.sku,
+          imageUrl: product.imageUrl,
           unitPrice: product.sellingPrice,
           quantity,
           discount: 0,
@@ -503,6 +532,47 @@ export function PosTerminal({
     setNotes('');
   };
 
+  // --- Held order ----------------------------------------------------------
+
+  React.useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(HELD_ORDER_KEY);
+      if (raw) setHeldOrder(JSON.parse(raw) as HeldOrder);
+    } catch {
+      // A corrupt or unavailable store just means there is nothing parked.
+    }
+  }, []);
+
+  const heldCount = heldOrder?.lines.reduce((sum, line) => sum + line.quantity, 0) ?? 0;
+
+  const holdOrder = () => {
+    if (basket.length === 0) return;
+    const parked: HeldOrder = { lines: basket, discount: orderDiscount, notes, heldAt: Date.now() };
+    try {
+      window.localStorage.setItem(HELD_ORDER_KEY, JSON.stringify(parked));
+    } catch {
+      toast.error('This browser would not let the order be held.');
+      return;
+    }
+    setHeldOrder(parked);
+    clearBasket();
+    toast.success('Order held. Resume it from the order panel.');
+  };
+
+  const resumeHeldOrder = () => {
+    if (!heldOrder) return;
+    setBasket(heldOrder.lines);
+    setOrderDiscount(heldOrder.discount);
+    setNotes(heldOrder.notes);
+    try {
+      window.localStorage.removeItem(HELD_ORDER_KEY);
+    } catch {
+      // Nothing to do — the cart is restored either way.
+    }
+    setHeldOrder(null);
+    focusSearch();
+  };
+
   // --- Totals (preview only; the server recomputes at checkout) ------------
 
   const totals = React.useMemo(() => {
@@ -664,139 +734,166 @@ export function PosTerminal({
 
         <form onSubmit={onSearchSubmit} className="flex flex-col gap-2 sm:flex-row">
           <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               ref={searchRef}
               value={term}
               onChange={(event) => setTerm(event.target.value)}
-              placeholder="Scan a barcode or search by name / SKU… (F2)"
-              className="h-11 pl-8"
+              placeholder="Search product name or SKU"
+              className="h-12 rounded-xl pl-10 pr-12"
               autoFocus
               autoComplete="off"
               inputMode="search"
               aria-label="Scan or search products"
             />
-            {searching && (
-              <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+            {searching ? (
+              <Loader2 className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+            ) : (
+              <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-md border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground sm:block">
+                /
+              </kbd>
             )}
           </div>
           <BarcodeScanButton
             onScan={(code) => void resolveCode(code)}
+            label="Scan barcode"
             size="lg"
-            className="h-11 w-full shrink-0 sm:w-auto"
+            className="h-12 w-full shrink-0 rounded-xl border-0 bg-sidebar text-sidebar-foreground hover:bg-sidebar/90 sm:w-auto"
           />
         </form>
+
+        {/* Category chips and sort */}
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterChip
+            active={!categoryId && !lowStockOnly}
+            count={categoryChips.total}
+            onClick={() => {
+              setCategoryId(null);
+              setLowStockOnly(false);
+            }}
+          >
+            All
+          </FilterChip>
+
+          {categoryChips.categories.map((category) => (
+            <FilterChip
+              key={category.id}
+              active={categoryId === category.id && !lowStockOnly}
+              count={category.count}
+              onClick={() => {
+                setCategoryId(categoryId === category.id ? null : category.id);
+                setLowStockOnly(false);
+              }}
+            >
+              {category.name}
+            </FilterChip>
+          ))}
+
+          {categoryChips.lowStock > 0 && (
+            <FilterChip
+              active={lowStockOnly}
+              count={categoryChips.lowStock}
+              tone="warning"
+              onClick={() => {
+                setLowStockOnly(!lowStockOnly);
+                setCategoryId(null);
+              }}
+            >
+              Low stock
+            </FilterChip>
+          )}
+
+          <div className="ml-auto">
+            <Select value={sort} onValueChange={(value) => setSort(value as SellableSort)}>
+              <SelectTrigger
+                className="h-9 w-[180px] rounded-xl border-0 bg-transparent text-sm text-muted-foreground shadow-none hover:bg-accent"
+                aria-label="Sort products"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="name">Sort: Name A to Z</SelectItem>
+                <SelectItem value="priceAsc">Sort: Price low first</SelectItem>
+                <SelectItem value="priceDesc">Sort: Price high first</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
         {products.length === 0 ? (
           <Card className="p-10 text-center">
             <Package className="mx-auto mb-2 h-7 w-7 text-muted-foreground/40" />
             <p className="text-sm font-medium">No products found</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {term
-                ? `Nothing matches “${term}”.`
-                : 'Add active products to your catalogue to sell them here.'}
+              {term ? `Nothing matches “${term}”.` : 'Nothing here yet.'}
             </p>
           </Card>
         ) : (
-          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
-            {products.map((product) => {
-              const soldOut = product.isTrackable && product.available <= 0;
-
-              return (
-                <li key={product.id}>
-                  <button
-                    type="button"
-                    onClick={() => addToBasket(product)}
-                    disabled={soldOut}
-                    className={cn(
-                      'flex h-full w-full flex-col overflow-hidden rounded-lg border bg-card text-left transition-colors',
-                      soldOut
-                        ? 'cursor-not-allowed opacity-50'
-                        : 'hover:border-primary/50 hover:bg-accent/40',
-                    )}
-                  >
-                    <span className="flex h-20 w-full items-center justify-center">
-                      <ProductImage
-                        src={product.imageUrl}
-                        alt={product.name}
-                        size="fill"
-                        className="rounded-none border-0"
-                      />
-                    </span>
-                    <span className="flex flex-1 flex-col gap-0.5 p-2.5">
-                      <span className="line-clamp-2 text-sm font-medium leading-snug">{product.name}</span>
-                      <span className="text-xs text-muted-foreground">{product.sku}</span>
-                      <span className="mt-auto flex items-center justify-between gap-1 pt-1.5">
-                        <span className="tabular text-sm font-semibold">
-                          {formatCurrency(product.sellingPrice, currency)}
-                        </span>
-                        {product.isTrackable ? (
-                          <Badge
-                            variant={
-                              soldOut ? 'destructive' : product.available <= 5 ? 'warning' : 'secondary'
-                            }
-                          >
-                            {soldOut ? 'Out' : formatQuantity(product.available)}
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary">Service</Badge>
-                        )}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
+          <ul className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-4">
+            {products.map((product) => (
+              <li key={product.id}>
+                <ProductTile
+                  product={product}
+                  currency={currency}
+                  inCart={basket.find((line) => line.productId === product.id)?.quantity ?? 0}
+                  onAdd={() => addToBasket(product)}
+                  onSetQuantity={(quantity) => setQuantity(product.id, quantity)}
+                />
+              </li>
+            ))}
           </ul>
         )}
       </div>
 
-      {/* Basket */}
-      <Card className="flex h-fit flex-col lg:sticky lg:top-[4.5rem] lg:max-h-[calc(100dvh-6rem)]">
-        <div className="flex items-center justify-between gap-2 border-b p-3">
-          <p className="flex items-center gap-1.5 font-semibold">
-            <ShoppingCart className="h-4 w-4" aria-hidden="true" />
-            Current sale
-            {totals.itemCount > 0 && (
-              <Badge variant="default">{formatQuantity(totals.itemCount)}</Badge>
-            )}
-          </p>
+      {/* Current order */}
+      <Card className="flex h-fit flex-col rounded-2xl xl:sticky xl:top-[4.5rem] xl:max-h-[calc(100dvh-6rem)]">
+        <div className="flex items-start justify-between gap-2 p-4 pb-3">
+          <div className="min-w-0">
+            <p className="text-base font-semibold">Current order</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {cashierName}
+              {totals.itemCount > 0
+                ? ` · ${formatQuantity(totals.itemCount)} item${totals.itemCount === 1 ? '' : 's'}`
+                : ' · Walk-in customer'}
+            </p>
+          </div>
           {basket.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={clearBasket} className="h-7 text-xs">
+            <Button variant="ghost" size="sm" onClick={clearBasket} className="h-7 shrink-0 text-xs">
               <X /> Clear
             </Button>
           )}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
+        <div className="min-h-0 flex-1 overflow-y-auto border-t scrollbar-thin">
           {basket.length === 0 ? (
-            <div className="px-4 py-10 text-center">
+            <div className="px-4 py-12 text-center">
               <ShoppingCart className="mx-auto mb-2 h-7 w-7 text-muted-foreground/30" aria-hidden="true" />
               <p className="text-sm text-muted-foreground">Scan or tap a product to start.</p>
             </div>
           ) : (
             <ul className="divide-y">
               {basket.map((line) => (
-                <li key={line.productId} className="space-y-2 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
+                <li key={line.productId} className="p-3">
+                  <div className="flex items-start gap-3">
+                    <ProductImage
+                      src={line.imageUrl}
+                      alt={line.name}
+                      size="sm"
+                      fit="cover"
+                      className="h-10 w-10 shrink-0 rounded-lg"
+                    />
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{line.name}</p>
                       <p className="tabular text-xs text-muted-foreground">
-                        {formatCurrency(line.unitPrice, currency)} × {formatQuantity(line.quantity)}{' '}
-                        {line.unitAbbreviation}
+                        {formatQuantity(line.quantity)} × {formatCurrency(line.unitPrice, currency)}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setQuantity(line.productId, 0)}
-                      className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
-                      aria-label={`Remove ${line.name}`}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <span className="tabular whitespace-nowrap text-sm font-semibold">
+                      {formatCurrency(line.unitPrice * line.quantity - line.discount, currency)}
+                    </span>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="mt-2 flex items-center gap-1.5">
                     <Button
                       variant="outline"
                       size="icon"
@@ -812,7 +909,7 @@ export function PosTerminal({
                       min={0}
                       step={line.allowDecimal ? 0.001 : 1}
                       onChange={(event) => setQuantity(line.productId, Number(event.target.value))}
-                      className="h-7 w-16 text-center"
+                      className="h-7 w-14 text-center"
                       aria-label={`Quantity for ${line.name}`}
                     />
                     <Button
@@ -836,9 +933,14 @@ export function PosTerminal({
                       aria-label={`Discount for ${line.name}`}
                     />
 
-                    <span className="tabular ml-auto text-sm font-semibold">
-                      {formatCurrency(line.unitPrice * line.quantity - line.discount, currency)}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(line.productId, 0)}
+                      className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
+                      aria-label={`Remove ${line.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </li>
               ))}
@@ -846,8 +948,11 @@ export function PosTerminal({
           )}
         </div>
 
-        <div className="space-y-2 border-t p-3">
-          <Row label="Subtotal" value={formatCurrency(totals.subtotal, currency)} />
+        <div className="space-y-2 border-t p-4">
+          <Row
+            label={`Subtotal (${formatQuantity(totals.itemCount)} item${totals.itemCount === 1 ? '' : 's'})`}
+            value={formatCurrency(totals.subtotal, currency)}
+          />
           {totals.tax > 0 && <Row label="Tax" value={formatCurrency(totals.tax, currency)} />}
 
           <div className="flex items-center justify-between gap-2">
@@ -861,19 +966,35 @@ export function PosTerminal({
               step="0.01"
               value={orderDiscount}
               onChange={(event) => setOrderDiscount(event.target.value)}
-              className="h-7 w-24 text-right"
+              className="h-8 w-24 text-right"
             />
           </div>
 
           <Separator />
           <div className="flex items-center justify-between">
-            <span className="font-semibold">Total</span>
-            <span className="tabular text-xl font-bold">{formatCurrency(totals.total, currency)}</span>
+            <span className="text-lg font-semibold">Total</span>
+            <span className="tabular text-2xl font-bold">{formatCurrency(totals.total, currency)}</span>
           </div>
 
-          <Button className="w-full" size="lg" disabled={basket.length === 0} onClick={openPayment}>
-            Take payment
+          <Button
+            className="h-12 w-full rounded-xl bg-[#F5B70A] text-base font-semibold text-[#20160A] hover:bg-[#E0A609]"
+            disabled={basket.length === 0}
+            onClick={openPayment}
+          >
+            Charge {formatCurrency(totals.total, currency)}
           </Button>
+
+          {basket.length > 0 ? (
+            <Button variant="outline" className="h-11 w-full rounded-xl" onClick={holdOrder}>
+              Hold order
+            </Button>
+          ) : (
+            heldOrder && (
+              <Button variant="outline" className="h-11 w-full rounded-xl" onClick={resumeHeldOrder}>
+                <Undo2 /> Resume held order ({formatQuantity(heldCount)})
+              </Button>
+            )
+          )}
         </div>
       </Card>
 
@@ -1231,6 +1352,194 @@ function formatPhoneNumber(raw: string): string {
   const digits = raw.replace(/\D/g, '');
   if (digits.length !== 11) return raw;
   return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
+}
+
+/** One parked order, kept in this browser between sales. */
+interface HeldOrder {
+  lines: BasketLine[];
+  discount: string;
+  notes: string;
+  heldAt: number;
+}
+
+const HELD_ORDER_KEY = 'pos:held-order';
+
+function FilterChip({
+  active,
+  count,
+  tone = 'default',
+  onClick,
+  children,
+}: {
+  active: boolean;
+  count: number;
+  tone?: 'default' | 'warning';
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'inline-flex h-9 items-center gap-2 rounded-full border px-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+        active
+          ? 'border-transparent bg-sidebar text-sidebar-foreground'
+          : tone === 'warning'
+            ? 'border-warning/30 bg-warning/10 text-warning hover:bg-warning/15'
+            : 'bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+      )}
+    >
+      {children}
+      <span className={cn('tabular text-xs', active ? 'text-sidebar-foreground/70' : 'text-muted-foreground')}>
+        {count}
+      </span>
+    </button>
+  );
+}
+
+/** Stable colour per product, so a picture-less tile still looks deliberate. */
+const PLACEHOLDER_TONES = [
+  'bg-blue-100 text-blue-700',
+  'bg-emerald-100 text-emerald-700',
+  'bg-amber-100 text-amber-700',
+  'bg-rose-100 text-rose-700',
+  'bg-violet-100 text-violet-700',
+  'bg-cyan-100 text-cyan-700',
+];
+
+function initialsFor(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase();
+}
+
+function toneFor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return PLACEHOLDER_TONES[hash % PLACEHOLDER_TONES.length];
+}
+
+function ProductTile({
+  product,
+  currency,
+  inCart,
+  onAdd,
+  onSetQuantity,
+}: {
+  product: SellableProduct;
+  currency: string;
+  inCart: number;
+  onAdd: () => void;
+  onSetQuantity: (quantity: number) => void;
+}) {
+  const soldOut = product.isTrackable && product.available <= 0;
+  const low = product.isTrackable && product.available > 0 && product.available < 10;
+
+  return (
+    // The tile is clickable for speed at the counter, but it is deliberately
+    // not a button: the stepper inside is, and nesting controls would leave
+    // screen readers announcing a button inside a button.
+    <div
+      onClick={soldOut ? undefined : onAdd}
+      className={cn(
+        'flex h-full flex-col overflow-hidden rounded-[14px] border bg-card text-left shadow-2xs transition-colors',
+        soldOut ? 'opacity-60' : 'cursor-pointer hover:border-primary/40 hover:bg-accent/30',
+        inCart > 0 && 'border-primary ring-2 ring-primary/15',
+      )}
+    >
+      <div className="relative flex h-[150px] w-full items-center justify-center bg-muted/70">
+        {product.imageUrl ? (
+          <ProductImage
+            src={product.imageUrl}
+            alt={product.name}
+            size="fill"
+            className="rounded-none border-0 bg-transparent"
+          />
+        ) : (
+          <span
+            className={cn(
+              'flex h-16 w-16 items-center justify-center rounded-2xl text-xl font-semibold',
+              toneFor(product.name),
+            )}
+            aria-hidden="true"
+          >
+            {initialsFor(product.name)}
+          </span>
+        )}
+
+        <span
+          className={cn(
+            'absolute left-2.5 top-2.5 rounded-full px-2 py-0.5 text-[11px] font-medium',
+            soldOut
+              ? 'bg-destructive/10 text-destructive'
+              : low
+                ? 'bg-warning/15 text-warning'
+                : 'bg-success/10 text-success',
+          )}
+        >
+          {!product.isTrackable
+            ? 'Service'
+            : soldOut
+              ? 'Out of stock'
+              : low
+                ? `${formatQuantity(product.available)} left`
+                : `${formatQuantity(product.available)} in stock`}
+        </span>
+      </div>
+
+      <div className="flex flex-1 flex-col gap-0.5 p-3">
+        <p className="line-clamp-2 text-[15px] font-semibold leading-snug">{product.name}</p>
+        <p className="truncate text-[11px] text-muted-foreground">{product.sku}</p>
+
+        <div className="mt-auto flex items-center justify-between gap-2 pt-2">
+          <span className="tabular text-lg font-bold">{formatCurrency(product.sellingPrice, currency)}</span>
+
+          {soldOut ? null : inCart > 0 ? (
+            <span
+              className="flex items-center gap-1 rounded-lg bg-primary p-0.5 text-primary-foreground"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => onSetQuantity(inCart - 1)}
+                className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                aria-label={`Remove one ${product.name}`}
+              >
+                <Minus className="h-3.5 w-3.5" />
+              </button>
+              <span className="tabular min-w-6 text-center text-sm font-semibold">
+                {formatQuantity(inCart)}
+              </span>
+              <button
+                type="button"
+                onClick={() => onSetQuantity(inCart + 1)}
+                className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                aria-label={`Add one ${product.name}`}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={(event) => {
+                // The tile already handles the click; this is the keyboard and
+                // screen-reader route to the same action.
+                event.stopPropagation();
+                onAdd();
+              }}
+              className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary/10 px-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              aria-label={`Add ${product.name}`}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Row({ label, value }: { label: string; value: string }) {

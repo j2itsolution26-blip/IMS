@@ -4,7 +4,8 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    /* #EEF1F5 — a soft ground so white cards and panels read as raised. */
+    --background: 214 26% 95%;
     --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;

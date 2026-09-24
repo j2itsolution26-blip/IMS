@@ -235,14 +235,40 @@ export async function getProductHistory(id: string, days = 90) {
   };
 }
 
+export type SellableSort = 'name' | 'priceAsc' | 'priceDesc';
+
+const SELLABLE_ORDER: Record<SellableSort, Prisma.ProductOrderByWithRelationInput> = {
+  name: { name: 'asc' },
+  priceAsc: { sellingPrice: 'asc' },
+  priceDesc: { sellingPrice: 'desc' },
+};
+
+export interface SellableFilters {
+  categoryId?: string;
+  /** Stock at or under this level, and above zero — the till's "Low stock" chip. */
+  lowStockAtOrBelow?: number;
+  sort?: SellableSort;
+}
+
 /** Product lookup for the POS — active, sellable lines with live availability. */
-export async function searchSellableProducts(term: string, limit = 24) {
+export async function searchSellableProducts(term: string, limit = 24, filters: SellableFilters = {}) {
   const trimmed = term.trim();
   const warehouseId = await getDefaultWarehouseId();
 
   const products = await prisma.product.findMany({
     where: {
       status: 'ACTIVE',
+      ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
+      // Compares stock on hand rather than availability: Prisma cannot subtract
+      // `reserved` in a filter, and the till never reserves stock, so the two
+      // are the same figure here.
+      ...(filters.lowStockAtOrBelow != null
+        ? {
+            inventory: {
+              some: { warehouseId, quantity: { lte: filters.lowStockAtOrBelow, gt: 0 } },
+            },
+          }
+        : {}),
       ...(trimmed
         ? {
             OR: [
@@ -253,7 +279,7 @@ export async function searchSellableProducts(term: string, limit = 24) {
           }
         : {}),
     },
-    orderBy: { name: 'asc' },
+    orderBy: SELLABLE_ORDER[filters.sort ?? 'name'],
     take: limit,
     select: {
       id: true,
@@ -293,6 +319,53 @@ export async function searchSellableProducts(term: string, limit = 24) {
 }
 
 export type SellableProduct = Awaited<ReturnType<typeof searchSellableProducts>>[number];
+
+export interface PosCategoryChip {
+  id: string;
+  name: string;
+  count: number;
+}
+
+/**
+ * Counts behind the till's category chips.
+ *
+ * Counted across the whole catalogue rather than the page of products on
+ * screen, so a chip never claims a number the grid cannot produce.
+ */
+export async function getPosCategories(lowStockAtOrBelow: number): Promise<{
+  total: number;
+  lowStock: number;
+  categories: PosCategoryChip[];
+}> {
+  const warehouseId = await getDefaultWarehouseId();
+
+  const [total, lowStock, grouped, categories] = await Promise.all([
+    prisma.product.count({ where: { status: 'ACTIVE' } }),
+    prisma.product.count({
+      where: {
+        status: 'ACTIVE',
+        inventory: { some: { warehouseId, quantity: { lte: lowStockAtOrBelow, gt: 0 } } },
+      },
+    }),
+    prisma.product.groupBy({
+      by: ['categoryId'],
+      where: { status: 'ACTIVE' },
+      _count: { _all: true },
+    }),
+    prisma.category.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+  ]);
+
+  const counts = new Map(grouped.map((row) => [row.categoryId, row._count._all]));
+
+  return {
+    total,
+    lowStock,
+    categories: categories
+      .map((category) => ({ ...category, count: counts.get(category.id) ?? 0 }))
+      // An empty category is noise on a till screen.
+      .filter((category) => category.count > 0),
+  };
+}
 
 /**
  * Finds a sellable product by barcode the way a scanner reads it.

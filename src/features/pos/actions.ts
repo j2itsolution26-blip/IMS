@@ -6,7 +6,12 @@ import { authorize } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createSale, type CompletedSale } from '@/server/services/sale-service';
-import { findSellableByBarcode, searchSellableProducts, type SellableProduct } from '@/features/products/queries';
+import {
+  findSellableByBarcode,
+  searchSellableProducts,
+  type SellableFilters,
+  type SellableProduct,
+} from '@/features/products/queries';
 
 /**
  * Point-of-sale actions.
@@ -73,10 +78,13 @@ export async function checkout(input: unknown): Promise<ActionResult<CompletedSa
 }
 
 /** Live product lookup for the terminal's search and barcode field. */
-export async function lookupProducts(term: string): Promise<ActionResult<SellableProduct[]>> {
+export async function lookupProducts(
+  term: string,
+  filters: SellableFilters = {},
+): Promise<ActionResult<SellableProduct[]>> {
   return runAction(async () => {
     await authorize('pos.view');
-    return searchSellableProducts(term, 40);
+    return searchSellableProducts(term, 40, filters);
   });
 }
 
