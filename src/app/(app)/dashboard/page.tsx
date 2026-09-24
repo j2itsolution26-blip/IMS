@@ -1,28 +1,43 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { Banknote, Boxes, Calculator, PackageCheck, PackageX, Receipt, ShoppingBag, TrendingUp } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Package } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
 import { prisma } from '@/lib/prisma';
-import { formatCurrency, formatNumber } from '@/lib/format';
+import { formatCurrency, formatNumber, formatQuantity } from '@/lib/format';
 import { inlineLabel, resolveRangeFromParams } from '@/server/analytics/date-range';
 import { getInventorySnapshot, getProductPerformance, getSalesSummary } from '@/server/analytics/dashboard';
+import { getStockLevels, type StockLevelRow } from '@/server/analytics/inventory-analytics';
 import { getSalesTimeSeries, granularityForRange } from '@/server/analytics/sales-analytics';
 import { getSettings, readString } from '@/server/services/settings-service';
 import { PageHeader } from '@/components/page-header';
-import { StatCard } from '@/components/stat-card';
+import { ProductImage } from '@/components/product-image';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { PeriodPicker } from '@/components/period-picker';
 import { TrendChart } from '@/components/charts/trend-chart';
-import { StockHealthCard } from '@/features/dashboard/stock-health-card';
 import { SalesHistory } from '@/features/dashboard/sales-history';
+import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
 // Every figure is live; caching would show the owner yesterday's numbers.
 export const dynamic = 'force-dynamic';
+
+/**
+ * Everything at or below its low-stock level, plus everything already out.
+ * Queried per status because the stock register filters on one at a time;
+ * out-of-stock leads because it is the most urgent to act on.
+ */
+async function getNeedsAttention(limit: number): Promise<StockLevelRow[]> {
+  const [out, critical, low] = await Promise.all([
+    getStockLevels({ status: 'OUT_OF_STOCK', page: 1, pageSize: limit }),
+    getStockLevels({ status: 'CRITICAL', page: 1, pageSize: limit }),
+    getStockLevels({ status: 'LOW', page: 1, pageSize: limit }),
+  ]);
+  return [...out.rows, ...critical.rows, ...low.rows].slice(0, limit);
+}
 
 export default async function DashboardPage({
   searchParams,
@@ -44,12 +59,17 @@ export default async function DashboardPage({
   const settings = await getSettings();
   const currency = readString(settings, 'locale.currency') || 'PHP';
 
-  const [summary, snapshot, totalProducts, bestSellers] = await Promise.all([
+  const [summary, snapshot, totalProducts, bestSellers, needsAttention] = await Promise.all([
     getSalesSummary(range.from, range.to),
     getInventorySnapshot(),
     prisma.product.count({ where: { status: 'ACTIVE' } }),
     getProductPerformance({ from: range.from, to: range.to, sort: 'units', limit: 5 }),
+    getNeedsAttention(5),
   ]);
+
+  const isToday = period === 'today';
+  const lowStock = snapshot.lowStock + snapshot.criticalStock;
+  const transactions = formatNumber(summary.transactionCount, 0);
 
   return (
     <>
@@ -65,7 +85,7 @@ export default async function DashboardPage({
               customTo={custom?.to}
             />
             {userCan(user, 'pos.create') && (
-              <Button asChild>
+              <Button asChild size="lg">
                 <Link href="/pos">Open POS</Link>
               </Button>
             )}
@@ -73,116 +93,93 @@ export default async function DashboardPage({
         }
       />
 
-      <section aria-labelledby="sales-heading" className="mb-6">
-        <h2 id="sales-heading" className="sr-only">
+      {/* The three numbers an owner opens this page for. Built here rather than
+          with the shared StatCard so the emphasis can be larger than the
+          compact stock tiles below without changing five other pages. */}
+      <section aria-labelledby="money-heading" className="mb-4">
+        <h2 id="money-heading" className="sr-only">
           Sales for {range.label}
         </h2>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <StatCard
-            label="Sales"
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Headline
+            label={isToday ? "Today's sales" : 'Sales'}
             value={formatCurrency(summary.revenue, currency)}
-            icon={Receipt}
-            hint={`${formatNumber(summary.transactionCount, 0)} transaction${summary.transactionCount === 1 ? '' : 's'}`}
+            hint={`${transactions} transaction${summary.transactionCount === 1 ? '' : 's'}`}
             href="/sales"
           />
-          <StatCard
-            label="Transactions"
-            value={formatNumber(summary.transactionCount, 0)}
-            icon={ShoppingBag}
-            href="/sales"
-          />
-          <StatCard
-            label="Average sale"
-            value={formatCurrency(summary.averageOrderValue, currency)}
-            icon={Calculator}
-            href="/sales"
-          />
-          <StatCard
-            label="Items sold"
-            value={formatNumber(summary.itemsSold, 0)}
-            icon={PackageCheck}
-            href="/reports/best-selling"
-          />
-          <StatCard
+          <Headline label="Transactions" value={transactions} href="/sales" />
+          <Headline
             label="Profit"
             value={formatCurrency(summary.netProfit, currency)}
-            icon={TrendingUp}
-            tone={summary.netProfit < 0 ? 'destructive' : 'default'}
             hint={summary.revenue > 0 ? `${formatNumber(summary.marginPercent, 1)}% margin` : undefined}
+            tone={summary.netProfit < 0 ? 'destructive' : 'default'}
             href="/reports/profit"
-          />
-          <StatCard
-            label="Cash sales"
-            value={formatCurrency(summary.cashSales, currency)}
-            icon={Banknote}
-            href="/reports/sales-by-payment-method"
           />
         </div>
       </section>
 
       <section aria-labelledby="stock-heading" className="mb-6">
         <h2 id="stock-heading" className="sr-only">
-          Stock position
+          Inventory
         </h2>
         <div className="grid gap-3 sm:grid-cols-3">
-          <StatCard label="Total products" value={formatNumber(totalProducts, 0)} icon={Boxes} href="/products" />
-          <StatCard
+          <Tile label="Total products" value={formatNumber(totalProducts, 0)} href="/products" />
+          {/* Calm at zero, coloured only when there is something to do. */}
+          <Tile
             label="Low stock"
-            value={formatNumber(snapshot.lowStock + snapshot.criticalStock, 0)}
-            icon={PackageX}
-            tone={snapshot.criticalStock > 0 ? 'warning' : 'default'}
+            value={formatNumber(lowStock, 0)}
+            tone={lowStock > 0 ? 'warning' : 'default'}
             href="/inventory?status=LOW"
           />
-          <StatCard
+          <Tile
             label="Out of stock"
             value={formatNumber(snapshot.outOfStock, 0)}
-            icon={PackageX}
-            tone={snapshot.outOfStock > 0 ? 'destructive' : 'success'}
+            tone={snapshot.outOfStock > 0 ? 'destructive' : 'default'}
             href="/inventory?status=OUT_OF_STOCK"
           />
         </div>
       </section>
 
-      <div className="mb-6 grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Daily sales</CardTitle>
-            <CardDescription>{range.label}, from completed sales.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Suspense fallback={<Skeleton className="h-[300px] w-full" />}>
-              <TrendSection from={range.from} to={range.to} currency={currency} />
-            </Suspense>
-          </CardContent>
-        </Card>
+      <Card className="mb-6">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">{isToday ? "Today's sales" : 'Sales'}</CardTitle>
+          <CardDescription>Revenue and profit for {inlineLabel(range)}.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Suspense fallback={<Skeleton className="h-[240px] w-full" />}>
+            <TrendSection from={range.from} to={range.to} currency={currency} />
+          </Suspense>
+        </CardContent>
+      </Card>
 
-        <StockHealthCard snapshot={snapshot} currency={currency} />
-      </div>
-
-      <section aria-labelledby="best-selling-heading" className="mb-6">
+      <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle id="best-selling-heading" className="text-base">
-              Best-selling products
-            </CardTitle>
-            <CardDescription>{range.label}, by quantity sold.</CardDescription>
+            <CardTitle className="text-base">Top selling products</CardTitle>
+            <CardDescription>Most units sold {inlineLabel(range)}.</CardDescription>
           </CardHeader>
           <CardContent>
             {bestSellers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No sales recorded</p>
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                No sales yet {inlineLabel(range)}.
+              </p>
             ) : (
-              <ul className="divide-y">
+              <ul className="space-y-3">
                 {bestSellers.map((product) => (
-                  <li key={product.productId} className="flex items-center justify-between gap-3 py-2 first:pt-0">
-                    <div className="min-w-0">
-                      <Link href={`/products/${product.productId}`} className="truncate text-sm font-medium hover:underline">
+                  <li key={product.productId} className="flex items-center gap-3">
+                    <ProductImage src={product.imageUrl} alt={product.name} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        href={`/products/${product.productId}`}
+                        className="block truncate text-sm font-medium hover:underline"
+                      >
                         {product.name}
                       </Link>
                       <p className="tabular text-xs text-muted-foreground">
                         {formatNumber(product.unitsSold, 0)} sold
                       </p>
                     </div>
-                    <span className="tabular whitespace-nowrap text-sm font-medium">
+                    <span className="tabular shrink-0 text-sm font-semibold">
                       {formatCurrency(product.revenue, currency)}
                     </span>
                   </li>
@@ -191,7 +188,73 @@ export default async function DashboardPage({
             )}
           </CardContent>
         </Card>
-      </section>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Needs attention</CardTitle>
+            <CardDescription>Products to restock.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {needsAttention.length === 0 ? (
+              // Nothing is wrong, so nothing shouts. An alert here every day
+              // would teach the owner to ignore the one that matters.
+              <div className="flex flex-col items-center gap-1.5 py-8 text-center">
+                <CheckCircle2 className="h-6 w-6 text-success" aria-hidden="true" />
+                <p className="text-sm font-medium">Inventory looks good</p>
+                <p className="text-xs text-muted-foreground">No products need restocking.</p>
+              </div>
+            ) : (
+              <ul className="space-y-3">
+                {needsAttention.map((row) => {
+                  const isOut = row.status === 'OUT_OF_STOCK';
+                  return (
+                    <li key={row.productId} className="flex items-center gap-3">
+                      <AlertTriangle
+                        className={cn('h-4 w-4 shrink-0', isOut ? 'text-destructive' : 'text-warning')}
+                        aria-hidden="true"
+                      />
+                      <Link
+                        href={`/products/${row.productId}`}
+                        className="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+                      >
+                        {row.name}
+                      </Link>
+                      <span
+                        className={cn(
+                          'tabular shrink-0 text-sm font-medium',
+                          isOut ? 'text-destructive' : 'text-warning',
+                        )}
+                      >
+                        {isOut
+                          ? 'Out of stock'
+                          : `${formatQuantity(row.onHand)} ${row.unitAbbreviation} left`}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {/* Carried over from the stock-health card this section replaces:
+                capital sitting on the shelf is still something to act on. */}
+            {snapshot.deadStock > 0 && (
+              <p className="mt-4 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
+                {snapshot.deadStock} product{snapshot.deadStock === 1 ? '' : 's'} holding stock with no recent
+                sales.{' '}
+                <Link href="/reports/dead-stock" className="font-medium underline">
+                  Review dead stock
+                </Link>
+              </p>
+            )}
+
+            <Button variant="outline" className="mt-4 w-full" asChild>
+              <Link href="/inventory">
+                <Package /> View inventory
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
 
       <SalesHistory
         from={range.from}
@@ -207,11 +270,82 @@ export default async function DashboardPage({
   );
 }
 
+/** One of the three headline figures: the largest type on the page. */
+function Headline({
+  label,
+  value,
+  hint,
+  tone = 'default',
+  href,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: 'default' | 'destructive';
+  href: string;
+}) {
+  return (
+    <Link href={href} className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <Card className="h-full p-5 transition-colors hover:border-primary/40">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+        <p
+          className={cn(
+            'tabular mt-2 text-2xl font-semibold tracking-tight sm:text-3xl',
+            tone === 'destructive' && 'text-destructive',
+          )}
+        >
+          {value}
+        </p>
+        <p className="mt-1 h-4 text-xs text-muted-foreground">{hint ?? ''}</p>
+      </Card>
+    </Link>
+  );
+}
+
+/** A compact stock count. Deliberately smaller than a headline figure. */
+function Tile({
+  label,
+  value,
+  tone = 'default',
+  href,
+}: {
+  label: string;
+  value: string;
+  tone?: 'default' | 'warning' | 'destructive';
+  href: string;
+}) {
+  return (
+    <Link href={href} className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <Card
+        className={cn(
+          'flex h-full items-center justify-between gap-3 px-4 py-3 transition-colors hover:border-primary/40',
+          tone === 'warning' && 'border-warning/40 bg-warning/5',
+          tone === 'destructive' && 'border-destructive/40 bg-destructive/5',
+        )}
+      >
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <span
+          className={cn(
+            'tabular text-lg font-semibold',
+            tone === 'warning' && 'text-warning',
+            tone === 'destructive' && 'text-destructive',
+          )}
+        >
+          {value}
+        </span>
+      </Card>
+    </Link>
+  );
+}
+
 async function TrendSection({ from, to, currency }: { from: Date; to: Date; currency: string }) {
   const points = await getSalesTimeSeries(from, to, granularityForRange(from, to));
   return (
     <TrendChart
       currency={currency}
+      // Shorter than the reporting default: this is a glance, and an empty
+      // day should not leave a screen-deep hole above the rest of the page.
+      height={240}
       data={points.map((p) => ({
         label: p.label,
         revenue: p.revenue,
