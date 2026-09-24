@@ -29,6 +29,7 @@ export interface StockLevelRow {
   sellingPrice: number;
   stockValue: number;
   status: StockStatus;
+  updatedAt: Date;
   lastSoldAt: Date | null;
   lastReceivedAt: Date | null;
 }
@@ -48,6 +49,7 @@ interface StockLevelSqlRow {
   maxStock: string;
   costPrice: string;
   sellingPrice: string;
+  updatedAt: Date;
   lastSoldAt: Date | null;
   lastReceivedAt: Date | null;
 }
@@ -60,11 +62,32 @@ function classify(available: number, threshold: number, maxStock: number, critic
   return 'HEALTHY';
 }
 
+/**
+ * What the register can be filtered to.
+ *
+ * `IN_STOCK` and `LOW_ANY` are unions of the bands above: an owner reading
+ * "Low 3" expects the tab to list those same three, and the underlying bands
+ * split low from critical. The individual bands keep their exact meaning so
+ * the reports that filter on them are unaffected.
+ */
+export type StockFilter = StockStatus | 'ALL' | 'IN_STOCK' | 'LOW_ANY';
+
+/** Orderings the register offers. A closed set — never caller-supplied SQL. */
+export type StockSort = 'stock' | 'name' | 'price' | 'value';
+
+const SORT_SQL: Record<StockSort, string> = {
+  stock: 'available ASC, "name" ASC',
+  name: '"name" ASC',
+  price: 'selling_price DESC, "name" ASC',
+  value: '(on_hand * cost_price) DESC, "name" ASC',
+};
+
 export interface StockLevelQuery {
   warehouseId?: string | null;
   categoryId?: string | null;
   search?: string | null;
-  status?: StockStatus | 'ALL';
+  status?: StockFilter;
+  sort?: StockSort;
   page?: number;
   pageSize?: number;
 }
@@ -116,6 +139,10 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
           LOW: `available > 0 AND threshold > 0 AND available > threshold * ${criticalRatio} AND available <= threshold`,
           HEALTHY: `available > 0 AND (threshold <= 0 OR available > threshold) AND (max_stock <= 0 OR available <= max_stock)`,
           OVERSTOCK: `max_stock > 0 AND available > max_stock`,
+          // Healthy and overstocked together — "not a problem".
+          IN_STOCK: `available > 0 AND (threshold <= 0 OR available > threshold)`,
+          // Low and critical together, matching the low-stock count shown.
+          LOW_ANY: `available > 0 AND threshold > 0 AND available <= threshold`,
         }[query.status]
       : null;
 
@@ -140,6 +167,7 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         p."maxStock"                                            AS max_stock,
         p."costPrice"                                           AS cost_price,
         p."sellingPrice"                                        AS selling_price,
+        p."updatedAt"                                           AS updated_at,
         MAX(i."lastSoldAt")                                     AS last_sold_at,
         MAX(i."lastReceivedAt")                                 AS last_received_at
       FROM products p
@@ -170,10 +198,11 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
       max_stock::text        AS "maxStock",
       cost_price::text       AS "costPrice",
       selling_price::text    AS "sellingPrice",
+      updated_at             AS "updatedAt",
       last_sold_at           AS "lastSoldAt",
       last_received_at       AS "lastReceivedAt"
     FROM (${base}) AS filtered
-    ORDER BY available ASC, "name" ASC
+    ORDER BY ${SORT_SQL[query.sort ?? 'stock']}
     LIMIT ${pageSize} OFFSET ${offset}
     `,
     ...params,
@@ -210,6 +239,7 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         sellingPrice: Number(r.sellingPrice),
         stockValue: Number((onHand * costPrice).toFixed(2)),
         status: classify(available, threshold, maxStock, criticalRatio),
+        updatedAt: r.updatedAt,
         lastSoldAt: r.lastSoldAt,
         lastReceivedAt: r.lastReceivedAt,
       };

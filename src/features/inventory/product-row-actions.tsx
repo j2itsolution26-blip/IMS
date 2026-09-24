@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { ClipboardEdit, History, MoreHorizontal, PackagePlus, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +26,7 @@ export function ProductRowActions({
   costPrice,
   canAdjustStock,
   canEditProduct,
+  needsRestock = false,
 }: {
   productId: string;
   productName: string;
@@ -34,11 +36,30 @@ export function ProductRowActions({
   costPrice: number;
   canAdjustStock: boolean;
   canEditProduct: boolean;
+  /** Low or out of stock — the row's action becomes the thing to do about it. */
+  needsRestock?: boolean;
 }) {
   const [activeDialog, setActiveDialog] = React.useState<ActiveDialog>(null);
 
   return (
-    <>
+    <div className="flex items-center justify-end gap-1">
+      {/* One visible action per row, and it names the job: a shelf that is
+          running out needs restocking, anything else just needs a correction. */}
+      {canAdjustStock && (
+        <Button
+          type="button"
+          variant={needsRestock ? 'default' : 'outline'}
+          size="sm"
+          className={cn(
+            'h-9 hidden sm:inline-flex',
+            needsRestock && 'bg-warning text-warning-foreground hover:bg-warning/90',
+          )}
+          onClick={() => setActiveDialog('add-stock')}
+        >
+          {needsRestock ? 'Restock' : 'Adjust'}
+        </Button>
+      )}
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -98,6 +119,6 @@ export function ProductRowActions({
           />
         </>
       )}
-    </>
+    </div>
   );
 }

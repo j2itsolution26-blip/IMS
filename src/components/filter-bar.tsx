@@ -135,10 +135,13 @@ export function PaginationBar({
   page,
   pageCount,
   total,
+  compact = false,
 }: {
   page: number;
   pageCount: number;
   total: number;
+  /** Buttons only — for a footer that already states its own row count. */
+  compact?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -152,12 +155,20 @@ export function PaginationBar({
   };
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2">
-      <p className="text-xs text-muted-foreground">
-        {total === 0
-          ? 'No rows'
-          : `Page ${page} of ${pageCount} · ${total.toLocaleString()} row${total === 1 ? '' : 's'}`}
-      </p>
+    <div
+      className={
+        compact
+          ? 'flex items-center gap-1'
+          : 'flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2'
+      }
+    >
+      {!compact && (
+        <p className="text-xs text-muted-foreground">
+          {total === 0
+            ? 'No rows'
+            : `Page ${page} of ${pageCount} · ${total.toLocaleString()} row${total === 1 ? '' : 's'}`}
+        </p>
+      )}
       {pageCount > 1 && (
         <div className="flex gap-1">
           <Button variant="outline" size="sm" onClick={() => goTo(page - 1)} disabled={page <= 1 || pending}>
