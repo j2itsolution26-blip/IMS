@@ -47,6 +47,7 @@ export default async function PosPage() {
         gcash={{ number: company.gcashNumber, accountName: company.gcashName }}
         canEditStoreSettings={userCan(user, 'settings.update')}
         canCreateProducts={userCan(user, 'products.create')}
+        canEditProduct={userCan(user, 'products.update')}
         categoryChips={categoryChips}
         lowStockLevel={lowStockLevel}
         openShift={openShift ? { id: openShift.id, openedAt: openShift.openedAt.toISOString(), openingCash: openShift.openingCash } : null}

@@ -11,7 +11,9 @@ import {
   Lock,
   LogOut,
   Minus,
+  MoreHorizontal,
   Package,
+  Pencil,
   Plus,
   Printer,
   Search,
@@ -33,6 +35,12 @@ import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
@@ -81,6 +89,7 @@ export interface PosTerminalProps {
   gcash: { number: string; accountName: string };
   canEditStoreSettings: boolean;
   canCreateProducts: boolean;
+  canEditProduct: boolean;
   categoryChips: { total: number; lowStock: number; categories: PosCategoryChip[] };
   lowStockLevel: number;
   openShift: OpenShiftInfo | null;
@@ -156,6 +165,7 @@ export function PosTerminal({
   gcash,
   canEditStoreSettings,
   canCreateProducts,
+  canEditProduct,
   categoryChips,
   lowStockLevel,
   openShift,
@@ -829,13 +839,14 @@ export function PosTerminal({
             </p>
           </Card>
         ) : (
-          <ul className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-4">
+          <ul className="grid grid-cols-1 gap-4 min-[360px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {products.map((product) => (
               <li key={product.id}>
                 <ProductTile
                   product={product}
                   currency={currency}
                   inCart={basket.find((line) => line.productId === product.id)?.quantity ?? 0}
+                  canEditProduct={canEditProduct}
                   onAdd={() => addToBasket(product)}
                   onSetQuantity={(quantity) => setQuantity(product.id, quantity)}
                 />
@@ -1425,100 +1436,140 @@ function ProductTile({
   product,
   currency,
   inCart,
+  canEditProduct,
   onAdd,
   onSetQuantity,
 }: {
   product: SellableProduct;
   currency: string;
   inCart: number;
+  canEditProduct: boolean;
   onAdd: () => void;
   onSetQuantity: (quantity: number) => void;
 }) {
   const soldOut = product.isTrackable && product.available <= 0;
   const low = product.isTrackable && product.available > 0 && product.available < 10;
 
+  const stock = !product.isTrackable
+    ? { label: 'Service', text: 'text-muted-foreground', dot: 'bg-muted-foreground' }
+    : soldOut
+      ? { label: 'Out of stock', text: 'text-destructive', dot: 'bg-destructive' }
+      : low
+        ? { label: `${formatQuantity(product.available)} left`, text: 'text-warning', dot: 'bg-warning' }
+        : {
+            label: `${formatQuantity(product.available)} in stock`,
+            text: 'text-success',
+            dot: 'bg-success',
+          };
+
   return (
     // The tile is clickable for speed at the counter, but it is deliberately
-    // not a button: the stepper inside is, and nesting controls would leave
-    // screen readers announcing a button inside a button.
+    // not a button: the stepper and the menu sit inside it, and nesting
+    // controls would leave screen readers announcing a button in a button.
     <div
       onClick={soldOut ? undefined : onAdd}
       className={cn(
-        'flex h-full flex-col overflow-hidden rounded-[14px] border bg-card text-left shadow-2xs transition-colors',
-        soldOut ? 'opacity-60' : 'cursor-pointer hover:border-primary/40 hover:bg-accent/30',
-        inCart > 0 && 'border-primary ring-2 ring-primary/15',
+        'group flex h-full flex-col overflow-hidden rounded-2xl border bg-card text-left shadow-2xs transition-[border-color,box-shadow,background-color] duration-150',
+        soldOut ? 'opacity-70' : 'cursor-pointer hover:border-primary/40 hover:shadow-sm',
+        inCart > 0 && 'border-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]',
       )}
     >
-      <div className="relative flex h-[150px] w-full items-center justify-center bg-muted/70">
-        {product.imageUrl ? (
-          <ProductImage
-            src={product.imageUrl}
-            alt={product.name}
-            size="fill"
-            className="rounded-none border-0 bg-transparent"
-          />
-        ) : (
-          <span
-            className={cn(
-              'flex h-16 w-16 items-center justify-center rounded-2xl text-xl font-semibold',
-              toneFor(product.name),
-            )}
-            aria-hidden="true"
-          >
-            {initialsFor(product.name)}
-          </span>
-        )}
+      <div className="relative aspect-[4/3] w-full bg-muted/60">
+        <div className="absolute inset-0 flex items-center justify-center p-3">
+          {product.imageUrl ? (
+            <ProductImage
+              src={product.imageUrl}
+              alt={product.name}
+              size="fill"
+              className="rounded-none border-0 bg-transparent"
+            />
+          ) : (
+            <span
+              className={cn(
+                'flex h-16 w-16 items-center justify-center rounded-2xl text-xl font-semibold',
+                toneFor(product.name),
+              )}
+              aria-hidden="true"
+            >
+              {initialsFor(product.name)}
+            </span>
+          )}
+        </div>
 
+        {/* Status is spelled out, not just coloured, so it survives a
+            colour-blind reader and a sun-washed phone screen. */}
         <span
           className={cn(
-            'absolute left-2.5 top-2.5 rounded-full px-2 py-0.5 text-[11px] font-medium',
-            soldOut
-              ? 'bg-destructive/10 text-destructive'
-              : low
-                ? 'bg-warning/15 text-warning'
-                : 'bg-success/10 text-success',
+            'absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-card/90 px-2.5 py-1 text-xs font-semibold shadow-2xs backdrop-blur-sm',
+            stock.text,
           )}
         >
-          {!product.isTrackable
-            ? 'Service'
-            : soldOut
-              ? 'Out of stock'
-              : low
-                ? `${formatQuantity(product.available)} left`
-                : `${formatQuantity(product.available)} in stock`}
+          <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', stock.dot)} aria-hidden="true" />
+          {stock.label}
         </span>
+
+        <div className="absolute right-2 top-2" onClick={(event) => event.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 rounded-full bg-card/80 text-muted-foreground backdrop-blur hover:bg-card hover:text-foreground"
+                aria-label={`Options for ${product.name}`}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <Link href={`/products/${product.id}`}>
+                  <Package /> View product
+                </Link>
+              </DropdownMenuItem>
+              {canEditProduct && (
+                <DropdownMenuItem asChild>
+                  <Link href={`/products/${product.id}/edit`}>
+                    <Pencil /> Edit product
+                  </Link>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-0.5 p-3">
-        <p className="line-clamp-2 text-[15px] font-semibold leading-snug">{product.name}</p>
-        <p className="truncate text-[11px] text-muted-foreground">{product.sku}</p>
+      <div className="flex flex-1 flex-col p-4">
+        <p className="line-clamp-2 text-[18px] font-semibold leading-tight">{product.name}</p>
+        <p className="mt-1 truncate text-[13px] text-muted-foreground">{product.sku}</p>
 
-        <div className="mt-auto flex items-center justify-between gap-2 pt-2">
-          <span className="tabular text-lg font-bold">{formatCurrency(product.sellingPrice, currency)}</span>
+        <div className="mt-5 flex items-center justify-between gap-2">
+          <span className="tabular text-[19px] font-bold leading-none">
+            {formatCurrency(product.sellingPrice, currency)}
+          </span>
 
           {soldOut ? null : inCart > 0 ? (
             <span
-              className="flex items-center gap-1 rounded-lg bg-primary p-0.5 text-primary-foreground"
+              className="flex items-center rounded-xl bg-primary p-1 text-primary-foreground"
               onClick={(event) => event.stopPropagation()}
             >
               <button
                 type="button"
                 onClick={() => onSetQuantity(inCart - 1)}
-                className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
                 aria-label={`Remove one ${product.name}`}
               >
-                <Minus className="h-3.5 w-3.5" />
+                <Minus className="h-4 w-4" />
               </button>
-              <span className="tabular min-w-6 text-center text-sm font-semibold">
+              <span className="tabular min-w-8 px-1 text-center text-[15px] font-semibold">
                 {formatQuantity(inCart)}
               </span>
               <button
                 type="button"
                 onClick={() => onSetQuantity(inCart + 1)}
-                className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
                 aria-label={`Add one ${product.name}`}
               >
-                <Plus className="h-3.5 w-3.5" />
+                <Plus className="h-4 w-4" />
               </button>
             </span>
           ) : (
@@ -1530,10 +1581,10 @@ function ProductTile({
                 event.stopPropagation();
                 onAdd();
               }}
-              className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary/10 px-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="inline-flex h-11 items-center gap-1.5 rounded-xl bg-primary/10 px-4 text-[15px] font-semibold text-primary transition-colors hover:bg-primary/15 active:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               aria-label={`Add ${product.name}`}
             >
-              <Plus className="h-3.5 w-3.5" /> Add
+              <Plus className="h-4 w-4" /> Add
             </button>
           )}
         </div>
