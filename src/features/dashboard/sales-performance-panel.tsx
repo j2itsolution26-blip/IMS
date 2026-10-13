@@ -3,7 +3,7 @@ import { LineChart } from 'lucide-react';
 import type { DashboardOverview } from '@/server/analytics/dashboard-overview';
 import { TrendChart } from '@/components/charts/trend-chart';
 import { Button } from '@/components/ui/button';
-import { Panel, PanelEmpty } from '@/features/dashboard/overview-panels';
+import { Panel, PanelEmpty } from '@/components/panel';
 import { formatCurrency, formatNumber } from '@/lib/format';
 
 /**

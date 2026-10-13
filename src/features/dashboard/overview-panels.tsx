@@ -17,66 +17,13 @@ import { ProductImage } from '@/components/product-image';
 import { ViewSaleButton } from '@/features/dashboard/view-sale-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Panel, PanelEmpty } from '@/components/panel';
 import { formatCurrency, formatDateTime, formatNumber, formatQuantity, humanizeEnum } from '@/lib/format';
 import { SALE_STATUS_BADGE, SALE_STATUS_LABEL } from '@/lib/sale-status';
-import { cn } from '@/lib/utils';
 
 /* -------------------------------------------------------------------------- */
 /* Shared chrome                                                              */
 /* -------------------------------------------------------------------------- */
-
-export function Panel({
-  title,
-  description,
-  action,
-  className,
-  children,
-}: {
-  title: string;
-  description?: string;
-  action?: React.ReactNode;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    // min-w-0 matters: a grid and flex child defaults to min-width:auto, so
-    // without it a wide table or chart pushes the whole page sideways on a
-    // phone instead of scrolling inside its own panel.
-    <Card className={cn('flex min-w-0 flex-col overflow-hidden rounded-xl', className)}>
-      <div className="flex items-start justify-between gap-3 border-b p-4">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold leading-tight">{title}</h2>
-          {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
-        </div>
-        {action}
-      </div>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
-    </Card>
-  );
-}
-
-/** A panel with nothing in it still has to say something useful. */
-export function PanelEmpty({
-  icon: Icon,
-  title,
-  description,
-  action,
-}: {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-1 px-6 py-10 text-center">
-      <Icon className="mb-1 h-7 w-7 text-muted-foreground/40" aria-hidden="true" />
-      <p className="text-sm font-medium">{title}</p>
-      <p className="max-w-xs text-xs text-muted-foreground">{description}</p>
-      {action && <div className="mt-3">{action}</div>}
-    </div>
-  );
-}
 
 function MoreLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (

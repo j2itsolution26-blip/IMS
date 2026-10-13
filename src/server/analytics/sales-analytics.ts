@@ -44,6 +44,11 @@ const BUCKET_LABEL: Record<Granularity, Intl.DateTimeFormatOptions> = {
 };
 
 /** Revenue/profit/orders over time, bucketed at the requested granularity. */
+/** The label a bucket carries, so gap-filled slots match queried ones. */
+export function formatBucketLabel(date: Date, granularity: Granularity): string {
+  return new Intl.DateTimeFormat('en-PH', BUCKET_LABEL[granularity]).format(date);
+}
+
 export async function getSalesTimeSeries(
   from: Date,
   to: Date,
