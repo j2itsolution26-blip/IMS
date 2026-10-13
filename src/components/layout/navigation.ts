@@ -4,8 +4,11 @@ import {
   FileBarChart,
   LayoutDashboard,
   ScanBarcode,
+  ScrollText,
   Settings,
+  ShieldCheck,
   ShoppingCart,
+  Users,
 } from 'lucide-react';
 import type { PermissionKey } from '@/lib/permissions';
 
@@ -27,6 +30,16 @@ export interface NavSection {
 
 // Sign-out lives in the sidebar footer, satisfying "Logout" without a route.
 export const NAVIGATION: NavSection[] = [
+  {
+    // Only a platform administrator holds these, and the sidebar hides a
+    // section whose every item is unpermitted — so store users never see it.
+    label: 'Platform',
+    items: [
+      { label: 'Overview', href: '/system-admin', icon: ShieldCheck, permission: 'platform.view', exact: true },
+      { label: 'Owner accounts', href: '/system-admin/owners', icon: Users, permission: 'platform.view' },
+      { label: 'Audit log', href: '/system-admin/audit', icon: ScrollText, permission: 'platform.view' },
+    ],
+  },
   {
     label: 'Store',
     items: [

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
-import { requirePermission, userCan } from '@/lib/session';
+import { redirect } from 'next/navigation';
+import { requireUser, requirePermission, userCan } from '@/lib/session';
 import { resolveRangeFromParams } from '@/server/analytics/date-range';
 import { getDashboardOverview } from '@/server/analytics/dashboard-overview';
 import { getSettings, readString } from '@/server/services/settings-service';
@@ -15,6 +16,14 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
+  // A platform administrator holds no store permissions, so the dashboard is
+  // not theirs to see. Sending them to their own screen beats bouncing them
+  // off a permission check on the page every sign-in lands on.
+  const signedIn = await requireUser();
+  if (!userCan(signedIn, 'dashboard.view') && userCan(signedIn, 'platform.view')) {
+    redirect('/system-admin');
+  }
+
   const user = await requirePermission('dashboard.view');
   const params = await searchParams;
   const { period, range, custom } = resolveRangeFromParams(params, 'today');

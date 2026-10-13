@@ -18,6 +18,7 @@ export const RESOURCES = [
   'users',
   'roles',
   'settings',
+  'platform',
 ] as const;
 
 export type Resource = (typeof RESOURCES)[number];
@@ -42,6 +43,10 @@ const CATALOGUE: Record<Resource, ResourceSpec> = {
   users: { actions: ['view', 'create', 'update', 'delete'], description: 'User accounts' },
   roles: { actions: ['view', 'create', 'update', 'delete'], description: 'Roles and permissions' },
   settings: { actions: ['view', 'update'], description: 'System settings' },
+  platform: {
+    actions: ['view', 'manage'],
+    description: 'Platform administration — owner accounts and the admin audit trail',
+  },
 };
 
 export interface PermissionDefinition {
@@ -64,6 +69,23 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = (
 
 export const ALL_PERMISSION_KEYS: PermissionKey[] = ALL_PERMISSIONS.map((p) => p.key);
 
+/** True for the platform-administration keys, which no store role may hold. */
+export function isPlatformPermission(key: PermissionKey): boolean {
+  return key.startsWith('platform.');
+}
+
+/**
+ * Everything inside the store.
+ *
+ * This is what the Owner's `'ALL'` resolves to. Platform permissions are
+ * excluded deliberately: an owner who could administer the platform could
+ * reinstate themselves after being deactivated, which defeats the point of
+ * having an administrator at all.
+ */
+export const STORE_PERMISSION_KEYS: PermissionKey[] = ALL_PERMISSION_KEYS.filter(
+  (key) => !isPlatformPermission(key),
+);
+
 /**
  * System roles. `OWNER` is intentionally unrestricted — the store owner
  * should never be locked out of their own data.
@@ -76,6 +98,13 @@ export interface RoleDefinition {
 }
 
 export const SYSTEM_ROLES: RoleDefinition[] = [
+  {
+    slug: 'system-admin',
+    name: 'System Administrator',
+    description:
+      'Maintains the platform and the owner account. Holds no store permissions, so the POS, inventory and sales data are out of reach.',
+    permissions: ['platform.view', 'platform.manage'],
+  },
   {
     slug: 'owner',
     name: 'Owner',
@@ -125,9 +154,13 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
  * not assignable from there, so the system keeps exactly one owner.
  */
 export const OWNER_ROLE_SLUG = 'owner';
+export const SYSTEM_ADMIN_ROLE_SLUG = 'system-admin';
+
+/** Roles that may never be handed out from an in-app account form. */
+export const PRIVILEGED_ROLE_SLUGS: string[] = [OWNER_ROLE_SLUG, SYSTEM_ADMIN_ROLE_SLUG];
 
 export function resolveRolePermissions(role: RoleDefinition): PermissionKey[] {
-  return role.permissions === 'ALL' ? ALL_PERMISSION_KEYS : role.permissions;
+  return role.permissions === 'ALL' ? STORE_PERMISSION_KEYS : role.permissions;
 }
 
 /** Route -> permission required to open it. Consumed by the sidebar and middleware. */

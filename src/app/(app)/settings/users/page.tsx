@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { requirePermission, userCan } from '@/lib/session';
 import { prisma } from '@/lib/prisma';
-import { OWNER_ROLE_SLUG } from '@/lib/permissions';
+import { OWNER_ROLE_SLUG, PRIVILEGED_ROLE_SLUGS } from '@/lib/permissions';
 import { PageHeader } from '@/components/page-header';
 import { StaffAccountsManager, type StaffRow } from '@/features/admin/staff-accounts-manager';
 
@@ -40,7 +40,7 @@ export default async function StaffAccountsPage() {
   // Owner is established once, during first-run setup, so it is never an
   // option when adding or editing a staff account.
   const assignableRoles = roles
-    .filter((role) => role.slug !== OWNER_ROLE_SLUG)
+    .filter((role) => !PRIVILEGED_ROLE_SLUGS.includes(role.slug))
     .map((role) => ({ id: role.id, name: role.name }));
 
   return (

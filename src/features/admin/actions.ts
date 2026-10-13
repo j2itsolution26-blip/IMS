@@ -10,7 +10,7 @@ import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { runAsProvisioning } from '@/lib/provisioning-context';
 import { recordAudit } from '@/server/services/audit-service';
-import { ALL_PERMISSION_KEYS, OWNER_ROLE_SLUG } from '@/lib/permissions';
+import { PRIVILEGED_ROLE_SLUGS, STORE_PERMISSION_KEYS } from '@/lib/permissions';
 import { slugify } from '@/lib/utils';
 import { SETTING_DEFINITIONS } from '@/lib/settings-definitions';
 
@@ -112,8 +112,8 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
 
     // Owner exists only from first-run setup. Enforced here, not just by
     // filtering the dropdown, so a crafted payload cannot mint a second owner.
-    if (role.slug === OWNER_ROLE_SLUG) {
-      throw new ValidationError('Owner accounts cannot be created here.', {
+    if (PRIVILEGED_ROLE_SLUGS.includes(role.slug)) {
+      throw new ValidationError('Owner and administrator accounts cannot be created here.', {
         roleId: ['Choose a staff role.'],
       });
     }
@@ -238,7 +238,7 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
 
     // Promotion to Owner is not an edit — the owner is established once, during
     // first-run setup. Re-saving the existing owner's own row is still allowed.
-    if (newRole.slug === OWNER_ROLE_SLUG && target.role.slug !== OWNER_ROLE_SLUG) {
+    if (PRIVILEGED_ROLE_SLUGS.includes(newRole.slug) && newRole.slug !== target.role.slug) {
       throw new ConflictError('Staff accounts cannot be promoted to Owner.');
     }
 
@@ -391,7 +391,7 @@ export async function createRole(input: unknown): Promise<ActionResult<{ id: str
 
     // Ignore anything not in the catalogue — a tampered payload cannot invent
     // a permission the application does not define.
-    const valid = values.permissions.filter((key) => ALL_PERMISSION_KEYS.includes(key as never));
+    const valid = values.permissions.filter((key) => STORE_PERMISSION_KEYS.includes(key as never));
     const permissions = await prisma.permission.findMany({
       where: { key: { in: valid } },
       select: { id: true },
@@ -437,7 +437,7 @@ export async function updateRolePermissions(
       throw new ConflictError('The Owner role always has full access and cannot be restricted.');
     }
 
-    const valid = permissionKeys.filter((key) => ALL_PERMISSION_KEYS.includes(key as never));
+    const valid = permissionKeys.filter((key) => STORE_PERMISSION_KEYS.includes(key as never));
     const permissions = await prisma.permission.findMany({
       where: { key: { in: valid } },
       select: { id: true },

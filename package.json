@@ -18,6 +18,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:bootstrap": "tsx prisma/bootstrap.ts",
+    "admin:create": "cross-env NODE_OPTIONS=--conditions=react-server tsx scripts/create-system-admin.ts",
     "verify:images": "cross-env NODE_OPTIONS=--conditions=react-server tsx scripts/upload-test.ts"
   },
   "dependencies": {

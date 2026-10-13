@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { requirePermission, userCan } from '@/lib/session';
 import { prisma } from '@/lib/prisma';
-import { ALL_PERMISSIONS } from '@/lib/permissions';
+import { ALL_PERMISSIONS, isPlatformPermission } from '@/lib/permissions';
 import { PageHeader } from '@/components/page-header';
 import { RolesManager, type RoleRow } from '@/features/admin/roles-manager';
 
@@ -43,7 +43,9 @@ export default async function RolesPage() {
       />
       <RolesManager
         roles={rows}
-        allPermissions={ALL_PERMISSIONS.map((permission) => ({
+        // Platform administration is never offered here; a store role that
+        // could grant it would be a route back to admin for anyone.
+        allPermissions={ALL_PERMISSIONS.filter((p) => !isPlatformPermission(p.key)).map((permission) => ({
           key: permission.key,
           resource: permission.resource,
           action: permission.action,
