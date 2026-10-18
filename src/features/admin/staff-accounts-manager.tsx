@@ -37,6 +37,17 @@ export interface StaffRow {
   roleName: string;
   isOwner: boolean;
   isActive: boolean;
+  /**
+   * What the signed-in user may do to this account, decided on the server by
+   * the same policy the actions enforce.
+   */
+  actions: {
+    edit: boolean;
+    changeRole: boolean;
+    changeStatus: boolean;
+    resetPassword: boolean;
+    remove: boolean;
+  };
 }
 
 interface CreateValues {
@@ -63,9 +74,10 @@ const PASSWORD_HINT = 'At least 10 characters, with an uppercase letter, a lower
 /**
  * Staff account management, reached from Settings.
  *
- * The Owner account is created once during first-run setup and is never
- * offered here — this form only ever creates staff. The server enforces that
- * too; hiding the role is convenience, not the control.
+ * The Owner account is created by the System Administrator and is never
+ * offered here — this form only ever creates staff. System Administrator
+ * accounts are not listed at all. The server enforces both; hiding a row or a
+ * menu item is convenience, not the control.
  */
 export function StaffAccountsManager({
   rows,
@@ -98,6 +110,11 @@ export function StaffAccountsManager({
     createForm.reset({ name: '', email: '', password: '', confirmPassword: '', roleId: roles[0]?.id ?? '' });
     setCreateOpen(true);
   };
+
+  // The role select is only offered when the server would accept a change and
+  // the account's current role is one this user may assign.
+  const roleEditable = (staff: StaffRow) =>
+    staff.actions.changeRole && roles.some((role) => role.id === staff.roleId);
 
   const openEdit = (staff: StaffRow) => {
     setFormError(null);
@@ -241,12 +258,12 @@ export function StaffAccountsManager({
         enableSorting: false,
         cell: ({ row }) => {
           const staff = row.original;
-          // The owner cannot disable or delete themselves out of their own
-          // store, and only the owner's own Profile page changes their password.
-          const canChangeStatus = permissions.canUpdate && !staff.isOwner && staff.id !== currentUserId;
-          const canRemove = permissions.canDelete && !staff.isOwner && staff.id !== currentUserId;
+          // Nobody disables, removes or resets their own account from here —
+          // the owner's password changes from their Profile page — and the
+          // Owner row is otherwise managed by the System Administrator.
+          const { edit, changeStatus, resetPassword, remove } = staff.actions;
 
-          if (!permissions.canUpdate && !canRemove) return null;
+          if (!edit && !changeStatus && !resetPassword && !remove) return null;
 
           return (
             <DropdownMenu>
@@ -256,17 +273,17 @@ export function StaffAccountsManager({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {permissions.canUpdate && (
+                {edit && (
                   <DropdownMenuItem onSelect={() => openEdit(staff)}>
                     <Pencil /> Edit
                   </DropdownMenuItem>
                 )}
-                {permissions.canUpdate && !staff.isOwner && (
+                {resetPassword && (
                   <DropdownMenuItem onSelect={() => openReset(staff)}>
                     <KeyRound /> Reset Password
                   </DropdownMenuItem>
                 )}
-                {canChangeStatus && (
+                {changeStatus && (
                   <DropdownMenuItem onSelect={() => setStatusTarget(staff)}>
                     {staff.isActive ? (
                       <>
@@ -279,7 +296,7 @@ export function StaffAccountsManager({
                     )}
                   </DropdownMenuItem>
                 )}
-                {canRemove && (
+                {remove && (
                   <DropdownMenuItem destructive onSelect={() => setDeleteTarget(staff)}>
                     <Trash2 /> Remove
                   </DropdownMenuItem>
@@ -291,7 +308,7 @@ export function StaffAccountsManager({
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [currentUserId, permissions.canUpdate, permissions.canDelete],
+    [currentUserId],
   );
 
   return (
@@ -436,9 +453,15 @@ export function StaffAccountsManager({
               id="edit-role"
               label="Role"
               required
-              description={editing?.isOwner ? 'The Owner role cannot be changed.' : undefined}
+              description={
+                editing?.isOwner
+                  ? 'The Owner role cannot be changed.'
+                  : editing && !roleEditable(editing)
+                    ? 'You cannot change the role of this account.'
+                    : undefined
+              }
             >
-              {editing?.isOwner ? (
+              {editing && !roleEditable(editing) ? (
                 <Input id="edit-role" value={editing.roleName} readOnly disabled />
               ) : (
                 <Controller

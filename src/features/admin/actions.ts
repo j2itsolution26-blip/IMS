@@ -5,12 +5,20 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 import { APIError } from 'better-auth/api';
-import { authorize, getCurrentUser } from '@/lib/session';
+import { authorize, getCurrentUser, type CurrentUser } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
-import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { runAsProvisioning } from '@/lib/provisioning-context';
 import { recordAudit } from '@/server/services/audit-service';
 import { PRIVILEGED_ROLE_SLUGS, STORE_PERMISSION_KEYS } from '@/lib/permissions';
+import {
+  accountTier,
+  canAssignRole,
+  canEditRolePermissions,
+  canManageAccount,
+  type AccountOperation,
+  type PolicyDecision,
+} from '@/server/services/account-policy';
 import { slugify } from '@/lib/utils';
 import { SETTING_DEFINITIONS } from '@/lib/settings-definitions';
 
@@ -77,6 +85,65 @@ export async function updateSettings(input: unknown): Promise<ActionResult<numbe
 
 // --- Users ------------------------------------------------------------------
 
+// Who may manage which account is decided by `account-policy`. Every action
+// below reloads the target and asks it — the staff list hiding a row or a menu
+// item is convenience, not the control.
+
+function policyActor(user: CurrentUser) {
+  return { id: user.id, roleId: user.role.id, role: { slug: user.role.slug, permissions: user.permissions } };
+}
+
+function enforce(decision: PolicyDecision, entity: string): void {
+  if (decision.allowed) return;
+  throw decision.hidden ? new NotFoundError(entity) : new ForbiddenError(decision.reason);
+}
+
+const ROLE_POLICY_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  permissions: { select: { permission: { select: { key: true } } } },
+} as const;
+
+const toPolicyRole = (role: { slug: string; permissions: { permission: { key: string } }[] }) => ({
+  slug: role.slug,
+  permissions: role.permissions.map((item) => item.permission.key),
+});
+
+/** Loads an account and checks `actor` may perform every listed operation on it. */
+async function loadManagedAccount(actor: CurrentUser, id: string, operations: AccountOperation[]) {
+  const target = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      isActive: true,
+      roleId: true,
+      role: { select: ROLE_POLICY_SELECT },
+      _count: { select: { sales: true } },
+    },
+  });
+  if (!target) throw new NotFoundError('User');
+
+  const subject = { id: target.id, role: toPolicyRole(target.role) };
+  for (const operation of operations) {
+    enforce(canManageAccount(policyActor(actor), subject, operation), 'User');
+  }
+  return target;
+}
+
+/** Loads a role and checks `actor` may assign it to an account. */
+async function loadAssignableRole(actor: CurrentUser, roleId: string) {
+  const role = await prisma.role.findUnique({ where: { id: roleId }, select: ROLE_POLICY_SELECT });
+  if (!role) {
+    throw new ValidationError('That role no longer exists.', { roleId: ['Pick a role from the list.'] });
+  }
+  const decision = canAssignRole(policyActor(actor), toPolicyRole(role));
+  if (!decision.allowed) throw new ValidationError(decision.reason, { roleId: ['Choose a staff role.'] });
+  return role;
+}
+
 // Mirrors `validatePassword` in src/lib/password.ts and the hook in
 // src/lib/auth.ts. Without the special-character rule this schema would accept
 // a password that Better Auth then rejects, surfacing the failure against no
@@ -103,20 +170,11 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     const admin = await authorize('users.create');
     const values = parseInput(createUserSchema, input);
 
-    const role = await prisma.role.findUnique({ where: { id: values.roleId } });
-    if (!role) {
-      throw new ValidationError('That role no longer exists.', {
-        roleId: ['Pick a role from the list.'],
-      });
-    }
-
-    // Owner exists only from first-run setup. Enforced here, not just by
-    // filtering the dropdown, so a crafted payload cannot mint a second owner.
-    if (PRIVILEGED_ROLE_SLUGS.includes(role.slug)) {
-      throw new ValidationError('Owner and administrator accounts cannot be created here.', {
-        roleId: ['Choose a staff role.'],
-      });
-    }
+    // Owner and administrator accounts come from the platform administrator,
+    // never from here, and delegated staff cannot hand out more than they
+    // hold. Enforced on the server, not just by filtering the dropdown, so a
+    // crafted payload cannot mint a privileged account.
+    const role = await loadAssignableRole(admin, values.roleId);
 
     // Checked up front so a duplicate reports against the email field rather
     // than surfacing as a generic failure from inside Better Auth.
@@ -222,22 +280,25 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
     const admin = await authorize('users.update');
     const values = parseInput(updateUserSchema, input);
 
-    const target = await prisma.user.findUnique({
-      where: { id },
-      select: { id: true, name: true, email: true, isActive: true, role: { select: { slug: true, name: true } } },
-    });
-    if (!target) throw new NotFoundError('User');
+    const target = await loadManagedAccount(admin, id, ['edit']);
 
-    // Guard against an admin locking themselves out mid-session.
-    if (admin.id === id && !values.isActive) {
-      throw new ConflictError('You cannot deactivate your own account.');
+    // Only the operations this request actually performs are checked, so the
+    // owner can still rename themselves while a status or role change on their
+    // own row — or on any row above their tier — is refused.
+    const subject = { id: target.id, role: toPolicyRole(target.role) };
+    if (values.roleId !== target.roleId) {
+      enforce(canManageAccount(policyActor(admin), subject, 'changeRole'), 'User');
+    }
+    if (values.isActive !== target.isActive) {
+      enforce(canManageAccount(policyActor(admin), subject, 'changeStatus'), 'User');
     }
 
-    const newRole = await prisma.role.findUnique({ where: { id: values.roleId }, select: { slug: true, name: true } });
-    if (!newRole) throw new NotFoundError('Role');
+    const newRole =
+      values.roleId === target.roleId ? target.role : await loadAssignableRole(admin, values.roleId);
 
-    // Promotion to Owner is not an edit — the owner is established once, during
-    // first-run setup. Re-saving the existing owner's own row is still allowed.
+    // Promotion to Owner is not an edit — the owner is created by the platform
+    // administrator. `loadAssignableRole` already refuses it; this keeps the
+    // rule explicit for a re-save that names a privileged role.
     if (PRIVILEGED_ROLE_SLUGS.includes(newRole.slug) && newRole.slug !== target.role.slug) {
       throw new ConflictError('Staff accounts cannot be promoted to Owner.');
     }
@@ -299,11 +360,9 @@ export async function resetUserPassword(id: string, input: unknown): Promise<Act
     const admin = await authorize('users.update');
     const values = parseInput(resetPasswordSchema, input);
 
-    const target = await prisma.user.findUnique({
-      where: { id },
-      select: { id: true, name: true, email: true },
-    });
-    if (!target) throw new NotFoundError('User');
+    // Without this check any holder of `users.update` could set the password
+    // of the Owner or the System Administrator and sign in as them.
+    const target = await loadManagedAccount(admin, id, ['resetPassword']);
 
     const ctx = await auth.$context;
     const hash = await ctx.password.hash(values.password);
@@ -332,16 +391,7 @@ export async function deleteUser(id: string): Promise<ActionResult<void>> {
 
     if (admin.id === id) throw new ConflictError('You cannot delete your own account.');
 
-    const target = await prisma.user.findUnique({
-      where: { id },
-      select: {
-        email: true,
-        name: true,
-        role: { select: { slug: true } },
-        _count: { select: { sales: true } },
-      },
-    });
-    if (!target) throw new NotFoundError('User');
+    const target = await loadManagedAccount(admin, id, ['delete']);
 
     const activity = target._count.sales;
     if (activity > 0) {
@@ -392,6 +442,14 @@ export async function createRole(input: unknown): Promise<ActionResult<{ id: str
     // Ignore anything not in the catalogue — a tampered payload cannot invent
     // a permission the application does not define.
     const valid = values.permissions.filter((key) => STORE_PERMISSION_KEYS.includes(key as never));
+
+    // Delegated staff cannot mint a role broader than their own and then
+    // assign it — only the owner grants what they do not personally hold.
+    enforce(
+      canEditRolePermissions(policyActor(admin), { id: '', slug: slugify(values.name), permissions: valid }, valid),
+      'Role',
+    );
+
     const permissions = await prisma.permission.findMany({
       where: { key: { in: valid } },
       select: { id: true },
@@ -428,16 +486,20 @@ export async function updateRolePermissions(
   return runAction(async () => {
     const admin = await authorize('roles.update');
 
-    const role = await prisma.role.findUnique({ where: { id: roleId }, select: { name: true, slug: true } });
+    const role = await prisma.role.findUnique({ where: { id: roleId }, select: ROLE_POLICY_SELECT });
     if (!role) throw new NotFoundError('Role');
 
-    // Owner is intentionally not editable — it is the recovery path if another
-    // role is misconfigured.
-    if (role.slug === 'owner') {
-      throw new ConflictError('The Owner role always has full access and cannot be restricted.');
-    }
-
     const valid = permissionKeys.filter((key) => STORE_PERMISSION_KEYS.includes(key as never));
+
+    // Owner is intentionally not editable — it is the recovery path if another
+    // role is misconfigured. The System Administrator role is not the store's
+    // to change at all: rewriting it would lock the administrator out of the
+    // platform. Nobody edits the role they hold themselves.
+    enforce(
+      canEditRolePermissions(policyActor(admin), { id: role.id, ...toPolicyRole(role) }, valid),
+      'Role',
+    );
+
     const permissions = await prisma.permission.findMany({
       where: { key: { in: valid } },
       select: { id: true },
@@ -470,9 +532,10 @@ export async function deleteRole(id: string): Promise<ActionResult<void>> {
 
     const role = await prisma.role.findUnique({
       where: { id },
-      select: { name: true, isSystem: true, _count: { select: { users: true } } },
+      select: { ...ROLE_POLICY_SELECT, isSystem: true, _count: { select: { users: true } } },
     });
-    if (!role) throw new NotFoundError('Role');
+    // Platform roles are invisible to the store, whatever their `isSystem` flag.
+    if (!role || accountTier(toPolicyRole(role)) === 'platform') throw new NotFoundError('Role');
 
     if (role.isSystem) throw new ConflictError('Built-in roles cannot be deleted.');
     if (role._count.users > 0) {

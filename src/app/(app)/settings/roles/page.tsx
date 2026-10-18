@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { requirePermission, userCan } from '@/lib/session';
 import { prisma } from '@/lib/prisma';
 import { ALL_PERMISSIONS, isPlatformPermission } from '@/lib/permissions';
+import { accountTier } from '@/server/services/account-policy';
 import { PageHeader } from '@/components/page-header';
 import { RolesManager, type RoleRow } from '@/features/admin/roles-manager';
 
@@ -24,15 +25,23 @@ export default async function RolesPage() {
     },
   });
 
-  const rows: RoleRow[] = roles.map((role) => ({
-    id: role.id,
-    name: role.name,
-    slug: role.slug,
-    description: role.description,
-    isSystem: role.isSystem,
-    userCount: role._count.users,
-    permissions: role.permissions.map((item) => item.permission.key),
-  }));
+  // The System Administrator role belongs to the platform, not the store, so
+  // it is neither listed nor editable here (the actions refuse it as well).
+  const rows: RoleRow[] = roles
+    .filter(
+      (role) =>
+        accountTier({ slug: role.slug, permissions: role.permissions.map((item) => item.permission.key) }) !==
+        'platform',
+    )
+    .map((role) => ({
+      id: role.id,
+      name: role.name,
+      slug: role.slug,
+      description: role.description,
+      isSystem: role.isSystem,
+      userCount: role._count.users,
+      permissions: role.permissions.map((item) => item.permission.key),
+    }));
 
   return (
     <>
@@ -43,6 +52,7 @@ export default async function RolesPage() {
       />
       <RolesManager
         roles={rows}
+        ownRoleId={user.role.id}
         // Platform administration is never offered here; a store role that
         // could grant it would be a route back to admin for anyone.
         allPermissions={ALL_PERMISSIONS.filter((p) => !isPlatformPermission(p.key)).map((permission) => ({

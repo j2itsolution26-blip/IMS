@@ -48,10 +48,13 @@ interface PermissionMeta {
  */
 export function RolesManager({
   roles,
+  ownRoleId,
   allPermissions,
   permissions: can,
 }: {
   roles: RoleRow[];
+  /** The signed-in user's role — read-only here, so nobody widens their own access. */
+  ownRoleId: string;
   allPermissions: PermissionMeta[];
   permissions: { canCreate: boolean; canUpdate: boolean; canDelete: boolean };
 }) {
@@ -72,7 +75,7 @@ export function RolesManager({
 
   const selected = roles.find((role) => role.id === selectedId) ?? roles[0];
   const isOwner = selected?.slug === 'owner';
-  const editable = can.canUpdate && !isOwner;
+  const editable = can.canUpdate && !isOwner && selected?.id !== ownRoleId;
 
   const select = (role: RoleRow) => {
     setSelectedId(role.id);
