@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { authorize } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { createAdjustment, createStockIn } from '@/server/services/stock-movement-service';
+import { findInventoryProductByBarcode, type InventoryBarcodeLookup } from '@/features/inventory/queries';
 
 /** Manual stock operations: stock-in, counts, and write-offs. */
 
@@ -70,5 +71,24 @@ export async function createAdjustmentAction(
     revalidatePath('/dashboard');
 
     return { reference: result.reference, count: result.applied.length };
+  });
+}
+
+/** Printable ASCII up to 64 characters — longer than any retail symbology. */
+const barcodeSchema = z
+  .string()
+  .trim()
+  .min(1, 'Scan a barcode.')
+  .max(64, 'That is not a valid barcode.')
+  .regex(/^[\x20-\x7E]+$/, 'That is not a valid barcode.');
+
+/**
+ * Finds the product behind a scanned code for receiving, counting and the
+ * inventory search. Read-only: stock only changes through the actions above.
+ */
+export async function lookupInventoryBarcode(code: unknown): Promise<ActionResult<InventoryBarcodeLookup>> {
+  return runAction(async () => {
+    await authorize('inventory.view');
+    return findInventoryProductByBarcode(parseInput(barcodeSchema, code));
   });
 }

@@ -17,6 +17,7 @@ import { AddProductDialog } from '@/features/inventory/add-product-dialog';
 import { InventoryMoreMenu } from '@/features/inventory/inventory-more-menu';
 import { InventorySearchFilter } from '@/features/inventory/inventory-search-filter';
 import { InventoryProductList } from '@/features/inventory/inventory-product-list';
+import { ScanReceiveDialog } from '@/features/inventory/scan-receive-dialog';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Inventory' };
@@ -113,6 +114,7 @@ export default async function InventoryPage({
         actions={
           <>
             {canAdjustStock && <InventoryMoreMenu />}
+            {canAdjustStock && <ScanReceiveDialog />}
             {/* The stock report the Reports section already generates — same
                 figures, same permissions, just reachable from here too. */}
             {canExport && (

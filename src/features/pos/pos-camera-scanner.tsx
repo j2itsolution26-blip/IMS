@@ -1,161 +1,89 @@
 'use client';
 
 import * as React from 'react';
-import {
-  AlertTriangle,
-  Ban,
-  Camera,
-  CameraOff,
-  CheckCircle2,
-  Loader2,
-  Pause,
-  Play,
-  Power,
-  ScanLine,
-  Volume2,
-  VolumeX,
-  XCircle,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Camera, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  CameraStage,
-  ScannerError,
-  isRetryable,
-  listCameras,
-  supportFailure,
-  type CameraFailure,
-} from '@/features/inventory/camera-stage';
-import { admitRead, type LastRead } from '@/features/pos/scan-gate';
+import { formatCurrency, formatQuantity } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import { ScannerDialog } from '@/features/scanner/scanner-dialog';
+import { primeAudio, type ScanFeedback } from '@/features/scanner/scanner-panel';
+import { QuantityInput } from '@/features/pos/quantity-input';
 
 /**
  * The till's camera scanner: stays open and rings item after item into the
- * cart, the way a counter scanner does, instead of closing after one read.
+ * cart, the way a counter scanner does. The scanner itself is the shared one.
  *
- * The red line sweeping the frame is purely an on-screen aiming guide drawn
- * over the preview. Decoding reads the camera image itself — the whole frame,
- * not just the line — through the shared `CameraStage`.
+ * A scan identifies the product; the cashier says how many. Under the camera
+ * the cart is shown with an editable quantity on every line — the product
+ * just scanned on top — so "scan Fudgee Barr, type 5, scan the next one"
+ * never means closing the scanner or scanning a pack five times. These are
+ * the cart's own lines: what's edited here is what's on the till when the
+ * scanner closes.
  */
 
 /** What became of one scan, reported back by the till's cart logic. */
 export type ScanOutcome =
-  | { kind: 'added'; name: string; quantity: string }
+  | { kind: 'added'; productId: string; name: string; quantity: string }
   | { kind: 'not-found' }
   | { kind: 'unavailable'; name: string; message: string }
-  | { kind: 'stock'; name: string; message: string }
+  | { kind: 'stock'; productId: string; name: string; message: string }
   | { kind: 'error'; message: string };
 
-type CameraState = 'off' | 'starting' | 'scanning' | CameraFailure;
-
-type Feedback =
-  | { status: 'idle' }
-  | { status: 'looking'; code: string }
-  | { status: 'done'; code: string; outcome: ScanOutcome };
-
-/** Printable ASCII, and no longer than any real retail symbology produces. */
-const PLAUSIBLE_CODE = /^[\x20-\x7E]{1,64}$/;
-
-const SOUND_KEY = 'pos.scanner.sound';
-
-/** Scanners type a whole code within a few ms per key; people don't. */
-const WEDGE_KEY_GAP_MS = 50;
-const WEDGE_MIN_LENGTH = 4;
-
-// --- Feedback sound -------------------------------------------------------
-
-let audioContext: AudioContext | null = null;
-
-/**
- * Browsers only let audio start from a user gesture, so the context is created
- * (or woken) from the click that opens the scanner, ready for later beeps.
- */
-function primeAudio() {
-  try {
-    const Ctor =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctor) return;
-    audioContext ??= new Ctor();
-    if (audioContext.state === 'suspended') void audioContext.resume();
-  } catch {
-    audioContext = null;
-  }
+/** A cart line as the scanner needs to show it. */
+export interface ScannerCartLine {
+  productId: string;
+  name: string;
+  /** Barcode, or SKU when there is none. */
+  code: string;
+  unitPrice: number;
+  quantity: number;
+  discount: number;
+  allowDecimal: boolean;
+  unitAbbreviation: string;
 }
 
-function beep(kind: 'ok' | 'error') {
-  const ctx = audioContext;
-  if (!ctx || ctx.state !== 'running') return;
-
-  // One short high note for a hit; a falling pair for anything else.
-  const tones: [frequency: number, offset: number, length: number][] =
-    kind === 'ok' ? [[1850, 0, 0.08]] : [[440, 0, 0.11], [300, 0.14, 0.16]];
-
-  for (const [frequency, offset, length] of tones) {
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const at = ctx.currentTime + offset;
-    oscillator.type = 'square';
-    oscillator.frequency.value = frequency;
-    gain.gain.setValueAtTime(0.0001, at);
-    gain.gain.exponentialRampToValueAtTime(0.06, at + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
-    oscillator.connect(gain).connect(ctx.destination);
-    oscillator.start(at);
-    oscillator.stop(at + length + 0.02);
+function toFeedback(outcome: ScanOutcome): ScanFeedback {
+  switch (outcome.kind) {
+    case 'added':
+      return { tone: 'success', title: outcome.name, meta: `× ${outcome.quantity}` };
+    case 'not-found':
+      return { tone: 'error', title: 'Product not found — type the code below or search the till' };
+    case 'unavailable':
+    case 'stock':
+      return { tone: 'warning', title: outcome.message };
+    case 'error':
+      return { tone: 'error', title: outcome.message };
   }
 }
-
-function vibrate(pattern: number | number[]) {
-  try {
-    navigator.vibrate?.(pattern);
-  } catch {
-    // Not supported, or blocked without a recent gesture — purely a nicety.
-  }
-}
-
-function readSoundPreference(): boolean {
-  try {
-    return window.localStorage.getItem(SOUND_KEY) !== 'off';
-  } catch {
-    return true;
-  }
-}
-
-function writeSoundPreference(on: boolean) {
-  try {
-    window.localStorage.setItem(SOUND_KEY, on ? 'on' : 'off');
-  } catch {
-    // Private mode or blocked storage — the toggle still works for this visit.
-  }
-}
-
-// --- Trigger --------------------------------------------------------------
 
 export function PosCameraScanner({
   onScan,
+  lines,
+  total,
+  itemCount,
+  currency,
+  onSetQuantity,
+  onRemove,
   label = 'Scan barcode',
   size,
   className,
-  sameCodeCooldownMs,
-  sameCodeReleaseMs,
 }: {
   /** Rings one decoded code into the cart and says what happened. */
   onScan: (code: string) => Promise<ScanOutcome>;
+  lines: ScannerCartLine[];
+  /** The till's grand total, discounts and tax included. */
+  total: number;
+  itemCount: number;
+  currency: string;
+  onSetQuantity: (productId: string, quantity: number) => void;
+  onRemove: (productId: string) => void;
   label?: string;
   size?: React.ComponentProps<typeof Button>['size'];
   className?: string;
-  sameCodeCooldownMs?: number;
-  sameCodeReleaseMs?: number;
 }) {
   const [open, setOpen] = React.useState(false);
+  const [lastId, setLastId] = React.useState<string | null>(null);
+  const [editing, setEditing] = React.useState(false);
 
   return (
     <>
@@ -166,485 +94,128 @@ export function PosCameraScanner({
         className={className}
         onClick={() => {
           primeAudio();
+          setLastId(null);
+          setEditing(false);
           setOpen(true);
         }}
       >
         <Camera /> {label}
       </Button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md gap-3 p-4 sm:p-6">
-          {/* Mounted only while open, so closing releases the camera and
-              resets every lock and timer with it. */}
-          <ScannerPanel
-            onScan={onScan}
-            onDone={() => setOpen(false)}
-            sameCodeCooldownMs={sameCodeCooldownMs}
-            sameCodeReleaseMs={sameCodeReleaseMs}
-          />
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
-
-// --- Panel ----------------------------------------------------------------
-
-function ScannerPanel({
-  onScan,
-  onDone,
-  // See scan-gate.ts for how these two work together.
-  sameCodeCooldownMs = 1500,
-  sameCodeReleaseMs = 900,
-}: {
-  onScan: (code: string) => Promise<ScanOutcome>;
-  onDone: () => void;
-  sameCodeCooldownMs?: number;
-  sameCodeReleaseMs?: number;
-}) {
-  const [camera, setCamera] = React.useState<CameraState>(() => supportFailure() ?? 'starting');
-  const [paused, setPaused] = React.useState(false);
-  // Bumped to restart the camera from scratch (Start, Try again).
-  const [session, setSession] = React.useState(0);
-  const [cameras, setCameras] = React.useState<{ deviceId: string; label: string }[]>([]);
-  const [requestedDeviceId, setRequestedDeviceId] = React.useState<string | undefined>();
-  const [activeDeviceId, setActiveDeviceId] = React.useState<string | undefined>();
-  const [sound, setSound] = React.useState(readSoundPreference);
-  const [feedback, setFeedback] = React.useState<Feedback>({ status: 'idle' });
-  const [flash, setFlash] = React.useState<'ok' | 'bad' | null>(null);
-  const [addedCount, setAddedCount] = React.useState(0);
-
-  const onScanRef = React.useRef(onScan);
-  React.useEffect(() => {
-    onScanRef.current = onScan;
-  });
-  const soundRef = React.useRef(sound);
-  React.useEffect(() => {
-    soundRef.current = sound;
-  }, [sound]);
-
-  // One lookup at a time: a second read arriving mid-request is dropped (it
-  // will be read again a frame later), so overlapping requests can never put
-  // the same item in the cart twice.
-  const busyRef = React.useRef(false);
-  const lastRef = React.useRef<LastRead | null>(null);
-
-  const flashTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  React.useEffect(
-    () => () => {
-      if (flashTimer.current) clearTimeout(flashTimer.current);
-    },
-    [],
-  );
-
-  const signal = React.useCallback((ok: boolean) => {
-    setFlash(ok ? 'ok' : 'bad');
-    if (flashTimer.current) clearTimeout(flashTimer.current);
-    flashTimer.current = setTimeout(() => setFlash(null), 450);
-    if (soundRef.current) beep(ok ? 'ok' : 'error');
-    vibrate(ok ? 40 : [60, 50, 60]);
-  }, []);
-
-  /** Looks one code up, rings it in, and reports the result. */
-  const ringUp = React.useCallback(
-    async (code: string) => {
-      setFeedback({ status: 'looking', code });
-
-      let outcome: ScanOutcome;
-      try {
-        outcome = await onScanRef.current(code);
-      } catch {
-        outcome = { kind: 'error', message: 'Could not look up that barcode. Check the connection.' };
-      }
-
-      setFeedback({ status: 'done', code, outcome });
-      if (outcome.kind === 'added') setAddedCount((count) => count + 1);
-      signal(outcome.kind === 'added');
-    },
-    [signal],
-  );
-
-  const handleDetected = React.useCallback(
-    async (raw: string) => {
-      const code = raw.trim();
-      if (!PLAUSIBLE_CODE.test(code)) return;
-
-      const now = performance.now();
-      const timing = { cooldownMs: sameCodeCooldownMs, releaseMs: sameCodeReleaseMs };
-      if (!admitRead(lastRef.current, code, now, timing)) return;
-      if (busyRef.current) return;
-
-      busyRef.current = true;
-      lastRef.current = { code, acceptedAt: now, seenAt: now };
-      try {
-        await ringUp(code);
-      } finally {
-        busyRef.current = false;
-        // Measure the "left view" gap from when the lookup finished, not from
-        // when it began, so a slow request can't open the gate early.
-        if (lastRef.current?.code === code) lastRef.current.seenAt = performance.now();
-      }
-    },
-    [sameCodeCooldownMs, sameCodeReleaseMs, ringUp],
-  );
-
-  // A USB/Bluetooth scanner is a keyboard. While this dialog is open the till's
-  // own scanner field is out of reach, and the scanner's closing Enter would
-  // otherwise "press" whichever button has focus — Stop, say. A fast burst of
-  // keys ending in Enter is rung up here instead; ordinary typing and a human
-  // pressing Enter on a button are left alone. Each trigger pull is deliberate,
-  // so these skip the camera's duplicate gate and are queued, never dropped.
-  React.useEffect(() => {
-    let buffer = '';
-    let lastKeyAt = 0;
-    let queue = Promise.resolve();
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.metaKey || event.altKey) return;
-      const now = performance.now();
-      if (now - lastKeyAt > WEDGE_KEY_GAP_MS) buffer = '';
-      lastKeyAt = now;
-
-      if (event.key === 'Enter') {
-        const code = buffer.trim();
-        buffer = '';
-        if (code.length >= WEDGE_MIN_LENGTH && PLAUSIBLE_CODE.test(code)) {
-          event.preventDefault();
-          event.stopPropagation();
-          queue = queue.then(() => ringUp(code));
-        }
-        return;
-      }
-      if (event.key.length === 1) buffer += event.key;
-    };
-
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [ringUp]);
-
-  const refreshCameras = React.useCallback(async () => {
-    setCameras(await listCameras());
-  }, []);
-
-  React.useEffect(() => {
-    const devices = navigator.mediaDevices;
-    if (typeof devices?.addEventListener !== 'function') return;
-    const onChange = () => void refreshCameras();
-    devices.addEventListener('devicechange', onChange);
-    return () => devices.removeEventListener('devicechange', onChange);
-  }, [refreshCameras]);
-
-  const handleReady = React.useCallback(
-    ({ deviceId }: { deviceId?: string }) => {
-      setActiveDeviceId(deviceId);
-      setCamera('scanning');
-      // Labels only appear once permission is granted, i.e. now.
-      void refreshCameras();
-    },
-    [refreshCameras],
-  );
-
-  const handleFailed = React.useCallback((state: CameraFailure) => setCamera(state), []);
-
-  const startCamera = (deviceId = requestedDeviceId) => {
-    setRequestedDeviceId(deviceId);
-    setPaused(false);
-    setSession((value) => value + 1);
-    setCamera(supportFailure() ?? 'starting');
-  };
-
-  const stopCamera = () => {
-    setPaused(false);
-    setCamera('off');
-  };
-
-  const toggleSound = () => {
-    const next = !sound;
-    setSound(next);
-    writeSoundPreference(next);
-    if (next) primeAudio();
-  };
-
-  const cameraLive = camera === 'starting' || camera === 'scanning';
-  const failure: CameraFailure | null = cameraLive || camera === 'off' ? null : camera;
-
-  return (
-    <>
-      <DialogHeader className="pr-6">
-        <DialogTitle className="flex items-center gap-2.5">
-          Camera scanner
-          <StatusPill camera={camera} paused={paused} />
-        </DialogTitle>
-        <DialogDescription>
-          Position the barcode inside the frame. Each item is added to the cart as soon as it reads.
-        </DialogDescription>
-      </DialogHeader>
-
-      {failure ? (
-        <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
-          <ScannerError state={failure} />
-          {isRetryable(failure) || requestedDeviceId ? (
-            <Button
-              type="button"
-              className="w-full"
-              // A camera picked from the list that has since gone away should
-              // not keep failing — fall back to the default one.
-              onClick={() => startCamera(failure === 'no-camera' ? undefined : requestedDeviceId)}
-            >
-              Try again
-            </Button>
-          ) : null}
-          <p className="text-center text-xs text-muted-foreground">
-            You can still type or use a USB scanner in the search box.
-          </p>
-        </div>
-      ) : (
-        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl bg-black">
-          {cameraLive && (
-            <CameraStage
-              key={`${session}:${requestedDeviceId ?? 'default'}`}
-              continuous
-              paused={paused}
-              deviceId={requestedDeviceId}
-              onReady={handleReady}
-              onFailed={handleFailed}
-              onDetected={(code) => void handleDetected(code)}
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-          )}
-
-          {camera === 'scanning' && <AimingOverlay paused={paused} flash={flash} />}
-
-          {camera === 'starting' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black text-white/75">
-              <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
-              <p className="text-sm">Starting camera…</p>
-              <p className="text-xs text-white/55">Allow camera access if your browser asks.</p>
-            </div>
-          )}
-
-          {camera === 'off' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black text-white/75">
-              <CameraOff className="h-7 w-7" aria-hidden="true" />
-              <p className="text-sm">The camera is off.</p>
-              <Button type="button" size="sm" variant="secondary" onClick={() => startCamera()}>
-                <Power /> Start scanner
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-
-      <FeedbackLine feedback={feedback} addedCount={addedCount} />
-
-      <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          className="h-11"
-          disabled={camera !== 'scanning'}
-          onClick={() => setPaused((value) => !value)}
-        >
-          {paused ? (
-            <>
-              <Play /> Resume
-            </>
-          ) : (
-            <>
-              <Pause /> Pause
-            </>
-          )}
-        </Button>
-        {cameraLive ? (
-          <Button type="button" variant="outline" className="h-11" onClick={stopCamera}>
-            <CameraOff /> Stop
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            className="h-11"
-            disabled={failure !== null && !isRetryable(failure)}
-            onClick={() => startCamera()}
-          >
-            <Power /> Start
-          </Button>
-        )}
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="h-11 w-11"
-          aria-pressed={sound}
-          aria-label={sound ? 'Turn scan sound off' : 'Turn scan sound on'}
-          title={sound ? 'Sound on' : 'Sound off'}
-          onClick={toggleSound}
-        >
-          {sound ? <Volume2 /> : <VolumeX />}
-        </Button>
-      </div>
-
-      {cameras.length > 1 && (
-        <Select
-          value={activeDeviceId ?? requestedDeviceId ?? ''}
-          onValueChange={(id) => {
-            if (id && id !== activeDeviceId) startCamera(id);
-          }}
-        >
-          <SelectTrigger className="h-11" aria-label="Camera">
-            <SelectValue placeholder="Choose a camera" />
-          </SelectTrigger>
-          <SelectContent>
-            {cameras.map((device) => (
-              <SelectItem key={device.deviceId} value={device.deviceId}>
-                {device.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-
-      <Button type="button" className="h-11 w-full" onClick={onDone}>
-        Done
-      </Button>
-    </>
-  );
-}
-
-// --- Pieces ---------------------------------------------------------------
-
-function StatusPill({ camera, paused }: { camera: CameraState; paused: boolean }) {
-  const [label, dot] =
-    camera === 'scanning'
-      ? paused
-        ? ['Paused', 'bg-warning']
-        : ['Scanning', 'bg-red-500 animate-pulse']
-      : camera === 'starting'
-        ? ['Starting', 'bg-muted-foreground animate-pulse']
-        : camera === 'off'
-          ? ['Off', 'bg-muted-foreground']
-          : ['Error', 'bg-destructive'];
-
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-      <span className={cn('h-1.5 w-1.5 rounded-full', dot)} aria-hidden="true" />
-      {label}
-    </span>
-  );
-}
-
-/**
- * The scanning window over the live preview: a clear frame with the rest of
- * the picture dimmed, corner guides, and the sweeping red line.
- *
- * Everything here is `pointer-events-none` and sits above the <video> without
- * touching it — the stream and the decoder see the camera image untouched.
- */
-function AimingOverlay({ paused, flash }: { paused: boolean; flash: 'ok' | 'bad' | null }) {
-  const corner = cn(
-    'absolute h-6 w-6 transition-colors duration-150',
-    flash === 'ok' ? 'border-success' : flash === 'bad' ? 'border-destructive' : 'border-white/90',
-  );
-
-  return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-      <div
-        className={cn(
-          'absolute inset-x-[8%] top-1/2 h-[48%] -translate-y-1/2 rounded-lg',
-          // A huge spread shadow dims everything outside the window; the
-          // viewport's overflow-hidden clips it to the preview.
-          'shadow-[0_0_0_100vmax_rgb(0_0_0/0.4)]',
-          'ring-2 ring-inset transition-[box-shadow] duration-150',
-          flash === 'ok' ? 'ring-success/80' : flash === 'bad' ? 'ring-destructive/80' : 'ring-transparent',
-        )}
+      <ScannerDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Camera scanner"
+        description="Scan a product, set how many the customer is buying, then scan the next one."
+        mode="continuous"
+        manualEntry
+        countLabel={(count) => `${count} scanned`}
+        previewClassName="aspect-[16/10]"
+        holdDecoding={editing}
+        holdLabel="Finish the quantity to scan"
+        onBarcodeDetected={async (code) => {
+          const outcome = await onScan(code);
+          if (outcome.kind === 'added' || outcome.kind === 'stock') setLastId(outcome.productId);
+          return toFeedback(outcome);
+        }}
       >
-        <span className={cn(corner, '-left-0.5 -top-0.5 rounded-tl-lg border-l-[3px] border-t-[3px]')} />
-        <span className={cn(corner, '-right-0.5 -top-0.5 rounded-tr-lg border-r-[3px] border-t-[3px]')} />
-        <span className={cn(corner, '-bottom-0.5 -left-0.5 rounded-bl-lg border-b-[3px] border-l-[3px]')} />
-        <span className={cn(corner, '-bottom-0.5 -right-0.5 rounded-br-lg border-b-[3px] border-r-[3px]')} />
-
-        {paused ? (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white">
-              <Pause className="h-3.5 w-3.5" /> Paused
-            </span>
-          </div>
-        ) : (
-          // A full-height track carries the line, so the sweep is a transform
-          // only. With reduced motion it holds still across the middle.
-          <div className="absolute inset-x-2 inset-y-0 animate-scan-line motion-reduce:translate-y-1/2 motion-reduce:animate-none">
-            <div
-              className={cn(
-                'h-0.5 w-full rounded-full',
-                'bg-[linear-gradient(90deg,transparent,rgb(255_45_45)_14%,rgb(255_45_45)_86%,transparent)]',
-                'shadow-[0_0_6px_1px_rgb(255_40_40/0.7),0_0_16px_4px_rgb(255_40_40/0.3)]',
-              )}
-            />
-          </div>
-        )}
-      </div>
-    </div>
+        <ScannerCart
+          lines={lines}
+          lastId={lastId}
+          total={total}
+          itemCount={itemCount}
+          currency={currency}
+          onSetQuantity={onSetQuantity}
+          onRemove={onRemove}
+          onEditing={setEditing}
+        />
+      </ScannerDialog>
+    </>
   );
 }
 
-function FeedbackLine({ feedback, addedCount }: { feedback: Feedback; addedCount: number }) {
-  let icon: React.ReactNode;
-  let title: React.ReactNode;
-  let detail: string | undefined;
+function ScannerCart({
+  lines,
+  lastId,
+  total,
+  itemCount,
+  currency,
+  onSetQuantity,
+  onRemove,
+  onEditing,
+}: {
+  lines: ScannerCartLine[];
+  lastId: string | null;
+  total: number;
+  itemCount: number;
+  currency: string;
+  onSetQuantity: (productId: string, quantity: number) => void;
+  onRemove: (productId: string) => void;
+  onEditing: (editing: boolean) => void;
+}) {
+  if (lines.length === 0) return null;
 
-  if (feedback.status === 'idle') {
-    icon = <ScanLine className="h-4 w-4 text-muted-foreground" />;
-    title = <span className="text-muted-foreground">Ready to scan.</span>;
-  } else if (feedback.status === 'looking') {
-    icon = <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
-    title = 'Looking up…';
-    detail = feedback.code;
-  } else {
-    const { outcome, code } = feedback;
-    detail = code;
-    switch (outcome.kind) {
-      case 'added':
-        icon = <CheckCircle2 className="h-4 w-4 text-success" />;
-        title = (
-          <>
-            <span className="truncate">{outcome.name}</span>
-            <span className="shrink-0 tabular text-muted-foreground">× {outcome.quantity}</span>
-          </>
-        );
-        break;
-      case 'not-found':
-        icon = <XCircle className="h-4 w-4 text-destructive" />;
-        title = 'Product not found';
-        break;
-      case 'unavailable':
-        icon = <Ban className="h-4 w-4 text-warning" />;
-        title = <span className="truncate">{outcome.message}</span>;
-        break;
-      case 'stock':
-        icon = <AlertTriangle className="h-4 w-4 text-warning" />;
-        title = <span className="truncate">{outcome.message}</span>;
-        break;
-      case 'error':
-        icon = <XCircle className="h-4 w-4 text-destructive" />;
-        title = <span className="truncate">{outcome.message}</span>;
-        break;
-    }
-  }
+  // The product just scanned leads, so its quantity is right under the camera.
+  const ordered = [...lines].sort((a, b) => Number(b.productId === lastId) - Number(a.productId === lastId));
 
   return (
-    <div className="flex min-h-12 items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
-      <span className="shrink-0" aria-hidden="true">
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1" role="status" aria-live="polite">
-        <p className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium">{title}</p>
-        {detail && <p className="truncate font-mono text-xs text-muted-foreground">{detail}</p>}
-      </div>
-      {addedCount > 0 && (
-        <span className="shrink-0 text-xs text-muted-foreground tabular">
-          {addedCount} added
+    <div className="space-y-2">
+      <ul className="max-h-[17rem] space-y-2 overflow-y-auto scrollbar-thin" aria-label="Cart">
+        {ordered.map((line) => {
+          const isLast = line.productId === lastId;
+          const subtotal = line.unitPrice * line.quantity - line.discount;
+          return (
+            <li
+              key={line.productId}
+              className={cn('rounded-lg border p-2.5', isLast && 'border-primary/50 bg-primary/5')}
+            >
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  {isLast && (
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-primary">Just scanned</p>
+                  )}
+                  <p className="truncate text-sm font-medium">{line.name}</p>
+                  <p className="truncate font-mono text-xs text-muted-foreground">{line.code}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => onRemove(line.productId)}
+                  aria-label={`Remove ${line.name}`}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <QuantityInput
+                  value={line.quantity}
+                  allowDecimal={line.allowDecimal}
+                  onChange={(quantity) => onSetQuantity(line.productId, quantity)}
+                  onFocusChange={onEditing}
+                  label={`Quantity for ${line.name}`}
+                  size={isLast ? 'lg' : 'default'}
+                />
+                <div className="min-w-0 text-right">
+                  <p className="tabular text-xs text-muted-foreground">
+                    {formatCurrency(line.unitPrice, currency)} / {line.unitAbbreviation}
+                  </p>
+                  <p className="tabular text-base font-semibold">{formatCurrency(subtotal, currency)}</p>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="flex items-baseline justify-between rounded-lg bg-muted px-3 py-2">
+        <span className="text-sm text-muted-foreground">
+          {lines.length} product{lines.length === 1 ? '' : 's'} · {formatQuantity(itemCount)} item
+          {itemCount === 1 ? '' : 's'}
         </span>
-      )}
+        <span className="tabular text-lg font-bold">{formatCurrency(total, currency)}</span>
+      </div>
     </div>
   );
 }

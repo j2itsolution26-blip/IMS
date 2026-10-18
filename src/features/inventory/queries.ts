@@ -3,6 +3,7 @@ import 'server-only';
 import type { InventoryTransactionType, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { toNum } from '@/lib/decimal';
+import { findProductRefByBarcode } from '@/features/products/queries';
 
 /** Ledger reads for the movements screen. */
 
@@ -97,6 +98,7 @@ export async function getStockPickerProducts() {
       id: true,
       name: true,
       sku: true,
+      barcode: true,
       costPrice: true,
       unit: { select: { abbreviation: true } },
       inventory: { select: { quantity: true, reserved: true } },
@@ -111,6 +113,7 @@ export async function getStockPickerProducts() {
       id: product.id,
       name: product.name,
       sku: product.sku,
+      barcode: product.barcode,
       unit: product.unit.abbreviation,
       costPrice: toNum(product.costPrice),
       onHand,
@@ -120,3 +123,61 @@ export async function getStockPickerProducts() {
 }
 
 export type StockPickerProduct = Awaited<ReturnType<typeof getStockPickerProducts>>[number];
+
+/** A scanned code resolved for the inventory screens. */
+export type InventoryBarcodeLookup =
+  | {
+      status: 'found';
+      product: StockPickerProduct & {
+        productStatus: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+        isTrackable: boolean;
+      };
+    }
+  | { status: 'not-found' };
+
+/**
+ * Resolves a scanned code for receiving, counting and search.
+ *
+ * Unlike the till this finds inactive and non-stock products too, so the
+ * screen can say *why* one can't be received or counted rather than claiming
+ * it doesn't exist — which would invite a duplicate product.
+ */
+export async function findInventoryProductByBarcode(barcode: string): Promise<InventoryBarcodeLookup> {
+  const ref = await findProductRefByBarcode(barcode);
+  if (!ref) return { status: 'not-found' };
+
+  const product = await prisma.product.findUnique({
+    where: { id: ref.id },
+    select: {
+      id: true,
+      name: true,
+      sku: true,
+      barcode: true,
+      status: true,
+      isTrackable: true,
+      costPrice: true,
+      unit: { select: { abbreviation: true } },
+      inventory: { select: { quantity: true, reserved: true } },
+    },
+  });
+  if (!product) return { status: 'not-found' };
+
+  const onHand = product.inventory.reduce((acc, row) => acc + toNum(row.quantity), 0);
+  const reserved = product.inventory.reduce((acc, row) => acc + toNum(row.reserved), 0);
+
+  return {
+    status: 'found',
+    product: {
+      id: product.id,
+      name: product.name,
+      sku: product.sku,
+      barcode: product.barcode,
+      unit: product.unit.abbreviation,
+      costPrice: toNum(product.costPrice),
+      onHand,
+      available: onHand - reserved,
+      productStatus: product.status,
+      isTrackable: product.isTrackable,
+    },
+  };
+}

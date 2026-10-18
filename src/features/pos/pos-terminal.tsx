@@ -53,6 +53,7 @@ import {
 import { Separator } from '@/components/ui/misc';
 import { Receipt, type ReceiptData } from '@/features/pos/receipt';
 import { PosCameraScanner, type ScanOutcome } from '@/features/pos/pos-camera-scanner';
+import { QuantityInput } from '@/features/pos/quantity-input';
 import { formatCurrency, formatDateTime, formatQuantity } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -99,6 +100,8 @@ interface BasketLine {
   productId: string;
   name: string;
   sku: string;
+  /** Optional: orders held before this field existed don't carry it. */
+  barcode?: string | null;
   imageUrl: string | null;
   unitPrice: number;
   quantity: number;
@@ -345,6 +348,7 @@ export function PosTerminal({
           productId: product.id,
           name: product.name,
           sku: product.sku,
+          barcode: product.barcode,
           imageUrl: product.imageUrl,
           unitPrice: product.sellingPrice,
           quantity,
@@ -378,12 +382,12 @@ export function PosTerminal({
             ? `${product.name} — out of stock.`
             : `Only ${formatQuantity(product.available)} of ${product.name} left.`;
         if (!quiet) toast.error(message);
-        return { kind: 'stock', name: product.name, message };
+        return { kind: 'stock', productId: product.id, name: product.name, message };
       }
 
       addToBasket(product);
       if (!quiet) toast.success(`${product.name} × ${formatQuantity(nextQuantity)}`, { duration: 1500 });
-      return { kind: 'added', name: product.name, quantity: formatQuantity(nextQuantity) };
+      return { kind: 'added', productId: product.id, name: product.name, quantity: formatQuantity(nextQuantity) };
     },
     [addToBasket],
   );
@@ -785,6 +789,21 @@ export function PosTerminal({
           </div>
           <PosCameraScanner
             onScan={(code) => resolveCode(code, { fromCamera: true })}
+            lines={basket.map((line) => ({
+              productId: line.productId,
+              name: line.name,
+              code: line.barcode || line.sku,
+              unitPrice: line.unitPrice,
+              quantity: line.quantity,
+              discount: line.discount,
+              allowDecimal: line.allowDecimal,
+              unitAbbreviation: line.unitAbbreviation,
+            }))}
+            total={totals.total}
+            itemCount={totals.itemCount}
+            currency={currency}
+            onSetQuantity={setQuantity}
+            onRemove={(productId) => setQuantity(productId, 0)}
             label="Scan barcode"
             size="lg"
             className="h-12 w-full shrink-0 rounded-xl border-0 bg-sidebar text-sidebar-foreground hover:bg-sidebar/90 sm:w-auto"
@@ -914,43 +933,32 @@ export function PosTerminal({
                     />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{line.name}</p>
+                      <p className="truncate font-mono text-xs text-muted-foreground">
+                        {line.barcode || line.sku}
+                      </p>
                       <p className="tabular text-xs text-muted-foreground">
-                        {formatQuantity(line.quantity)} × {formatCurrency(line.unitPrice, currency)}
+                        {formatCurrency(line.unitPrice, currency)} / {line.unitAbbreviation}
                       </p>
                     </div>
-                    <span className="tabular whitespace-nowrap text-sm font-semibold">
-                      {formatCurrency(line.unitPrice * line.quantity - line.discount, currency)}
-                    </span>
+                    <div className="shrink-0 text-right">
+                      <span className="tabular block whitespace-nowrap text-base font-semibold">
+                        {formatCurrency(line.unitPrice * line.quantity - line.discount, currency)}
+                      </span>
+                      {line.discount > 0 && (
+                        <span className="tabular block text-xs text-muted-foreground">
+                          −{formatCurrency(line.discount, currency)}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => setQuantity(line.productId, line.quantity - 1)}
-                      aria-label={`Decrease ${line.name}`}
-                    >
-                      <Minus className="h-3 w-3" />
-                    </Button>
-                    <Input
-                      type="number"
+                  <div className="mt-2 flex items-center gap-2">
+                    <QuantityInput
                       value={line.quantity}
-                      min={0}
-                      step={line.allowDecimal ? 0.001 : 1}
-                      onChange={(event) => setQuantity(line.productId, Number(event.target.value))}
-                      className="h-7 w-14 text-center"
-                      aria-label={`Quantity for ${line.name}`}
+                      allowDecimal={line.allowDecimal}
+                      onChange={(quantity) => setQuantity(line.productId, quantity)}
+                      label={`Quantity for ${line.name}`}
                     />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => setQuantity(line.productId, line.quantity + 1)}
-                      aria-label={`Increase ${line.name}`}
-                    >
-                      <Plus className="h-3 w-3" />
-                    </Button>
 
                     <Input
                       type="number"
@@ -959,18 +967,20 @@ export function PosTerminal({
                       step="0.01"
                       placeholder="Disc."
                       onChange={(event) => setLineDiscount(line.productId, Number(event.target.value))}
-                      className="h-7 w-20 text-right"
+                      className="h-10 w-20 text-right"
                       aria-label={`Discount for ${line.name}`}
                     />
 
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon"
                       onClick={() => setQuantity(line.productId, 0)}
-                      className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
+                      className="ml-auto h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive"
                       aria-label={`Remove ${line.name}`}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                      <Trash2 />
+                    </Button>
                   </div>
                 </li>
               ))}

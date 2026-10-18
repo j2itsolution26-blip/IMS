@@ -392,18 +392,7 @@ export type BarcodeSaleLookup =
  * found" — which would otherwise prompt them to create a duplicate.
  */
 export async function findBarcodeForSale(barcode: string): Promise<BarcodeSaleLookup> {
-  const normalized = normalizeBarcode(barcode);
-  if (!normalized) return { status: 'not-found' };
-
-  // An active product wins over an archived one that once carried the code.
-  const rows = await prisma.$queryRaw<{ barcode: string; name: string; status: ProductStatus }[]>`
-    SELECT barcode, name, status::text AS status FROM products
-    WHERE barcode IS NOT NULL
-      AND upper(regexp_replace(barcode, '[^0-9A-Za-z]', '', 'g')) = ${normalized}
-    ORDER BY (status = 'ACTIVE') DESC
-    LIMIT 1
-  `;
-  const row = rows[0];
+  const row = await findProductRefByBarcode(barcode);
   if (!row) return { status: 'not-found' };
   if (row.status !== 'ACTIVE') {
     return { status: 'unavailable', name: row.name, productStatus: row.status };
@@ -414,6 +403,28 @@ export async function findBarcodeForSale(barcode: string): Promise<BarcodeSaleLo
   const matches = await searchSellableProducts(row.barcode, 5);
   const product = matches.find((p) => p.barcode === row.barcode);
   return product ? { status: 'sellable', product } : { status: 'not-found' };
+}
+
+/**
+ * The product a scanned code belongs to, compared with separators removed on
+ * both sides and leading zeros kept. An active product wins over an archived
+ * one that once carried the same code. Shared by the till and the inventory
+ * screens so a code resolves to the same product everywhere.
+ */
+export async function findProductRefByBarcode(
+  barcode: string,
+): Promise<{ id: string; barcode: string; name: string; status: ProductStatus } | null> {
+  const normalized = normalizeBarcode(barcode);
+  if (!normalized) return null;
+
+  const rows = await prisma.$queryRaw<{ id: string; barcode: string; name: string; status: ProductStatus }[]>`
+    SELECT id, barcode, name, status::text AS status FROM products
+    WHERE barcode IS NOT NULL
+      AND upper(regexp_replace(barcode, '[^0-9A-Za-z]', '', 'g')) = ${normalized}
+    ORDER BY (status = 'ACTIVE') DESC
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
 }
 
 /**

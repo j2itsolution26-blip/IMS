@@ -6,8 +6,8 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { CameraOff, ShieldAlert, VideoOff } from 'lucide-react';
 
 /**
- * The camera half of barcode scanning, shared by the product forms (one scan,
- * then close) and the till (scan item after item without closing).
+ * The camera half of barcode scanning. `ScannerPanel` builds the scanner the
+ * till and the inventory screens share on top of it.
  *
  * Two things caused the black preview this replaced. The <video> was rendered
  * conditionally on a state flag, so it often did not exist yet when the stream
@@ -244,28 +244,29 @@ function videoConstraints(deviceId?: string): MediaTrackConstraints {
  * Owns the <video> and everything attached to it.
  *
  * Mounted only while the camera should be running, so unmounting is the single
- * teardown path — closing the dialog, hitting an error, switching cameras and
- * a single-shot scan all release the camera through the same cleanup. There is
- * never more than one stream per stage.
+ * teardown path — closing the dialog, stopping, hitting an error and switching
+ * cameras all release the camera through the same cleanup. There is never more
+ * than one stream per stage.
  *
- * `continuous` keeps decoding after a hit and reports every read, leaving it
- * to the caller to ignore a code that is simply still in view. `paused` stops
- * decoding and freezes the preview without giving up the camera.
+ * Every read is reported, including a code that is simply still in view; the
+ * caller's duplicate gate decides what counts. `paused` stops decoding and
+ * freezes the preview without giving up the camera; `holdDecoding` stops
+ * decoding but keeps the preview live (e.g. while a quantity is typed).
  */
 export function CameraStage({
   onReady,
   onFailed,
   onDetected,
-  continuous = false,
   paused = false,
+  holdDecoding = false,
   deviceId,
   className = 'h-full w-full object-contain',
 }: {
   onReady: (info: { deviceId?: string }) => void;
   onFailed: (state: CameraFailure) => void;
   onDetected: (code: string) => void;
-  continuous?: boolean;
   paused?: boolean;
+  holdDecoding?: boolean;
   deviceId?: string;
   className?: string;
 }) {
@@ -279,24 +280,25 @@ export function CameraStage({
   });
 
   const pausedRef = React.useRef(paused);
+  // Whether decoding should be running at all — off while paused or held.
+  const decodingRef = React.useRef(!paused && !holdDecoding);
   const loopRef = React.useRef<DecodeLoop | null>(null);
 
   React.useEffect(() => {
     pausedRef.current = paused;
+    decodingRef.current = !paused && !holdDecoding;
     const video = videoRef.current;
     const loop = loopRef.current;
     // Before the camera is live there is nothing to pause; the start-up
-    // sequence reads pausedRef itself.
+    // sequence reads these refs itself.
     if (!video || !loop) return;
 
-    if (paused) {
-      loop.stop();
-      video.pause();
-    } else {
-      void video.play().catch(() => undefined);
-      loop.start();
-    }
-  }, [paused]);
+    if (paused) video.pause();
+    else void video.play().catch(() => undefined);
+
+    if (decodingRef.current) loop.start();
+    else loop.stop();
+  }, [paused, holdDecoding]);
 
   React.useEffect(() => {
     const video = videoRef.current;
@@ -316,11 +318,7 @@ export function CameraStage({
 
     const handleCode = (code: string) => {
       const trimmed = code.trim();
-      if (!trimmed || cancelled || pausedRef.current) return;
-      if (!continuous) {
-        cancelled = true;
-        stopCamera();
-      }
+      if (!trimmed || cancelled || !decodingRef.current) return;
       callbacks.current.onDetected(trimmed);
     };
 
@@ -359,11 +357,8 @@ export function CameraStage({
       if (cancelled) return;
 
       loopRef.current = loop;
-      if (pausedRef.current) {
-        video.pause();
-      } else {
-        loop.start();
-      }
+      if (pausedRef.current) video.pause();
+      if (decodingRef.current) loop.start();
     };
 
     void run();

@@ -2,9 +2,14 @@
 
 import * as React from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Search } from 'lucide-react';
+import { ScanLine, Search } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { lookupInventoryBarcode } from '@/features/inventory/actions';
+import { ScannerDialog } from '@/features/scanner/scanner-dialog';
+import { primeAudio, type ScanFeedback } from '@/features/scanner/scanner-panel';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { formatQuantity } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 export interface StockTab {
@@ -63,6 +68,40 @@ export function InventorySearchFilter({
     return () => clearTimeout(timer);
   }, [term, currentSearch, push]);
 
+  const [scanning, setScanning] = React.useState(false);
+
+  /**
+   * Finds the product behind a scanned code and shows its row. The search is
+   * set to the barcode *as stored*, so a code scanned without the spacing
+   * printed on the pack still lands on it, and the slice filters are cleared
+   * so a "Low" tab can't hide the product just found. Inactive and non-stock
+   * products aren't in the register at all, so those open the product page.
+   */
+  const onBarcodeDetected = async (code: string): Promise<ScanFeedback> => {
+    const result = await lookupInventoryBarcode(code);
+    if (!result.ok) return { tone: 'error', title: result.error };
+    if (result.data.status === 'not-found') return { tone: 'error', title: 'No product has this barcode' };
+
+    const { product } = result.data;
+    if (product.productStatus !== 'ACTIVE' || !product.isTrackable) {
+      startTransition(() => router.push(`/products/${product.id}`));
+      return {
+        tone: 'success',
+        title: product.name,
+        meta: product.productStatus !== 'ACTIVE' ? product.productStatus.toLowerCase() : 'no stock count',
+      };
+    }
+
+    const search = product.barcode ?? product.sku;
+    setTerm(search);
+    push((params) => {
+      params.set('q', search);
+      params.delete('status');
+      params.delete('category');
+    });
+    return { tone: 'success', title: product.name, meta: `${formatQuantity(product.onHand)} ${product.unit}` };
+  };
+
   const setParam = (name: string, value: string, fallback: string) =>
     push((params) => {
       if (value === fallback) params.delete(name);
@@ -105,17 +144,42 @@ export function InventorySearchFilter({
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="relative w-full sm:w-72">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <Input
-            value={term}
-            onChange={(event) => setTerm(event.target.value)}
-            placeholder="Search name, SKU or scan barcode"
-            className="h-10 pl-9"
-            aria-label="Search products"
+        <div className="flex gap-2">
+          <div className="relative w-full sm:w-72">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <Input
+              value={term}
+              onChange={(event) => setTerm(event.target.value)}
+              placeholder="Search name, SKU or scan barcode"
+              className="h-10 pl-9"
+              aria-label="Search products"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-10 w-10 shrink-0"
+            onClick={() => {
+              primeAudio();
+              setScanning(true);
+            }}
+            aria-label="Scan a barcode to find a product"
+            title="Scan barcode"
+          >
+            <ScanLine />
+          </Button>
+          <ScannerDialog
+            open={scanning}
+            onOpenChange={setScanning}
+            title="Find by barcode"
+            description="Scan a product's barcode to show it in the stock list."
+            mode="single"
+            manualEntry
+            onBarcodeDetected={onBarcodeDetected}
           />
         </div>
 

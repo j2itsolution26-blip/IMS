@@ -2,11 +2,14 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Trash2 } from 'lucide-react';
+import { ScanLine, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { StockPickerProduct } from '@/features/inventory/queries';
 import { createAdjustmentAction } from '@/features/inventory/actions';
 import { ProductPicker, EmptyLines } from '@/features/inventory/product-picker';
+import { resolveStockScan } from '@/features/inventory/resolve-stock-scan';
+import { ScannerDialog } from '@/features/scanner/scanner-dialog';
+import { primeAudio, type ScanFeedback } from '@/features/scanner/scanner-panel';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -50,22 +53,59 @@ export function AdjustmentForm({
   const [mode, setMode] = React.useState<'ABSOLUTE' | 'RELATIVE'>('ABSOLUTE');
   const [isOpeningBalance, setIsOpeningBalance] = React.useState(false);
   const [reason, setReason] = React.useState('');
-  const [lines, setLines] = React.useState<Line[]>([]);
+  const [lines, setLinesState] = React.useState<Line[]>([]);
   const [submitting, setSubmitting] = React.useState(false);
+  const [scanning, setScanning] = React.useState(false);
 
-  const addLine = (product: StockPickerProduct) =>
-    setLines((current) => [
-      ...current,
-      {
-        productId: product.id,
-        name: product.name,
-        sku: product.sku,
-        unit: product.unit,
-        onHand: product.onHand,
-        costPrice: product.costPrice,
-        value: '',
-      },
-    ]);
+  // Mirrors `lines` synchronously so a scan can report the new count in the
+  // same breath as it records it.
+  const linesRef = React.useRef<Line[]>([]);
+  const setLines = (update: Line[] | ((current: Line[]) => Line[])) => {
+    linesRef.current = typeof update === 'function' ? update(linesRef.current) : update;
+    setLinesState(linesRef.current);
+  };
+  const scanCache = React.useRef(new Map<string, StockPickerProduct>());
+
+  const lineFor = (product: StockPickerProduct, value = ''): Line => ({
+    productId: product.id,
+    name: product.name,
+    sku: product.sku,
+    unit: product.unit,
+    onHand: product.onHand,
+    costPrice: product.costPrice,
+    value,
+  });
+
+  const addLine = (product: StockPickerProduct) => setLines((current) => [...current, lineFor(product)]);
+
+  /**
+   * One scan during a stock take is one unit on the shelf: it adds the
+   * product to the list, or counts one more of it. A scan never changes stock
+   * by itself — the counts go through "Apply adjustment" like typed ones.
+   * In "Change by" mode a scan only puts the product on the list, since a
+   * scan there would otherwise read as "add one to stock".
+   */
+  const onBarcodeDetected = async (code: string): Promise<ScanFeedback> => {
+    if (submitting) return { tone: 'warning', title: 'Applying the adjustment — scan again in a moment.' };
+
+    const result = await resolveStockScan(code, { local: products, cache: scanCache.current, verb: 'counted' });
+    if (!result.ok) return result.feedback;
+    const product = result.product;
+    const existing = linesRef.current.find((line) => line.productId === product.id);
+
+    if (mode === 'RELATIVE') {
+      if (!existing) setLines((current) => [...current, lineFor(product)]);
+      return { tone: 'success', title: product.name, meta: existing ? 'already listed' : 'added — enter the change' };
+    }
+
+    const counted = existing ? (Number(existing.value) || 0) + 1 : 1;
+    setLines((current) =>
+      existing
+        ? current.map((line) => (line.productId === product.id ? { ...line, value: String(counted) } : line))
+        : [...current, lineFor(product, '1')],
+    );
+    return { tone: 'success', title: product.name, meta: `counted ${formatQuantity(counted)} ${product.unit}` };
+  };
 
   const removeLine = (productId: string) =>
     setLines((current) => current.filter((line) => line.productId !== productId));
@@ -172,11 +212,45 @@ export function AdjustmentForm({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <ProductPicker
-            products={products}
-            exclude={new Set(lines.map((line) => line.productId))}
-            onSelect={addLine}
-          />
+          <div className="flex gap-2">
+            <div className="min-w-0 flex-1">
+              <ProductPicker
+                products={products}
+                exclude={new Set(lines.map((line) => line.productId))}
+                onSelect={addLine}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0"
+              aria-label={mode === 'ABSOLUTE' ? 'Scan to count' : 'Scan products'}
+              onClick={() => {
+                primeAudio();
+                setScanning(true);
+              }}
+            >
+              <ScanLine /> <span className="hidden sm:inline">{mode === 'ABSOLUTE' ? 'Scan to count' : 'Scan'}</span>
+            </Button>
+            <ScannerDialog
+              open={scanning}
+              onOpenChange={setScanning}
+              title={mode === 'ABSOLUTE' ? 'Scan to count' : 'Scan products'}
+              description={
+                mode === 'ABSOLUTE'
+                  ? 'Scan each unit on the shelf. Every scan counts one more of that product.'
+                  : 'Scan products to add them to the adjustment list.'
+              }
+              mode="continuous"
+              manualEntry
+              countLabel={(count) => `${count} scanned`}
+              // Quicker re-arm than the till: counting units of one product
+              // is the point here.
+              sameCodeCooldownMs={900}
+              sameCodeReleaseMs={600}
+              onBarcodeDetected={onBarcodeDetected}
+            />
+          </div>
 
           {lines.length === 0 ? (
             <EmptyLines message="Search above to add the products you're adjusting." />

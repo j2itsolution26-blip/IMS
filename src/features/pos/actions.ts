@@ -30,7 +30,9 @@ const checkoutSchema = z.object({
       z.object({
         productId: z.string().min(1),
         quantity: z.number().positive('Quantity must be greater than zero.'),
-        unitPrice: z.number().min(0).optional(),
+        // Deliberately no `unitPrice`: the till has no price-override
+        // permission, so the database price is the only price. Zod strips
+        // unknown keys, so a tampered request carrying one is simply ignored.
         discount: z.number().min(0).default(0),
       }),
     )
