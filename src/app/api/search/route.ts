@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/session';
 import { toNum } from '@/lib/decimal';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { RateLimitError } from '@/lib/errors';
+import { formatDate } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,7 +89,7 @@ export async function GET(request: NextRequest) {
               id: row.id,
               type: 'sale',
               title: row.invoiceNumber,
-              subtitle: `Sale · ${row.createdAt.toLocaleDateString()}`,
+              subtitle: `Sale · ${formatDate(row.createdAt)}`,
               href: `/sales/${row.id}`,
               meta: toNum(row.total as never),
             });

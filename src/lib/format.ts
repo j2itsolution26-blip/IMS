@@ -1,7 +1,11 @@
 /**
  * Presentation helpers. These are pure and safe in both server and client
- * components — no Prisma types leak in, only plain numbers.
+ * components — no Prisma types leak in, only plain numbers. Dates always read
+ * in the store's timezone, so a UTC server and a phone set to another zone
+ * both print the time the sale actually happened at the till.
  */
+
+import { STORE_TIME_ZONE } from '@/lib/store-time';
 
 export const DEFAULT_CURRENCY = 'PHP';
 export const DEFAULT_LOCALE = 'en-PH';
@@ -67,19 +71,19 @@ export function formatSignedPercent(value: number | null | undefined, digits = 1
 export function formatDate(value: Date | string | null | undefined): string {
   if (!value) return '—';
   const d = typeof value === 'string' ? new Date(value) : value;
-  return new Intl.DateTimeFormat(DEFAULT_LOCALE, { dateStyle: 'medium' }).format(d);
+  return new Intl.DateTimeFormat(DEFAULT_LOCALE, { dateStyle: 'medium', timeZone: STORE_TIME_ZONE }).format(d);
 }
 
 export function formatDateTime(value: Date | string | null | undefined): string {
   if (!value) return '—';
   const d = typeof value === 'string' ? new Date(value) : value;
-  return new Intl.DateTimeFormat(DEFAULT_LOCALE, { dateStyle: 'medium', timeStyle: 'short' }).format(d);
+  return new Intl.DateTimeFormat(DEFAULT_LOCALE, { dateStyle: 'medium', timeStyle: 'short', timeZone: STORE_TIME_ZONE }).format(d);
 }
 
 export function formatTime(value: Date | string | null | undefined): string {
   if (!value) return '—';
   const d = typeof value === 'string' ? new Date(value) : value;
-  return new Intl.DateTimeFormat(DEFAULT_LOCALE, { timeStyle: 'short' }).format(d);
+  return new Intl.DateTimeFormat(DEFAULT_LOCALE, { timeStyle: 'short', timeZone: STORE_TIME_ZONE }).format(d);
 }
 
 export function formatRelative(value: Date | string | null | undefined): string {

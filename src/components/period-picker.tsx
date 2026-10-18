@@ -22,12 +22,15 @@ export function PeriodPicker({
   allowCustom = false,
   customFrom,
   customTo,
+  options = PERIOD_OPTIONS,
 }: {
   current: PeriodKey;
   paramName?: string;
   allowCustom?: boolean;
   customFrom?: string;
   customTo?: string;
+  /** A narrower list of presets, for screens that offer only a few. */
+  options?: { value: PeriodKey; label: string }[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -76,7 +79,7 @@ export function PeriodPicker({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {PERIOD_OPTIONS.map((option) => (
+          {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}
             </SelectItem>

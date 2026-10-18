@@ -5,6 +5,7 @@ import { getCompanyProfile, getSettings, readNumber } from '@/server/services/se
 import { getOpenShift } from '@/server/services/shift-service';
 import { PageHeader } from '@/components/page-header';
 import { PosTerminal } from '@/features/pos/pos-terminal';
+import { STORE_TIME_ZONE } from '@/lib/store-time';
 
 export const metadata: Metadata = { title: 'Point of Sale' };
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,7 @@ export default async function PosPage() {
           weekday: 'long',
           day: 'numeric',
           month: 'short',
+          timeZone: STORE_TIME_ZONE,
         })}`}
       />
 

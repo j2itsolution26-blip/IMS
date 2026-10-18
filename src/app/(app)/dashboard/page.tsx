@@ -4,17 +4,23 @@ import { requireUser, requirePermission, userCan } from '@/lib/session';
 import { resolveRangeFromParams } from '@/server/analytics/date-range';
 import { getDashboardOverview } from '@/server/analytics/dashboard-overview';
 import { getSettings, readString } from '@/server/services/settings-service';
-import { DashboardView } from '@/features/dashboard/dashboard-view';
+import { DASHBOARD_PERIODS, DashboardView, type DashboardQuery } from '@/features/dashboard/dashboard-view';
 
-export const metadata: Metadata = { title: 'Dashboard' };
+export const metadata: Metadata = { title: 'Sales Dashboard' };
 
 // Every figure is live; caching would show the owner yesterday's numbers.
 export const dynamic = 'force-dynamic';
 
+/**
+ * Cost and profit are the owner's. `reports.export` is held by the Owner and
+ * by no default staff role, so it is the gate for anything built on cost.
+ */
+const PROFIT_PERMISSION = 'reports.export';
+
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; top?: string; sort?: string }>;
 }) {
   // A platform administrator holds no store permissions, so the dashboard is
   // not theirs to see. Sending them to their own screen beats bouncing them
@@ -26,28 +32,46 @@ export default async function DashboardPage({
 
   const user = await requirePermission('dashboard.view');
   const params = await searchParams;
-  const { period, range, custom } = resolveRangeFromParams(params, 'today');
 
-  const settings = await getSettings();
-  const currency = readString(settings, 'locale.currency') || 'PHP';
+  // Only this screen's presets are honoured; an old link to "last 30 days"
+  // lands on today rather than on a choice the picker cannot show.
+  const offered = params.period === 'custom' || DASHBOARD_PERIODS.some((p) => p.value === params.period);
+  const { period, range, custom } = resolveRangeFromParams(offered ? params : {}, 'today');
 
-  // One pass for the whole page, so every panel agrees on the window and the
-  // dashboard is not a dozen separate round trips.
-  const data = await getDashboardOverview(range);
+  const rangeNotice =
+    params.period === 'custom' && !custom
+      ? 'That custom date range could not be read or is longer than five years, so today is shown instead.'
+      : null;
+
+  const query: DashboardQuery = {
+    period,
+    from: custom?.from,
+    to: custom?.to,
+    top: params.top === '10' ? 10 : 5,
+    sort: params.sort === 'revenue' ? 'revenue' : 'units',
+  };
+
+  const now = new Date();
+  const [settings, data] = await Promise.all([
+    getSettings(),
+    getDashboardOverview({
+      range,
+      topLimit: query.top,
+      topSort: query.sort,
+      canViewProfit: userCan(user, PROFIT_PERMISSION),
+      now,
+    }),
+  ]);
 
   return (
     <DashboardView
-      firstName={user.name.split(' ')[0]}
-      period={period}
+      storeName={readString(settings, 'company.name') || 'My Store'}
+      query={query}
       range={range}
-      custom={custom}
-      currency={currency}
+      rangeNotice={rangeNotice}
+      currency={readString(settings, 'locale.currency') || 'PHP'}
+      generatedAt={now.toISOString()}
       data={data}
-      can={{
-        sell: userCan(user, 'pos.create'),
-        createProduct: userCan(user, 'products.create'),
-        adjustStock: userCan(user, 'inventory.create'),
-      }}
     />
   );
 }

@@ -1,7 +1,9 @@
 import 'server-only';
 
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { toNum } from '@/lib/decimal';
+import { STORE_TIME_ZONE } from '@/lib/store-time';
 
 /**
  * Sales analytics.
@@ -10,11 +12,14 @@ import { toNum } from '@/lib/decimal';
  * memory to add them up — that would stop scaling the moment the business has
  * a real transaction history.
  *
- * Time buckets are produced by `date_trunc`, which uses the database session
- * timezone (UTC on Supabase). Range boundaries come from the app server, so
- * deploy both in the same timezone as the business for day boundaries to line
- * up with the trading day.
+ * `createdAt` is a UTC `timestamp without time zone`. Buckets are truncated on
+ * the store's wall clock (`STORE_LOCAL_TIME`) and handed back as the instant
+ * that bucket starts, so they line up with the range boundaries built by
+ * `@/lib/store-time` whatever timezone the database or server runs in.
  */
+
+/** A constant, never input, so it is safe to splice into SQL. */
+const STORE_LOCAL_TIME = `(s."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE '${STORE_TIME_ZONE}')`;
 
 export type Granularity = 'hour' | 'day' | 'week' | 'month' | 'year';
 
@@ -43,11 +48,12 @@ const BUCKET_LABEL: Record<Granularity, Intl.DateTimeFormatOptions> = {
   year: { year: 'numeric' },
 };
 
-/** Revenue/profit/orders over time, bucketed at the requested granularity. */
-/** The label a bucket carries, so gap-filled slots match queried ones. */
+/** The label a bucket carries, read on the store's clock. */
 export function formatBucketLabel(date: Date, granularity: Granularity): string {
-  return new Intl.DateTimeFormat('en-PH', BUCKET_LABEL[granularity]).format(date);
+  return new Intl.DateTimeFormat('en-PH', { ...BUCKET_LABEL[granularity], timeZone: STORE_TIME_ZONE }).format(date);
 }
+
+/** Revenue/profit/orders over time, bucketed at the requested granularity. */
 
 export async function getSalesTimeSeries(
   from: Date,
@@ -58,7 +64,7 @@ export async function getSalesTimeSeries(
   const rows = await prisma.$queryRawUnsafe<TimeSeriesRow[]>(
     `
     SELECT
-      date_trunc('${granularity}', s."createdAt")            AS "bucket",
+      date_trunc('${granularity}', ${STORE_LOCAL_TIME}) AT TIME ZONE '${STORE_TIME_ZONE}' AS "bucket",
       COALESCE(SUM(s.total), 0)::text                        AS "revenue",
       COALESCE(SUM(s.total - s."taxAmount" - s."costOfGoods"), 0)::text AS "profit",
       COUNT(*)::int                                          AS "orders",
@@ -74,11 +80,9 @@ export async function getSalesTimeSeries(
     to,
   );
 
-  const formatter = new Intl.DateTimeFormat('en-PH', BUCKET_LABEL[granularity]);
-
   return rows.map((r) => ({
     bucket: r.bucket.toISOString(),
-    label: formatter.format(r.bucket),
+    label: formatBucketLabel(r.bucket, granularity),
     revenue: Number(r.revenue),
     profit: Number(r.profit),
     orders: r.orders,
@@ -226,13 +230,13 @@ export interface HourlyPoint {
 }
 
 /**
- * Average trading pattern by hour of day. Answers "when is the shop busy?"
+ * Average trading pattern by hour of day, on the store's clock. Answers "when is the shop busy?"
  * across the whole window rather than for one specific day.
  */
 export async function getSalesByHour(from: Date, to: Date): Promise<HourlyPoint[]> {
   const rows = await prisma.$queryRaw<{ hour: number; revenue: string; orders: number }[]>`
     SELECT
-      EXTRACT(HOUR FROM s."createdAt")::int AS "hour",
+      EXTRACT(HOUR FROM ${Prisma.raw(STORE_LOCAL_TIME)})::int AS "hour",
       COALESCE(SUM(s.total), 0)::text       AS "revenue",
       COUNT(*)::int                         AS "orders"
     FROM sales s

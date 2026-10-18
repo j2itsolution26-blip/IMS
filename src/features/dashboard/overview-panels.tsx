@@ -1,18 +1,11 @@
 import * as React from 'react';
 import Link from 'next/link';
-import {
-  ArrowRight,
-  BarChart3,
-  Boxes,
-  FileText,
-  PackagePlus,
-  Plus,
-  ShoppingCart,
-  TriangleAlert,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { ArrowRight, Boxes, LineChart, PieChart, ShoppingCart } from 'lucide-react';
 import type { DashboardOverview } from '@/server/analytics/dashboard-overview';
-import { DonutChart } from '@/components/charts/donut-chart';
+import type { StockStatus } from '@/server/analytics/inventory-analytics';
+import type { Granularity } from '@/server/analytics/sales-analytics';
+import { BreakdownChart } from '@/components/charts/breakdown-chart';
+import { TrendChart } from '@/components/charts/trend-chart';
 import { ProductImage } from '@/components/product-image';
 import { ViewSaleButton } from '@/features/dashboard/view-sale-button';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Panel, PanelEmpty } from '@/components/panel';
 import { formatCurrency, formatDateTime, formatNumber, formatQuantity, humanizeEnum } from '@/lib/format';
 import { SALE_STATUS_BADGE, SALE_STATUS_LABEL } from '@/lib/sale-status';
+import { cn } from '@/lib/utils';
 
 /* -------------------------------------------------------------------------- */
 /* Shared chrome                                                              */
@@ -36,58 +30,145 @@ function MoreLink({ href, children }: { href: string; children: React.ReactNode 
   );
 }
 
+/**
+ * A small segmented control made of links, so the choice lives in the URL
+ * and the server re-queries — the same model as the period picker.
+ */
+function SegmentLinks({
+  label,
+  options,
+}: {
+  label: string;
+  options: { label: string; href: string; active: boolean }[];
+}) {
+  return (
+    <div role="group" aria-label={label} className="inline-flex rounded-lg border bg-muted/40 p-0.5">
+      {options.map((option) => (
+        <Link
+          key={option.label}
+          href={option.href}
+          scroll={false}
+          aria-current={option.active ? 'true' : undefined}
+          className={cn(
+            'rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            option.active ? 'bg-card text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {option.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
-/* Payment methods                                                            */
+/* Sales overview                                                             */
 /* -------------------------------------------------------------------------- */
 
-export function PaymentBreakdownPanel({
-  payments,
+const BUCKET_NOUN: Record<Granularity, { title: string; per: string }> = {
+  hour: { title: 'Hour', per: 'by hour' },
+  day: { title: 'Day', per: 'by day' },
+  week: { title: 'Week', per: 'by week' },
+  month: { title: 'Month', per: 'by month' },
+  year: { title: 'Year', per: 'by year' },
+};
+
+export function SalesOverviewPanel({
+  trend,
+  granularity,
+  rangeLabel,
   currency,
   className,
 }: {
-  payments: DashboardOverview['payments'];
+  trend: DashboardOverview['trend'];
+  granularity: Granularity;
+  rangeLabel: string;
   currency: string;
   className?: string;
 }) {
+  const hasSales = trend.some((point) => point.revenue > 0 || point.orders > 0);
+  const noun = BUCKET_NOUN[granularity];
+
   return (
-    <Panel title="Payment methods" description="How customers paid in this period." className={className}>
-      {payments.length === 0 ? (
+    <Panel
+      title="Sales Overview"
+      description={`Revenue ${noun.per} — ${rangeLabel}. Hover a point for its figures.`}
+      className={className}
+    >
+      {!hasSales ? (
         <PanelEmpty
-          icon={BarChart3}
-          title="No payments yet"
-          description="Once a sale is charged, the split across cash and GCash shows here."
+          icon={LineChart}
+          title="No sales in this period"
+          description="Completed sales are charted here as soon as they are rung up."
         />
       ) : (
         <div className="p-4">
-          <div className="mx-auto w-full max-w-[220px]">
-            <DonutChart
-              data={payments.map((row) => ({
-              label: humanizeEnum(row.method),
-              value: row.amount,
-              count: row.count,
-              share: row.share,
-              }))}
-              currency={currency}
-              centerLabel="Total taken"
-              emptyMessage="No payments in this period."
-            />
-          </div>
+          <TrendChart
+            currency={currency}
+            height={280}
+            showProfit={false}
+            periodLabel={noun.title}
+            data={trend.map((point) => ({
+              label: point.label,
+              revenue: point.revenue,
+              profit: point.profit,
+              orders: point.orders,
+            }))}
+          />
+        </div>
+      )}
+    </Panel>
+  );
+}
 
-          <ul className="mt-4 space-y-2.5">
-            {payments.map((row, index) => (
-              <li key={row.method} className="flex items-center gap-2.5 text-sm">
-                <span
-                  aria-hidden="true"
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: `var(--chart-${(index % 6) + 1})` }}
-                />
-                <span className="min-w-0 flex-1 truncate font-medium">{humanizeEnum(row.method)}</span>
-                <span className="tabular text-xs text-muted-foreground">
-                  {formatNumber(row.count, 0)} {row.count === 1 ? 'payment' : 'payments'}
-                </span>
-                <span className="tabular w-20 text-right font-semibold">
-                  {formatCurrency(row.amount, currency)}
-                </span>
+/* -------------------------------------------------------------------------- */
+/* Sales by category                                                          */
+/* -------------------------------------------------------------------------- */
+
+/** Bars beyond this fold into "Other" — a ranked chart stops being read past it. */
+const CATEGORY_BARS = 6;
+
+export function CategorySalesPanel({
+  categories,
+  currency,
+  className,
+}: {
+  categories: DashboardOverview['categories'];
+  currency: string;
+  className?: string;
+}) {
+  const shown = categories.slice(0, CATEGORY_BARS);
+  const rest = categories.slice(CATEGORY_BARS);
+  const bars = shown.map((row) => ({ label: row.label, value: row.revenue, share: row.share }));
+  if (rest.length > 0) {
+    bars.push({
+      label: `Other (${rest.length})`,
+      value: rest.reduce((acc, row) => acc + row.revenue, 0),
+      share: Number(rest.reduce((acc, row) => acc + row.share, 0).toFixed(2)),
+    });
+  }
+
+  return (
+    <Panel
+      title="Sales by Category"
+      description="Item sales after line discounts, as a share of the period."
+      className={className}
+    >
+      {categories.length === 0 ? (
+        <PanelEmpty
+          icon={PieChart}
+          title="No category sales"
+          description="Each category's share appears once products in it are sold."
+        />
+      ) : (
+        <div className="p-4">
+          <BreakdownChart data={bars} currency={currency} height={bars.length * 34 + 28} />
+
+          <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto scrollbar-thin border-t pt-3">
+            {categories.map((row) => (
+              <li key={row.id} className="flex items-center gap-2 text-sm">
+                <span className="min-w-0 flex-1 truncate font-medium">{row.label}</span>
+                <span className="tabular font-semibold">{formatCurrency(row.revenue, currency)}</span>
                 <span className="tabular w-12 text-right text-xs text-muted-foreground">
                   {formatNumber(row.share, 1)}%
                 </span>
@@ -107,40 +188,48 @@ export function PaymentBreakdownPanel({
 export function TopProductsPanel({
   products,
   currency,
+  showProfit,
+  limitOptions,
+  sortOptions,
+  className,
 }: {
   products: DashboardOverview['topProducts'];
   currency: string;
+  /** Only when the viewer may see profit and every sold line carries a cost. */
+  showProfit: boolean;
+  limitOptions: { label: string; href: string; active: boolean }[];
+  sortOptions: { label: string; href: string; active: boolean }[];
+  className?: string;
 }) {
   return (
     <Panel
-      title="Top selling products"
-      description="Most sold during the selected period."
-      action={<MoreLink href="/reports/best-selling">View all</MoreLink>}
+      title="Top-Selling Products"
+      description="Ranked over the selected period."
+      action={<MoreLink href="/reports/best-selling">Report</MoreLink>}
+      className={className}
     >
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
+        <SegmentLinks label="Number of products" options={limitOptions} />
+        <SegmentLinks label="Sort by" options={sortOptions} />
+      </div>
+
       {products.length === 0 ? (
         <PanelEmpty
           icon={Boxes}
-          title="No products sold yet"
-          description="Complete a sale and your best sellers will be ranked here."
-          action={
-            <Button asChild size="sm">
-              <Link href="/pos">Open POS</Link>
-            </Button>
-          }
+          title="No products sold"
+          description="Best sellers for this period will be ranked here."
         />
       ) : (
-        <ul className="divide-y">
+        <ol className="divide-y">
           {products.map((product, index) => (
-            <li key={product.productId} className="flex items-center gap-3 px-4 py-3">
-              <span className="tabular w-5 shrink-0 text-sm font-semibold text-muted-foreground">
-                {index + 1}
-              </span>
+            <li key={product.productId} className="flex items-center gap-3 px-4 py-2.5">
+              <span className="tabular w-5 shrink-0 text-sm font-semibold text-muted-foreground">{index + 1}</span>
               <ProductImage
                 src={product.imageUrl}
                 alt={product.name}
                 size="sm"
                 fit="cover"
-                className="h-10 w-10 shrink-0 rounded-lg"
+                className="h-9 w-9 shrink-0 rounded-lg"
               />
               <div className="min-w-0 flex-1">
                 <Link
@@ -150,7 +239,8 @@ export function TopProductsPanel({
                   {product.name}
                 </Link>
                 <p className="tabular text-xs text-muted-foreground">
-                  {formatQuantity(product.unitsSold)} sold · {formatQuantity(product.currentStock)} in stock
+                  {formatQuantity(product.unitsSold)} sold
+                  {showProfit && <> · {formatCurrency(product.profit, currency)} profit</>}
                 </p>
               </div>
               <span className="tabular shrink-0 text-sm font-semibold">
@@ -158,7 +248,7 @@ export function TopProductsPanel({
               </span>
             </li>
           ))}
-        </ul>
+        </ol>
       )}
     </Panel>
   );
@@ -168,57 +258,67 @@ export function TopProductsPanel({
 /* Low stock                                                                  */
 /* -------------------------------------------------------------------------- */
 
+const STOCK_BADGE: Partial<Record<StockStatus, { label: string; variant: 'destructive' | 'warning' }>> = {
+  OUT_OF_STOCK: { label: 'Out of stock', variant: 'destructive' },
+  CRITICAL: { label: 'Critical', variant: 'destructive' },
+  LOW: { label: 'Low', variant: 'warning' },
+};
+
 export function LowStockPanel({
   rows,
-  canRestock,
+  total,
+  className,
 }: {
   rows: DashboardOverview['lowStock'];
-  canRestock: boolean;
+  total: number;
+  className?: string;
 }) {
   return (
     <Panel
-      title="Low stock alerts"
-      description="Shelves that need attention."
-      action={<MoreLink href="/inventory?status=LOW">View all</MoreLink>}
+      title="Low-Stock Alerts"
+      description={
+        total > rows.length
+          ? `Showing ${rows.length} of ${formatNumber(total, 0)} products at or below their low-stock level.`
+          : 'Products at or below their low-stock level. Quantities are units on hand.'
+      }
+      action={<MoreLink href="/inventory?status=LOW_ANY">View all</MoreLink>}
+      className={className}
     >
       {rows.length === 0 ? (
         <PanelEmpty
           icon={Boxes}
           title="No low-stock items"
-          description="Every product is above its reorder level. Nothing to restock today."
+          description="Every product is above its low-stock level."
         />
       ) : (
-        <ul className="divide-y">
+        <ul className="grid divide-y sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-3">
           {rows.map((row) => {
-            const out = row.available <= 0;
+            const badge = STOCK_BADGE[row.status] ?? STOCK_BADGE.LOW!;
+            const threshold = row.reorderLevel > 0 ? row.reorderLevel : row.minStock;
             return (
-              <li key={row.productId} className="flex items-center gap-3 px-4 py-3">
-                <ProductImage
-                  src={row.imageUrl}
-                  alt={row.name}
-                  size="sm"
-                  fit="cover"
-                  className="h-10 w-10 shrink-0 rounded-lg"
-                />
-                <div className="min-w-0 flex-1">
-                  <Link
-                    href={`/products/${row.productId}`}
-                    className="block truncate text-sm font-medium hover:underline"
-                  >
-                    {row.name}
-                  </Link>
-                  <p className="tabular text-xs">
-                    <span className={out ? 'font-semibold text-destructive' : 'font-semibold text-warning'}>
-                      {out ? 'Out of stock' : `${formatQuantity(row.available)} ${row.unitAbbreviation} left`}
-                    </span>
-                    <span className="text-muted-foreground"> · reorder at {formatQuantity(row.reorderLevel)}</span>
-                  </p>
-                </div>
-                {canRestock && (
-                  <Button asChild size="sm" variant={out ? 'default' : 'outline'} className="shrink-0">
-                    <Link href={`/inventory?q=${encodeURIComponent(row.sku)}`}>Restock</Link>
-                  </Button>
-                )}
+              <li key={row.productId} className="sm:border-b">
+                <Link
+                  href={`/products/${row.productId}`}
+                  className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                >
+                  <ProductImage
+                    src={row.imageUrl}
+                    alt={row.name}
+                    size="sm"
+                    fit="cover"
+                    className="h-9 w-9 shrink-0 rounded-lg"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{row.name}</p>
+                    <p className="tabular text-xs text-muted-foreground">
+                      {formatQuantity(row.available)} {row.unitAbbreviation} on hand · low at{' '}
+                      {formatQuantity(threshold)}
+                    </p>
+                  </div>
+                  <Badge variant={badge.variant} className="shrink-0">
+                    {badge.label}
+                  </Badge>
+                </Link>
               </li>
             );
           })}
@@ -229,80 +329,34 @@ export function LowStockPanel({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Slow movers                                                                */
-/* -------------------------------------------------------------------------- */
-
-export function SlowMovingPanel({ rows, currency }: { rows: DashboardOverview['slowMoving']; currency: string }) {
-  return (
-    <Panel
-      title="Slow-moving products"
-      description="Stock sitting on the shelf — candidates for a promo."
-      action={<MoreLink href="/reports/slow-moving">View all</MoreLink>}
-    >
-      {rows.length === 0 ? (
-        <PanelEmpty
-          icon={TriangleAlert}
-          title="Nothing slow moving"
-          description="Every stocked product has sold recently."
-        />
-      ) : (
-        <ul className="divide-y">
-          {rows.map((row) => (
-            <li key={row.productId} className="flex items-center gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <Link
-                  href={`/products/${row.productId}`}
-                  className="block truncate text-sm font-medium hover:underline"
-                >
-                  {row.name}
-                </Link>
-                <p className="tabular text-xs text-muted-foreground">
-                  {formatQuantity(row.onHand)} in stock · {formatQuantity(row.unitsSold)} sold
-                </p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="tabular text-sm font-semibold">
-                  {row.daysSinceLastSale == null ? 'Never' : `${formatNumber(row.daysSinceLastSale, 0)}d`}
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  {row.daysSinceLastSale == null ? 'no sales' : 'since last sale'}
-                </p>
-              </div>
-              <span className="tabular w-20 shrink-0 text-right text-sm text-muted-foreground">
-                {formatCurrency(row.stockValue, currency)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Panel>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 /* Recent transactions                                                        */
 /* -------------------------------------------------------------------------- */
+
+const HEAD = 'whitespace-nowrap px-4 py-2 font-medium';
+const CELL = 'whitespace-nowrap px-4 py-2.5';
 
 export function RecentTransactionsPanel({
   sales,
   currency,
+  viewAllHref,
   className,
 }: {
   sales: DashboardOverview['recentSales'];
   currency: string;
+  viewAllHref: string;
   className?: string;
 }) {
   return (
     <Panel
-      title="Recent transactions"
-      description="The latest sales in this period."
-      action={<MoreLink href="/sales">View all</MoreLink>}
+      title="Recent Sales"
+      description="Latest sales in this period. Voided sales are left out."
+      action={<MoreLink href={viewAllHref}>View All Sales</MoreLink>}
       className={className}
     >
       {sales.length === 0 ? (
         <PanelEmpty
           icon={ShoppingCart}
-          title="No transactions yet"
+          title="No sales in this period"
           description="Completed sales will appear here with their receipt."
           action={
             <Button asChild size="sm">
@@ -315,44 +369,47 @@ export function RecentTransactionsPanel({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th scope="col" className="px-4 py-2 font-medium">Receipt</th>
-                <th scope="col" className="px-4 py-2 font-medium">Date</th>
-                <th scope="col" className="hidden px-4 py-2 font-medium lg:table-cell">Cashier</th>
-                <th scope="col" className="px-4 py-2 text-right font-medium">Items</th>
-                <th scope="col" className="hidden px-4 py-2 font-medium md:table-cell">Payment</th>
-                <th scope="col" className="px-4 py-2 text-right font-medium">Total</th>
-                <th scope="col" className="px-4 py-2 font-medium">Status</th>
-                <th scope="col" className="px-4 py-2 text-right font-medium">Action</th>
+                <th scope="col" className={HEAD}>Receipt</th>
+                <th scope="col" className={HEAD}>Date &amp; time</th>
+                <th scope="col" className={cn(HEAD, 'text-right')}>Items</th>
+                <th scope="col" className={cn(HEAD, 'text-right')}>Subtotal</th>
+                <th scope="col" className={cn(HEAD, 'text-right')}>Discount</th>
+                <th scope="col" className={cn(HEAD, 'text-right')}>Total</th>
+                <th scope="col" className={HEAD}>Payment</th>
+                <th scope="col" className={HEAD}>Status</th>
+                <th scope="col" className={cn(HEAD, 'text-right')}>
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {sales.map((sale) => (
                 <tr key={sale.id}>
-                  <td className="px-4 py-2.5">
-                    <Link
-                      href={`/sales/${sale.id}`}
-                      className="whitespace-nowrap font-medium hover:underline"
-                    >
+                  <td className={CELL}>
+                    <Link href={`/sales/${sale.id}`} className="font-medium hover:underline">
                       {sale.invoiceNumber}
                     </Link>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 text-xs text-muted-foreground">
-                    {formatDateTime(sale.createdAt)}
+                  <td className={cn(CELL, 'text-xs text-muted-foreground')}>{formatDateTime(sale.createdAt)}</td>
+                  <td className={cn(CELL, 'tabular text-right')}>{formatNumber(sale.itemCount, 0)}</td>
+                  <td className={cn(CELL, 'tabular text-right')}>{formatCurrency(sale.grossAmount, currency)}</td>
+                  <td className={cn(CELL, 'tabular text-right text-muted-foreground')}>
+                    {sale.discountAmount > 0 ? `−${formatCurrency(sale.discountAmount, currency)}` : '—'}
                   </td>
-                  <td className="hidden whitespace-nowrap px-4 py-2.5 text-xs text-muted-foreground lg:table-cell">
-                    {sale.cashierName}
-                  </td>
-                  <td className="tabular px-4 py-2.5 text-right">{formatNumber(sale.itemCount, 0)}</td>
-                  <td className="hidden whitespace-nowrap px-4 py-2.5 text-xs text-muted-foreground md:table-cell">
-                    {sale.paymentMethod ? humanizeEnum(sale.paymentMethod) : '—'}
-                  </td>
-                  <td className="tabular whitespace-nowrap px-4 py-2.5 text-right font-semibold">
+                  <td className={cn(CELL, 'tabular text-right font-semibold')}>
                     {formatCurrency(sale.total, currency)}
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className={cn(CELL, 'text-xs text-muted-foreground')}>
+                    {sale.paymentMethod === 'GCASH'
+                      ? 'GCash'
+                      : sale.paymentMethod
+                        ? humanizeEnum(sale.paymentMethod)
+                        : '—'}
+                  </td>
+                  <td className={CELL}>
                     <Badge variant={SALE_STATUS_BADGE[sale.status]}>{SALE_STATUS_LABEL[sale.status]}</Badge>
                   </td>
-                  <td className="px-4 py-2.5 text-right">
+                  <td className={cn(CELL, 'text-right')}>
                     <ViewSaleButton saleId={sale.id} />
                   </td>
                 </tr>
@@ -361,54 +418,6 @@ export function RecentTransactionsPanel({
           </table>
         </div>
       )}
-    </Panel>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Quick actions                                                              */
-/* -------------------------------------------------------------------------- */
-
-export function QuickActionsPanel({
-  canCreateProduct,
-  canAdjustStock,
-}: {
-  canCreateProduct: boolean;
-  canAdjustStock: boolean;
-}) {
-  const actions: { label: string; href: string; icon: LucideIcon; show: boolean }[] = [
-    { label: 'Add product', href: '/products/new', icon: Plus, show: canCreateProduct },
-    { label: 'Inventory', href: '/inventory', icon: Boxes, show: true },
-    { label: 'Restock', href: '/inventory?status=LOW', icon: PackagePlus, show: canAdjustStock },
-    { label: 'Sales report', href: '/reports/sales-summary', icon: BarChart3, show: true },
-    { label: 'All sales', href: '/sales', icon: FileText, show: true },
-  ].filter((action) => action.show);
-
-  return (
-    <Panel title="Quick actions" description="Jump straight to the thing you need.">
-      <div className="p-4">
-        <Button asChild size="lg" className="mb-3 h-12 w-full rounded-xl text-base">
-          <Link href="/pos">
-            <ShoppingCart /> New sale
-          </Link>
-        </Button>
-
-        <div className="grid grid-cols-2 gap-2">
-          {actions.map((action) => (
-            <Button
-              key={action.label}
-              asChild
-              variant="outline"
-              className="h-auto flex-col items-start gap-1 rounded-lg px-3 py-3 text-left"
-            >
-              <Link href={action.href}>
-                <action.icon className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs font-medium">{action.label}</span>
-              </Link>
-            </Button>
-          ))}
-        </div>
-      </div>
     </Panel>
   );
 }

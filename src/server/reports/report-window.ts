@@ -1,8 +1,12 @@
 import 'server-only';
 
-import { endOfDay, isValid, parseISO, startOfDay } from 'date-fns';
-import { formatDate } from '@/lib/format';
-import { parsePeriod, resolveRange, type DateRange, type PeriodKey } from '@/server/analytics/date-range';
+import {
+  buildCustomRange,
+  parsePeriod,
+  resolveRange,
+  type DateRange,
+  type PeriodKey,
+} from '@/server/analytics/date-range';
 
 /**
  * The reporting window behind the Reports dashboard and its exports.
@@ -28,20 +32,11 @@ export function resolveReportWindow(
   fallback: PeriodKey = 'today',
 ): ReportWindow {
   if (params.period === 'custom') {
-    const first = parseISO(params.from ?? '');
-    const second = parseISO(params.to ?? '');
-
-    if (isValid(first) && isValid(second)) {
-      // Accept the two dates in either order rather than rejecting a range
-      // someone entered backwards.
-      const [start, end] = first <= second ? [first, second] : [second, first];
-      return {
-        period: 'custom',
-        from: startOfDay(start),
-        to: endOfDay(end),
-        label: `${formatDate(start)} – ${formatDate(end)}`,
-        preset: null,
-      };
+    // Same store-day parsing as every other screen, so a custom report covers
+    // exactly the days the Sales page and dashboard would.
+    const range = buildCustomRange(params.from, params.to);
+    if (range) {
+      return { period: 'custom', from: range.from, to: range.to, label: range.label, preset: null };
     }
     // Falls through on an unparseable range, so a hand-edited URL shows a real
     // period rather than an error.

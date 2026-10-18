@@ -3,13 +3,22 @@ import 'server-only';
 import { prisma } from '@/lib/prisma';
 import { percentChange, toNum } from '@/lib/decimal';
 import type { DateRange } from '@/server/analytics/date-range';
+import {
+  composeSummary,
+  type ReturnsAggregateRow,
+  type SalesAggregateRow,
+  type SalesSummary,
+} from '@/server/analytics/sales-math';
 import { getSettings, readNumber } from '@/server/services/settings-service';
+
+export type { SalesSummary };
 
 /**
  * Dashboard aggregates.
  *
- * Every figure on this page is derived here from `sales`, `sale_items`,
- * `returns`, `expenses`, `inventory`, and `inventory_transactions`. Nothing is
+ * Every figure is derived here from `sales`, `sale_items`, `returns`,
+ * `inventory`, and `inventory_transactions`; the money definitions are
+ * documented on `SalesSummary` in `sales-math.ts`. Nothing is
  * cached, estimated, or seeded — an empty database correctly produces zeros.
  *
  * Voided sales are excluded everywhere. Returns are netted off separately
@@ -17,54 +26,37 @@ import { getSettings, readNumber } from '@/server/services/settings-service';
  * accurate historical record.
  */
 
-export interface SalesSummary {
-  transactionCount: number;
-  /** Gross takings, tax included. */
-  revenue: number;
-  /** Revenue excluding tax — the figure profit is measured against. */
-  netRevenue: number;
-  costOfGoods: number;
-  grossProfit: number;
-  marginPercent: number;
-  itemsSold: number;
-  averageOrderValue: number;
-  returnsTotal: number;
-  returnsCount: number;
-  /** Gross profit less returns. */
-  netProfit: number;
-  cashSales: number;
-}
-
-interface SalesAggregateRow {
-  transactionCount: number;
-  revenue: string;
-  netRevenue: string;
-  costOfGoods: string;
-  itemsSold: string;
-}
-
 async function salesAggregate(from: Date, to: Date): Promise<SalesAggregateRow> {
-  // One pass over `sales` for the money, one correlated pass over `sale_items`
-  // for the unit count — joining the lines in directly would multiply the sale
-  // totals by the number of lines on each invoice.
+  // Sale-level money and line-level figures are summed separately: joining
+  // the lines in directly would multiply each sale total by its line count.
   const rows = await prisma.$queryRaw<SalesAggregateRow[]>`
+    WITH qualifying AS (
+      SELECT s.id, s.total, s."taxAmount", s.discount, s."costOfGoods"
+      FROM sales s
+      WHERE s.status <> 'VOIDED'
+        AND s."createdAt" >= ${from}
+        AND s."createdAt" <= ${to}
+    ),
+    lines AS (
+      SELECT
+        COALESCE(SUM(si.quantity), 0)                  AS units,
+        COALESCE(SUM(si.quantity * si."unitPrice"), 0) AS gross,
+        COALESCE(SUM(si.discount), 0)                  AS line_discounts,
+        COUNT(*) FILTER (WHERE si."unitCost" <= 0 AND si.quantity > 0) AS zero_cost
+      FROM sale_items si
+      JOIN qualifying q ON q.id = si."saleId"
+    )
     SELECT
-      COUNT(*)::int                                      AS "transactionCount",
-      COALESCE(SUM(s.total), 0)::text                    AS "revenue",
-      COALESCE(SUM(s.total - s."taxAmount"), 0)::text    AS "netRevenue",
-      COALESCE(SUM(s."costOfGoods"), 0)::text            AS "costOfGoods",
-      COALESCE((
-        SELECT SUM(si.quantity)
-        FROM sale_items si
-        JOIN sales s2 ON s2.id = si."saleId"
-        WHERE s2.status <> 'VOIDED'
-          AND s2."createdAt" >= ${from}
-          AND s2."createdAt" <= ${to}
-      ), 0)::text                                        AS "itemsSold"
-    FROM sales s
-    WHERE s.status <> 'VOIDED'
-      AND s."createdAt" >= ${from}
-      AND s."createdAt" <= ${to}
+      (SELECT COUNT(*) FROM qualifying)::int                               AS "transactionCount",
+      (SELECT COALESCE(SUM(total), 0) FROM qualifying)::text               AS "revenue",
+      (SELECT COALESCE(SUM(total - "taxAmount"), 0) FROM qualifying)::text AS "netRevenue",
+      (SELECT COALESCE(SUM(discount), 0) FROM qualifying)::text            AS "orderDiscounts",
+      (SELECT COALESCE(SUM("costOfGoods"), 0) FROM qualifying)::text       AS "costOfGoods",
+      lines.units::text                                                    AS "itemsSold",
+      lines.gross::text                                                    AS "grossSales",
+      lines.line_discounts::text                                           AS "lineDiscounts",
+      lines.zero_cost::int                                                 AS "zeroCostLines"
+    FROM lines
   `;
 
   return (
@@ -72,47 +64,50 @@ async function salesAggregate(from: Date, to: Date): Promise<SalesAggregateRow> 
       transactionCount: 0,
       revenue: '0',
       netRevenue: '0',
+      orderDiscounts: '0',
       costOfGoods: '0',
       itemsSold: '0',
+      grossSales: '0',
+      lineDiscounts: '0',
+      zeroCostLines: 0,
     }
   );
+}
+
+/** Refunds given in the window, and the cost of the goods that went back on the shelf. */
+async function returnsAggregate(from: Date, to: Date): Promise<ReturnsAggregateRow> {
+  const rows = await prisma.$queryRaw<ReturnsAggregateRow[]>`
+    SELECT
+      COALESCE(SUM(r.total), 0)::text AS "total",
+      COUNT(*)::int                   AS "count",
+      COALESCE((
+        SELECT SUM(ri."unitCost" * ri.quantity)
+        FROM return_items ri
+        JOIN returns r2 ON r2.id = ri."returnId"
+        WHERE r2.status = 'COMPLETED'
+          AND r2.restock = true
+          AND r2."createdAt" >= ${from}
+          AND r2."createdAt" <= ${to}
+      ), 0)::text                     AS "restockedCost"
+    FROM returns r
+    WHERE r.status = 'COMPLETED'
+      AND r."createdAt" >= ${from}
+      AND r."createdAt" <= ${to}
+  `;
+  return rows[0] ?? { total: '0', count: 0, restockedCost: '0' };
 }
 
 export async function getSalesSummary(from: Date, to: Date): Promise<SalesSummary> {
   const [aggregate, returns, cash] = await Promise.all([
     salesAggregate(from, to),
-    prisma.return.aggregate({
-      where: { status: 'COMPLETED', createdAt: { gte: from, lte: to } },
-      _sum: { total: true },
-      _count: true,
-    }),
+    returnsAggregate(from, to),
     prisma.payment.aggregate({
       where: { method: 'CASH', direction: 'INBOUND', createdAt: { gte: from, lte: to } },
       _sum: { amount: true },
     }),
   ]);
 
-  const revenue = Number(aggregate.revenue);
-  const netRevenue = Number(aggregate.netRevenue);
-  const costOfGoods = Number(aggregate.costOfGoods);
-  const grossProfit = netRevenue - costOfGoods;
-  const returnsTotal = toNum(returns._sum.total);
-  const transactionCount = aggregate.transactionCount;
-
-  return {
-    transactionCount,
-    revenue,
-    netRevenue,
-    costOfGoods,
-    grossProfit,
-    marginPercent: netRevenue > 0 ? Number(((grossProfit / netRevenue) * 100).toFixed(2)) : 0,
-    itemsSold: Number(aggregate.itemsSold),
-    averageOrderValue: transactionCount > 0 ? revenue / transactionCount : 0,
-    returnsTotal,
-    returnsCount: returns._count,
-    netProfit: grossProfit - returnsTotal,
-    cashSales: toNum(cash._sum.amount),
-  };
+  return composeSummary(aggregate, returns, toNum(cash._sum.amount));
 }
 
 export interface ComparedSummary {
@@ -120,6 +115,7 @@ export interface ComparedSummary {
   previous: SalesSummary;
   change: {
     revenue: number | null;
+    netSales: number | null;
     netProfit: number | null;
     transactionCount: number | null;
     itemsSold: number | null;
@@ -137,6 +133,7 @@ export async function getComparedSalesSummary(range: DateRange): Promise<Compare
     previous,
     change: {
       revenue: percentChange(current.revenue, previous.revenue),
+      netSales: percentChange(current.netSales, previous.netSales),
       netProfit: percentChange(current.netProfit, previous.netProfit),
       transactionCount: percentChange(current.transactionCount, previous.transactionCount),
       itemsSold: percentChange(current.itemsSold, previous.itemsSold),

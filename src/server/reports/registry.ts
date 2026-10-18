@@ -502,6 +502,7 @@ export const REPORTS: ReportDefinition[] = [
           { label: 'Cost of goods', value: String(summary.costOfGoods) },
           { label: 'Gross profit', value: String(summary.grossProfit) },
           { label: 'Returns', value: String(summary.returnsTotal) },
+          { label: 'Cost of restocked returns', value: String(summary.returnedCost) },
           { label: 'Net profit', value: String(summary.netProfit) },
         ],
       };

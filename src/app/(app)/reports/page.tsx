@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { format as formatDatePart } from 'date-fns';
 import { Package, Receipt, ShoppingBag, TrendingUp } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
 import { REPORTS } from '@/server/reports/registry';
@@ -11,6 +10,7 @@ import { getStockLevels, type StockLevelRow } from '@/server/analytics/inventory
 import { getCurrency } from '@/server/services/settings-service';
 import { formatCurrency, formatNumber, formatPercent, formatQuantity } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { storeDayKey } from '@/lib/store-time';
 import { PageHeader } from '@/components/page-header';
 import { StatCard } from '@/components/stat-card';
 import { ProductImage } from '@/components/product-image';
@@ -34,7 +34,8 @@ const PAYMENT_LABEL: Record<string, string> = {
   OTHER: 'Other',
 };
 
-const asDateInput = (date: Date) => formatDatePart(date, 'yyyy-MM-dd');
+// The store's calendar date, not the server's — see `@/lib/store-time`.
+const asDateInput = storeDayKey;
 
 /**
  * Everything at or below its low-stock level, plus everything already out.

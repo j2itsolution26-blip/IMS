@@ -1,15 +1,11 @@
 import 'server-only';
 
 import {
-  eachDayOfInterval,
-  eachHourOfInterval,
-  eachMonthOfInterval,
-  eachWeekOfInterval,
-  eachYearOfInterval,
-  endOfMonth,
-  startOfMonth,
-  subMonths,
-} from 'date-fns';
+  STORE_TIME_ZONE,
+  eachStoreBucket,
+  endOfStoreMonth,
+  startOfStoreMonth,
+} from '@/lib/store-time';
 import type { DateRange } from '@/server/analytics/date-range';
 import { resolveRange } from '@/server/analytics/date-range';
 import {
@@ -59,50 +55,37 @@ export interface SalesOverview {
 
 const MONTHS_OF_HISTORY = 6;
 
-/** date-fns overloads each stepper, so the union needs one shared shape. */
-type Stepper = (interval: { start: Date; end: Date }) => Date[];
-
-const STEPPERS: Record<Granularity, Stepper> = {
-  hour: eachHourOfInterval,
-  day: eachDayOfInterval,
-  week: eachWeekOfInterval,
-  month: eachMonthOfInterval,
-  year: eachYearOfInterval,
-};
-
 /**
  * Puts the quiet buckets back.
  *
  * The time-series query groups what exists, so a month with no sales simply
  * is not returned — which left the monthly chart showing a single bar and the
  * trend line sloping smoothly between two sales a fortnight apart, implying
- * growth that never happened. Matching is by label because the buckets are
- * truncated by the database and the slots here are built in process time.
+ * growth that never happened. Slots and queried buckets are both store-time
+ * bucket starts, so they are matched by exact timestamp.
  */
-function fillSeries(
+export function fillSeries(
   points: TimeSeriesPoint[],
   from: Date,
   to: Date,
   granularity: Granularity,
 ): TimeSeriesPoint[] {
-  const slots = STEPPERS[granularity]({ start: from, end: to });
+  const slots = eachStoreBucket(from, to, granularity);
   if (slots.length === 0) return points;
 
-  const byLabel = new Map(points.map((point) => [point.label, point]));
+  const byBucket = new Map(points.map((point) => [new Date(point.bucket).getTime(), point]));
 
-  return slots.map((slot) => {
-    const label = formatBucketLabel(slot, granularity);
-    return (
-      byLabel.get(label) ?? {
+  return slots.map(
+    (slot) =>
+      byBucket.get(slot.getTime()) ?? {
         bucket: slot.toISOString(),
-        label,
+        label: formatBucketLabel(slot, granularity),
         revenue: 0,
         profit: 0,
         orders: 0,
         units: 0,
-      }
-    );
-  });
+      },
+  );
 }
 
 export async function getSalesOverview(range: DateRange, now: Date = new Date()): Promise<SalesOverview> {
@@ -110,8 +93,8 @@ export async function getSalesOverview(range: DateRange, now: Date = new Date())
   const granularity = granularityForRange(from, to);
 
   const thisMonth = resolveRange('month', now);
-  const monthlyFrom = startOfMonth(subMonths(now, MONTHS_OF_HISTORY - 1));
-  const monthlyTo = endOfMonth(now);
+  const monthlyFrom = startOfStoreMonth(now, -(MONTHS_OF_HISTORY - 1));
+  const monthlyTo = endOfStoreMonth(now);
 
   const [summary, trend, daily, monthly, payments, categories, hourly, topProducts, monthComparison] =
     await Promise.all([
@@ -126,7 +109,8 @@ export async function getSalesOverview(range: DateRange, now: Date = new Date())
       getComparedSalesSummary(thisMonth),
     ]);
 
-  const monthName = (date: Date) => date.toLocaleDateString('en-PH', { month: 'long' });
+  const monthName = (date: Date) =>
+    date.toLocaleDateString('en-PH', { month: 'long', timeZone: STORE_TIME_ZONE });
 
   return {
     summary,
@@ -140,6 +124,6 @@ export async function getSalesOverview(range: DateRange, now: Date = new Date())
     hourly,
     topProducts,
     monthComparison,
-    monthLabels: { current: monthName(now), previous: monthName(subMonths(now, 1)) },
+    monthLabels: { current: monthName(now), previous: monthName(startOfStoreMonth(now, -1)) },
   };
 }

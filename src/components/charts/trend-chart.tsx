@@ -39,17 +39,26 @@ export function TrendChart({
   data,
   currency,
   height = 300,
+  showProfit = true,
+  periodLabel = 'Period',
 }: {
   data: TrendPoint[];
   currency: string;
   height?: number;
+  /** Off for revenue-only views, and for viewers not allowed to see profit. */
+  showProfit?: boolean;
+  /** Heading of the first table column, e.g. "Hour" or "Day". */
+  periodLabel?: string;
 }) {
   const [showTable, setShowTable] = React.useState(false);
 
-  const legend = [
-    { label: 'Revenue', color: SERIES[0] },
-    { label: 'Profit', color: SERIES[2] },
-  ];
+  // A single series needs no legend: the panel title already names it.
+  const legend = showProfit
+    ? [
+        { label: 'Revenue', color: SERIES[0] },
+        { label: 'Profit', color: SERIES[2] },
+      ]
+    : [];
 
   return (
     <div className="space-y-3">
@@ -73,9 +82,9 @@ export function TrendChart({
           <Table>
             <TableHeader className="sticky top-0 bg-card">
               <TableRow>
-                <TableHead>Period</TableHead>
+                <TableHead>{periodLabel}</TableHead>
                 <TableHead className="text-right">Revenue</TableHead>
-                <TableHead className="text-right">Profit</TableHead>
+                {showProfit && <TableHead className="text-right">Profit</TableHead>}
                 <TableHead className="text-right">Orders</TableHead>
               </TableRow>
             </TableHeader>
@@ -84,7 +93,9 @@ export function TrendChart({
                 <TableRow key={point.label}>
                   <TableCell className="font-medium">{point.label}</TableCell>
                   <TableCell className="tabular text-right">{formatCurrency(point.revenue, currency)}</TableCell>
-                  <TableCell className="tabular text-right">{formatCurrency(point.profit, currency)}</TableCell>
+                  {showProfit && (
+                    <TableCell className="tabular text-right">{formatCurrency(point.profit, currency)}</TableCell>
+                  )}
                   <TableCell className="tabular text-right">{point.orders}</TableCell>
                 </TableRow>
               ))}
@@ -126,7 +137,9 @@ export function TrendChart({
                     label={point.label}
                     rows={[
                       { name: 'Revenue', value: formatCurrency(point.revenue, currency), color: SERIES[0] },
-                      { name: 'Profit', value: formatCurrency(point.profit, currency), color: SERIES[2] },
+                      ...(showProfit
+                        ? [{ name: 'Profit', value: formatCurrency(point.profit, currency), color: SERIES[2] }]
+                        : []),
                       { name: 'Orders', value: String(point.orders) },
                     ]}
                   />
@@ -142,14 +155,16 @@ export function TrendChart({
               fill="url(#revenueFill)"
               activeDot={{ r: 4, strokeWidth: 2, stroke: 'hsl(var(--card))' }}
             />
-            <Area
-              type="monotone"
-              dataKey="profit"
-              stroke={SERIES[2]}
-              strokeWidth={2}
-              fill="url(#profitFill)"
-              activeDot={{ r: 4, strokeWidth: 2, stroke: 'hsl(var(--card))' }}
-            />
+            {showProfit && (
+              <Area
+                type="monotone"
+                dataKey="profit"
+                stroke={SERIES[2]}
+                strokeWidth={2}
+                fill="url(#profitFill)"
+                activeDot={{ r: 4, strokeWidth: 2, stroke: 'hsl(var(--card))' }}
+              />
+            )}
           </AreaChart>
         </ChartFrame>
       )}

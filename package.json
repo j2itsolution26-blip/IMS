@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
+    "test": "cross-env TZ=UTC tsx --test \"tests/**/*.test.ts\"",
     "verify": "npm run typecheck && npm run lint",
     "postinstall": "prisma generate",
     "diagnose": "cross-env NODE_OPTIONS=--conditions=react-server tsx scripts/diagnose.ts",

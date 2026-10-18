@@ -1,18 +1,18 @@
 import {
-  differenceInCalendarDays,
-  endOfDay,
-  format,
-  endOfMonth,
-  endOfWeek,
-  endOfYear,
-  startOfDay,
-  startOfMonth,
-  startOfWeek,
-  startOfYear,
-  subDays,
-  subMonths,
-  subYears,
-} from 'date-fns';
+  addStoreDays,
+  endOfStoreDay,
+  endOfStoreMonth,
+  endOfStoreWeek,
+  endOfStoreYear,
+  fromStoreWall,
+  parseStoreDay,
+  startOfStoreDay,
+  startOfStoreMonth,
+  startOfStoreWeek,
+  startOfStoreYear,
+  storeDaysInclusive,
+} from '@/lib/store-time';
+import { formatDate } from '@/lib/format';
 
 /**
  * Period arithmetic shared by every analytics query.
@@ -56,98 +56,68 @@ export function inlineLabel(range: DateRange): string {
   return range.isCustom ? range.label : range.label.toLowerCase();
 }
 
-const WEEK_OPTIONS = { weekStartsOn: 1 } as const; // ISO weeks — Monday start.
-
+/**
+ * Every boundary is a Manila trading-day boundary (see `@/lib/store-time`),
+ * whatever timezone the server process runs in. Weeks run Monday to Sunday.
+ */
 export function resolveRange(period: PeriodKey, now: Date = new Date()): DateRange {
   return { ...resolveNamedRange(period, now), isCustom: false };
 }
 
 type NamedRange = Omit<DateRange, 'isCustom'>;
 
+function dayWindow(day: Date) {
+  return { from: startOfStoreDay(day), to: endOfStoreDay(day) };
+}
+
 function resolveNamedRange(period: PeriodKey, now: Date): NamedRange {
   switch (period) {
-    case 'today': {
-      const from = startOfDay(now);
-      const to = endOfDay(now);
+    case 'today':
+      return { ...dayWindow(now), label: 'Today', previous: dayWindow(addStoreDays(now, -1)) };
+    case 'yesterday':
       return {
-        from,
-        to,
-        label: 'Today',
-        previous: {
-          from: startOfDay(subDays(now, 1)),
-          to: endOfDay(subDays(now, 1)),
-        },
-      };
-    }
-    case 'yesterday': {
-      const day = subDays(now, 1);
-      return {
-        from: startOfDay(day),
-        to: endOfDay(day),
+        ...dayWindow(addStoreDays(now, -1)),
         label: 'Yesterday',
-        previous: {
-          from: startOfDay(subDays(now, 2)),
-          to: endOfDay(subDays(now, 2)),
-        },
+        previous: dayWindow(addStoreDays(now, -2)),
       };
-    }
     case 'week': {
-      const from = startOfWeek(now, WEEK_OPTIONS);
+      const from = startOfStoreWeek(now);
+      const lastWeek = addStoreDays(from, -7);
       return {
         from,
-        to: endOfWeek(now, WEEK_OPTIONS),
+        to: endOfStoreWeek(now),
         label: 'This week',
-        previous: {
-          from: startOfWeek(subDays(from, 1), WEEK_OPTIONS),
-          to: endOfWeek(subDays(from, 1), WEEK_OPTIONS),
-        },
+        previous: { from: lastWeek, to: endOfStoreWeek(lastWeek) },
       };
     }
-    case 'month': {
-      const from = startOfMonth(now);
-      const prev = subMonths(now, 1);
+    case 'month':
       return {
-        from,
-        to: endOfMonth(now),
+        from: startOfStoreMonth(now),
+        to: endOfStoreMonth(now),
         label: 'This month',
-        previous: { from: startOfMonth(prev), to: endOfMonth(prev) },
+        previous: { from: startOfStoreMonth(now, -1), to: endOfStoreMonth(now, -1) },
       };
-    }
-    case 'lastMonth': {
-      const previousMonth = subMonths(now, 1);
-      const monthBefore = subMonths(now, 2);
+    case 'lastMonth':
       return {
-        from: startOfMonth(previousMonth),
-        to: endOfMonth(previousMonth),
+        from: startOfStoreMonth(now, -1),
+        to: endOfStoreMonth(now, -1),
         label: 'Last month',
-        previous: {
-          from: startOfMonth(monthBefore),
-          to: endOfMonth(monthBefore),
-        },
+        previous: { from: startOfStoreMonth(now, -2), to: endOfStoreMonth(now, -2) },
       };
-    }
-    case 'quarter': {
-      const from = startOfMonth(subMonths(now, 2));
+    case 'quarter':
       return {
-        from,
-        to: endOfDay(now),
+        from: startOfStoreMonth(now, -2),
+        to: endOfStoreDay(now),
         label: 'Last 3 months',
-        previous: {
-          from: startOfMonth(subMonths(now, 5)),
-          to: endOfMonth(subMonths(now, 3)),
-        },
+        previous: { from: startOfStoreMonth(now, -5), to: endOfStoreMonth(now, -3) },
       };
-    }
-    case 'year': {
-      const from = startOfYear(now);
-      const prev = subYears(now, 1);
+    case 'year':
       return {
-        from,
-        to: endOfYear(now),
+        from: startOfStoreYear(now),
+        to: endOfStoreYear(now),
         label: 'This year',
-        previous: { from: startOfYear(prev), to: endOfYear(prev) },
+        previous: { from: startOfStoreYear(now, -1), to: endOfStoreYear(now, -1) },
       };
-    }
     case 'last7':
       return buildTrailing(now, 7, 'Last 7 days');
     case 'last30':
@@ -160,10 +130,10 @@ function resolveNamedRange(period: PeriodKey, now: Date): NamedRange {
       return resolveRange('today', now);
     case 'all':
     default: {
-      const from = new Date(2000, 0, 1);
+      const from = fromStoreWall(2000, 0, 1);
       return {
         from,
-        to: endOfDay(now),
+        to: endOfStoreDay(now),
         label: 'All time',
         previous: { from, to: from },
       };
@@ -171,31 +141,34 @@ function resolveNamedRange(period: PeriodKey, now: Date): NamedRange {
   }
 }
 
-/** Accepts only the `YYYY-MM-DD` a date input produces. */
-function parseDayParam(value: string | undefined): Date | null {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const parsed = new Date(`${value}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
+/** Longest custom window accepted — beyond this a chart stops being readable. */
+export const MAX_CUSTOM_RANGE_DAYS = 366 * 5;
 
-function buildCustomRange(fromValue: string | undefined, toValue: string | undefined): DateRange | null {
-  const a = parseDayParam(fromValue);
-  const b = parseDayParam(toValue);
+/**
+ * A window from two `YYYY-MM-DD` store dates, inclusive of both.
+ *
+ * Returns null for anything unreadable, an impossible date, or a span longer
+ * than `MAX_CUSTOM_RANGE_DAYS`, so callers fall back to a named period.
+ */
+export function buildCustomRange(fromValue: string | undefined, toValue: string | undefined): DateRange | null {
+  const a = parseStoreDay(fromValue);
+  const b = parseStoreDay(toValue);
   if (!a || !b) return null;
 
   // Tolerate the dates arriving the wrong way round rather than showing nothing.
   const [start, end] = a <= b ? [a, b] : [b, a];
-  const from = startOfDay(start);
-  const to = endOfDay(end);
-  const days = differenceInCalendarDays(to, from) + 1;
+  const from = startOfStoreDay(start);
+  const to = endOfStoreDay(end);
+  const days = storeDaysInclusive(from, to);
+  if (days > MAX_CUSTOM_RANGE_DAYS) return null;
 
   return {
     from,
     to,
-    label: `${format(from, 'd MMM yyyy')} – ${format(to, 'd MMM yyyy')}`,
+    label: `${formatDate(from)} – ${formatDate(to)}`,
     previous: {
-      from: startOfDay(subDays(from, days)),
-      to: endOfDay(subDays(from, 1)),
+      from: addStoreDays(from, -days),
+      to: endOfStoreDay(addStoreDays(from, -1)),
     },
     isCustom: true,
   };
@@ -210,6 +183,7 @@ function buildCustomRange(fromValue: string | undefined, toValue: string | undef
 export function resolveRangeFromParams(
   params: { period?: string; from?: string; to?: string },
   fallback: PeriodKey = 'today',
+  now: Date = new Date(),
 ): {
   period: PeriodKey;
   range: DateRange;
@@ -227,19 +201,19 @@ export function resolveRangeFromParams(
   }
 
   const period = parsePeriod(params.period, fallback);
-  return { period, range: resolveRange(period), custom: null };
+  return { period, range: resolveRange(period, now), custom: null };
 }
 
 function buildTrailing(now: Date, days: number, label: string): NamedRange {
-  const to = endOfDay(now);
-  const from = startOfDay(subDays(now, days - 1));
+  const to = endOfStoreDay(now);
+  const from = startOfStoreDay(addStoreDays(now, -(days - 1)));
   return {
     from,
     to,
     label,
     previous: {
-      from: startOfDay(subDays(from, days)),
-      to: endOfDay(subDays(from, 1)),
+      from: addStoreDays(from, -days),
+      to: endOfStoreDay(addStoreDays(from, -1)),
     },
   };
 }

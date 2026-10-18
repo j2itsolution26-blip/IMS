@@ -9,6 +9,8 @@ import { toNum } from '@/lib/decimal';
 export interface SaleListQuery {
   search?: string;
   status?: SaleStatus | 'ALL';
+  /** Leave voided sales out, as every money figure does. Ignored when `status` is set. */
+  excludeVoided?: boolean;
   userId?: string;
   paymentMethod?: PaymentMethod;
   from?: Date;
@@ -31,7 +33,11 @@ export async function listSales(query: SaleListQuery = {}) {
   const pageSize = Math.min(100, Math.max(10, query.pageSize ?? 25));
 
   const where: Prisma.SaleWhereInput = {
-    ...(query.status && query.status !== 'ALL' ? { status: query.status } : {}),
+    ...(query.status && query.status !== 'ALL'
+      ? { status: query.status }
+      : query.excludeVoided
+        ? { status: { not: 'VOIDED' } }
+        : {}),
     ...(query.userId ? { userId: query.userId } : {}),
     ...(query.paymentMethod ? { payments: { some: { method: query.paymentMethod } } } : {}),
     ...(query.from || query.to
@@ -53,6 +59,7 @@ export async function listSales(query: SaleListQuery = {}) {
         invoiceNumber: true,
         status: true,
         channel: true,
+        discount: true,
         total: true,
         paidAmount: true,
         taxAmount: true,
@@ -67,6 +74,7 @@ export async function listSales(query: SaleListQuery = {}) {
             id: true,
             quantity: true,
             unitPrice: true,
+            discount: true,
             total: true,
             product: { select: { id: true, name: true, imageUrl: true } },
           },
@@ -91,6 +99,10 @@ export async function listSales(query: SaleListQuery = {}) {
       invoiceNumber: row.invoiceNumber,
       status: row.status,
       channel: row.channel,
+      // Before any discount, so subtotal − discount + tax reads as the total.
+      grossAmount: row.items.reduce((acc, item) => acc + toNum(item.quantity) * toNum(item.unitPrice), 0),
+      discountAmount: row.items.reduce((acc, item) => acc + toNum(item.discount), toNum(row.discount)),
+      taxAmount: toNum(row.taxAmount),
       total: toNum(row.total),
       paidAmount: toNum(row.paidAmount),
       balance: Math.max(0, toNum(row.total) - toNum(row.paidAmount)),
