@@ -376,22 +376,44 @@ export async function getPosCategories(lowStockAtOrBelow: number): Promise<{
  * both sides with the separators removed means a scan matches regardless.
  */
 export async function findSellableByBarcode(barcode: string): Promise<SellableProduct | null> {
-  const normalized = normalizeBarcode(barcode);
-  if (!normalized) return null;
+  const result = await findBarcodeForSale(barcode);
+  return result.status === 'sellable' ? result.product : null;
+}
 
-  const rows = await prisma.$queryRaw<{ barcode: string }[]>`
-    SELECT barcode FROM products
-    WHERE status = 'ACTIVE'
-      AND barcode IS NOT NULL
+export type BarcodeSaleLookup =
+  | { status: 'sellable'; product: SellableProduct }
+  | { status: 'unavailable'; name: string; productStatus: ProductStatus }
+  | { status: 'not-found' };
+
+/**
+ * Same match as `findSellableByBarcode`, but says *why* a code can't be rung
+ * up: a product that exists but was deactivated or archived is reported as
+ * such, so the till can tell the cashier "not for sale" instead of "not
+ * found" — which would otherwise prompt them to create a duplicate.
+ */
+export async function findBarcodeForSale(barcode: string): Promise<BarcodeSaleLookup> {
+  const normalized = normalizeBarcode(barcode);
+  if (!normalized) return { status: 'not-found' };
+
+  // An active product wins over an archived one that once carried the code.
+  const rows = await prisma.$queryRaw<{ barcode: string; name: string; status: ProductStatus }[]>`
+    SELECT barcode, name, status::text AS status FROM products
+    WHERE barcode IS NOT NULL
       AND upper(regexp_replace(barcode, '[^0-9A-Za-z]', '', 'g')) = ${normalized}
+    ORDER BY (status = 'ACTIVE') DESC
     LIMIT 1
   `;
-  if (rows.length === 0) return null;
+  const row = rows[0];
+  if (!row) return { status: 'not-found' };
+  if (row.status !== 'ACTIVE') {
+    return { status: 'unavailable', name: row.name, productStatus: row.status };
+  }
 
   // Hand the stored spelling back to the main query so price and stock are
   // still read in exactly one place.
-  const matches = await searchSellableProducts(rows[0].barcode, 5);
-  return matches.find((p) => p.barcode === rows[0].barcode) ?? null;
+  const matches = await searchSellableProducts(row.barcode, 5);
+  const product = matches.find((p) => p.barcode === row.barcode);
+  return product ? { status: 'sellable', product } : { status: 'not-found' };
 }
 
 /**

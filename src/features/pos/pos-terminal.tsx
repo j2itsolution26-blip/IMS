@@ -52,7 +52,7 @@ import {
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/misc';
 import { Receipt, type ReceiptData } from '@/features/pos/receipt';
-import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
+import { PosCameraScanner, type ScanOutcome } from '@/features/pos/pos-camera-scanner';
 import { formatCurrency, formatDateTime, formatQuantity } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -364,92 +364,111 @@ export function PosTerminal({
    * Shared by all three ways a code can arrive: the camera scanner, a
    * USB/Bluetooth scanner typing into the search box, and the cashier typing
    * it by hand. Stock is only checked here — nothing is deducted until the
-   * sale is completed.
+   * sale is completed. `quiet` leaves the reporting to the caller (the camera
+   * scanner shows its own result line rather than stacking toasts).
    */
   const addScannedProduct = React.useCallback(
-    (product: SellableProduct) => {
+    (product: SellableProduct, quiet = false): ScanOutcome => {
       const existing = basketRef.current.find((line) => line.productId === product.id);
       const nextQuantity = (existing?.quantity ?? 0) + 1;
 
       if (product.isTrackable && nextQuantity > product.available) {
-        toast.error(
+        const message =
           product.available <= 0
             ? `${product.name} — out of stock.`
-            : `Only ${formatQuantity(product.available)} of ${product.name} left.`,
-        );
-        return;
+            : `Only ${formatQuantity(product.available)} of ${product.name} left.`;
+        if (!quiet) toast.error(message);
+        return { kind: 'stock', name: product.name, message };
       }
 
       addToBasket(product);
-      toast.success(`${product.name} × ${formatQuantity(nextQuantity)}`, { duration: 1500 });
+      if (!quiet) toast.success(`${product.name} × ${formatQuantity(nextQuantity)}`, { duration: 1500 });
+      return { kind: 'added', name: product.name, quantity: formatQuantity(nextQuantity) };
     },
     [addToBasket],
   );
 
+  /**
+   * Resolves a code to a product and rings it up.
+   *
+   * From the camera, only an exact barcode or SKU match is accepted — a camera
+   * read is never a search term, so a partial name match must not ring up a
+   * guess. Typed input keeps the friendlier fallbacks.
+   */
   const resolveCode = React.useCallback(
-    async (raw: string) => {
+    async (raw: string, { fromCamera = false }: { fromCamera?: boolean } = {}): Promise<ScanOutcome> => {
       const value = raw.trim();
-      if (!value) return;
+      if (!value) return { kind: 'not-found' };
 
       const accept = (product: SellableProduct) => {
-        addScannedProduct(product);
-        setTerm('');
-        searchRef.current?.focus();
+        const outcome = addScannedProduct(product, fromCamera);
+        // The camera dialog holds focus; only the typed path returns to the box.
+        if (!fromCamera) {
+          setTerm('');
+          searchRef.current?.focus();
+        }
+        return outcome;
+      };
+
+      const notFound = (): ScanOutcome => {
+        if (!fromCamera) {
+          toast.error('Product not found', {
+            description: value,
+            duration: 8000,
+            ...(canCreateProducts
+              ? {
+                  action: {
+                    label: 'Add to Inventory',
+                    onClick: () => router.push('/products/new'),
+                  },
+                }
+              : {}),
+          });
+        }
+        return { kind: 'not-found' };
       };
 
       // Already on screen — the usual case for a small catalogue.
       const onScreen = matchExact(products, value);
-      if (onScreen) {
-        accept(onScreen);
-        return;
-      }
+      if (onScreen) return accept(onScreen);
 
       setSearching(true);
-      // Barcode first, and tolerant of separators: a code typed into the
-      // catalogue as it reads on the pack still matches what the scanner sends.
-      const byBarcode = await lookupBarcode(value);
-      if (byBarcode.ok && byBarcode.data) {
+      try {
+        // Barcode first, and tolerant of separators: a code typed into the
+        // catalogue as it reads on the pack still matches what the scanner sends.
+        const byBarcode = await lookupBarcode(value);
+        if (byBarcode.ok) {
+          const found = byBarcode.data;
+          if (found.status === 'sellable') return accept(found.product);
+          if (found.status === 'unavailable') {
+            const message = `${found.name} is ${
+              found.productStatus === 'ARCHIVED' ? 'archived' : 'inactive'
+            } and can't be sold.`;
+            if (!fromCamera) toast.error(message);
+            return { kind: 'unavailable', name: found.name, message };
+          }
+        }
+
+        const result = await lookupProducts(value);
+        if (!result.ok) {
+          if (!fromCamera) toast.error(result.error);
+          return { kind: 'error', message: result.error };
+        }
+
+        const matches = result.data;
+        const exact = matchExact(matches, value);
+        if (exact) return accept(exact);
+        if (fromCamera) return { kind: 'not-found' };
+
+        if (matches.length === 1) return accept(matches[0]);
+        if (matches.length === 0) return notFound();
+
+        // Several name matches — show them and let the cashier tap one.
+        setProducts(matches);
+        return { kind: 'not-found' };
+      } finally {
         setSearching(false);
-        accept(byBarcode.data);
-        return;
       }
-
-      const result = await lookupProducts(value);
-      setSearching(false);
-
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-
-      const matches = result.data;
-      const exact = matchExact(matches, value);
-      const only = matches.length === 1 ? matches[0] : undefined;
-      const hit = exact ?? only;
-
-      if (hit) {
-        accept(hit);
-        return;
-      }
-
-      if (matches.length === 0) {
-        toast.error('Product not found', {
-          description: value,
-          duration: 8000,
-          ...(canCreateProducts
-            ? {
-                action: {
-                  label: 'Add to Inventory',
-                  onClick: () => router.push('/products/new'),
-                },
-              }
-            : {}),
-        });
-        return;
-      }
-
-      // Several name matches — show them and let the cashier tap one.
-      setProducts(matches);
     },
     [products, addScannedProduct, canCreateProducts, router],
   );
@@ -764,8 +783,8 @@ export function PosTerminal({
               </kbd>
             )}
           </div>
-          <BarcodeScanButton
-            onScan={(code) => void resolveCode(code)}
+          <PosCameraScanner
+            onScan={(code) => resolveCode(code, { fromCamera: true })}
             label="Scan barcode"
             size="lg"
             className="h-12 w-full shrink-0 rounded-xl border-0 bg-sidebar text-sidebar-foreground hover:bg-sidebar/90 sm:w-auto"

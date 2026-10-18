@@ -7,8 +7,9 @@ import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createSale, type CompletedSale } from '@/server/services/sale-service';
 import {
-  findSellableByBarcode,
+  findBarcodeForSale,
   searchSellableProducts,
+  type BarcodeSaleLookup,
   type SellableFilters,
   type SellableProduct,
 } from '@/features/products/queries';
@@ -88,10 +89,26 @@ export async function lookupProducts(
   });
 }
 
-/** Exact barcode lookup for a scan, tolerant of how the code was spelled. */
-export async function lookupBarcode(code: string): Promise<ActionResult<SellableProduct | null>> {
+/**
+ * Longest code worth looking up. GS1-128 tops out at 48 characters; anything
+ * past this is a misread or someone pasting junk, not a barcode.
+ */
+const barcodeSchema = z
+  .string()
+  .trim()
+  .min(1, 'Scan a barcode.')
+  .max(64, 'That is not a valid barcode.')
+  .regex(/^[\x20-\x7E]+$/, 'That is not a valid barcode.');
+
+/**
+ * Exact barcode lookup for a scan, tolerant of how the code was spelled.
+ *
+ * Reports a product that exists but is inactive or archived separately from
+ * one that does not exist at all, so the till can say which.
+ */
+export async function lookupBarcode(code: unknown): Promise<ActionResult<BarcodeSaleLookup>> {
   return runAction(async () => {
     await authorize('pos.view');
-    return findSellableByBarcode(code);
+    return findBarcodeForSale(parseInput(barcodeSchema, code));
   });
 }
