@@ -27,6 +27,7 @@ const STATUS_FILTERS = ['ALL', 'IN_STOCK', 'LOW_ANY', 'OUT_OF_STOCK'] as const;
 const SORTS = ['stock', 'name', 'price', 'value'] as const;
 
 const PAGE_SIZE = 25;
+const EXPORT_HREF = '/api/reports/inventory/export?format=csv';
 
 export default async function InventoryPage({
   searchParams,
@@ -113,24 +114,43 @@ export default async function InventoryPage({
         title="Inventory"
         description="Manage your products and stock levels"
         actions={
-          <>
-            {canAdjustStock && <InventoryMoreMenu />}
-            {canAdjustStock && <ScanReceiveDialog />}
+          // Phones: Add Product full width on top, then Receive stock beside a
+          // More menu that also carries Export. From `sm` up the original
+          // single row returns, in its original order, via `order`.
+          <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+            {canCreateProduct && <div className="col-span-2 grid sm:order-4">{addProduct}</div>}
+            {canAdjustStock && (
+              <div className="grid min-w-0 sm:order-2 [&>button]:px-4 sm:[&>button]:px-6">
+                <ScanReceiveDialog />
+              </div>
+            )}
+            {(canAdjustStock || canExport) && (
+              // Without stock tools the menu only carries Export, which desktop
+              // shows as its own button — so the cell is phone-only then.
+              <div className={cn('grid sm:order-1', !canAdjustStock && 'col-start-2 sm:hidden')}>
+                <InventoryMoreMenu
+                  showStockTools={canAdjustStock}
+                  exportHref={canExport ? EXPORT_HREF : undefined}
+                  className="px-4 sm:px-6"
+                />
+              </div>
+            )}
             {/* The stock report the Reports section already generates — same
                 figures, same permissions, just reachable from here too. */}
             {canExport && (
-              <Button variant="outline" size="lg" asChild>
+              <Button variant="outline" size="lg" className="hidden sm:order-3 sm:inline-flex" asChild>
                 {/* A plain anchor: this returns a file, and client-side routing
                     has no idea what to do with a Content-Disposition. */}
-                <a href="/api/reports/inventory/export?format=csv">Export</a>
+                <a href={EXPORT_HREF}>Export</a>
               </Button>
             )}
-            {canCreateProduct && addProduct}
-          </>
+          </div>
         }
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Two columns as soon as a phone can hold them; a single column only on
+          the narrowest screens. */}
+      <div className="mb-4 grid grid-cols-1 gap-2.5 min-[360px]:grid-cols-2 sm:mb-5 sm:gap-3 xl:grid-cols-4">
         <Kpi
           icon={<Boxes className="h-4 w-4" />}
           iconClass="bg-primary/10 text-primary"
@@ -240,21 +260,26 @@ function Kpi({
   return (
     <Card
       className={cn(
-        'h-full p-4',
+        'h-full min-w-0 p-3 sm:p-4',
         tone === 'warning' && 'border-warning/40 bg-warning/5',
         tone === 'destructive' && 'border-destructive/40 bg-destructive/5',
       )}
     >
       <div className="flex items-center gap-2">
-        <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-md', iconClass)}>
+        <span
+          className={cn(
+            'flex h-6 w-6 shrink-0 items-center justify-center rounded-md sm:h-7 sm:w-7 [&>svg]:h-3.5 [&>svg]:w-3.5 sm:[&>svg]:h-4 sm:[&>svg]:w-4',
+            iconClass,
+          )}
+        >
           {icon}
         </span>
-        <p className="truncate text-sm text-muted-foreground">{label}</p>
+        <p className="min-w-0 truncate text-xs text-muted-foreground sm:text-sm">{label}</p>
       </div>
 
       <p
         className={cn(
-          'tabular mt-2 text-2xl font-semibold tracking-tight',
+          'tabular mt-1.5 truncate text-xl font-semibold leading-tight tracking-tight sm:mt-2 sm:text-2xl',
           tone === 'warning' && 'text-warning',
           tone === 'destructive' && 'text-destructive',
         )}
@@ -262,8 +287,8 @@ function Kpi({
         {value}
       </p>
 
-      <div className="mt-1 flex items-center justify-between gap-2">
-        <p className="truncate text-xs text-muted-foreground">{foot}</p>
+      <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2 sm:mt-1">
+        <p className="min-w-0 truncate text-xs text-muted-foreground">{foot}</p>
         {action && (
           <Link
             href={action.href}

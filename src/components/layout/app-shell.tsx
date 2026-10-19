@@ -89,11 +89,11 @@ export function AppShell({
         )}
       >
         {/* Header / Top bar */}
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-2xs">
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-2xs sm:gap-3 sm:px-4">
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden h-9 w-9 text-muted-foreground hover:text-foreground"
+            className="lg:hidden h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open navigation"
           >
@@ -102,7 +102,7 @@ export function AppShell({
 
           <GlobalSearch />
 
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
             <ThemeToggle variant="dropdown" />
             {userSlot}
           </div>

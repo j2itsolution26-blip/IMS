@@ -113,7 +113,9 @@ export function GlobalSearch() {
   };
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-md">
+    // `min-w-0 flex-1` lets the field give way on a narrow phone instead of
+    // its input's intrinsic width pushing the header icons off-screen.
+    <div ref={containerRef} className="relative min-w-0 max-w-md flex-1">
       <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         ref={inputRef}
@@ -122,7 +124,7 @@ export function GlobalSearch() {
         onFocus={() => hits.length > 0 && setOpen(true)}
         onKeyDown={onKeyDown}
         placeholder="Search products or invoices…"
-        className="pl-8 pr-10"
+        className="pl-8 pr-3 sm:pr-10"
         role="combobox"
         aria-expanded={open}
         aria-controls="global-search-results"

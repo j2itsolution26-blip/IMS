@@ -174,6 +174,16 @@
     background-color: hsl(var(--border));
     border-radius: 9999px;
   }
+
+  /* For compact controls that may scroll sideways (segmented tabs): still
+     swipeable, without a scrollbar eating their few pixels of height. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Only the receipt itself should reach the printer. */

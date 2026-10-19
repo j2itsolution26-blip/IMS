@@ -115,7 +115,9 @@ export function InventorySearchFilter({
       <div
         role="tablist"
         aria-label="Filter by stock level"
-        className="flex w-full shrink-0 gap-1 overflow-x-auto rounded-lg bg-muted p-1 lg:w-auto"
+        // Tabs share the width evenly on a phone and only scroll — inside the
+        // control, never the page — on the very narrowest screens.
+        className="flex w-full min-w-0 shrink-0 gap-0.5 overflow-x-auto overscroll-x-contain rounded-lg bg-muted p-1 scrollbar-none sm:gap-1 lg:w-auto"
       >
         {tabs.map((tab) => {
           const active = currentStatus === tab.value;
@@ -128,7 +130,7 @@ export function InventorySearchFilter({
               disabled={pending}
               onClick={() => setParam('status', tab.value, 'ALL')}
               className={cn(
-                'flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                'flex min-h-9 flex-1 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors sm:gap-1.5 sm:px-3 sm:text-sm lg:flex-none',
                 active
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',
@@ -143,9 +145,9 @@ export function InventorySearchFilter({
         })}
       </div>
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="flex gap-2">
-          <div className="relative w-full sm:w-72">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 gap-2 sm:flex-1 lg:flex-none">
+          <div className="relative min-w-0 flex-1 lg:w-72 lg:flex-none">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
               aria-hidden="true"
@@ -154,7 +156,7 @@ export function InventorySearchFilter({
               value={term}
               onChange={(event) => setTerm(event.target.value)}
               placeholder="Search name, SKU or scan barcode"
-              className="h-10 pl-9"
+              className="h-11 pl-9 sm:h-10"
               aria-label="Search products"
             />
           </div>
@@ -162,7 +164,7 @@ export function InventorySearchFilter({
             type="button"
             variant="outline"
             size="icon"
-            className="h-10 w-10 shrink-0"
+            className="h-11 w-11 shrink-0 sm:h-10 sm:w-10"
             onClick={() => {
               primeAudio();
               setScanning(true);
@@ -183,13 +185,13 @@ export function InventorySearchFilter({
           />
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex min-w-0 gap-2">
           <Select
             value={currentCategory}
             disabled={pending}
             onValueChange={(value) => setParam('category', value, 'ALL')}
           >
-            <SelectTrigger className="h-10 w-full sm:w-[170px]" aria-label="Filter by category">
+            <SelectTrigger className="h-11 w-full min-w-0 sm:h-10 sm:w-[170px]" aria-label="Filter by category">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -207,7 +209,7 @@ export function InventorySearchFilter({
             disabled={pending}
             onValueChange={(value) => setParam('sort', value, 'stock')}
           >
-            <SelectTrigger className="h-10 w-full sm:w-[170px]" aria-label="Sort products">
+            <SelectTrigger className="h-11 w-full min-w-0 sm:h-10 sm:w-[170px]" aria-label="Sort products">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
