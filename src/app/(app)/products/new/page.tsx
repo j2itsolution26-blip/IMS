@@ -3,7 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import { requirePermission } from '@/lib/session';
 import { getProductFormOptions } from '@/features/products/queries';
 import { getCurrency, getSettings, readNumber } from '@/server/services/settings-service';
-import { isStorageConfigured } from '@/lib/env';
+import { isBackgroundRemovalConfigured, isStorageConfigured } from '@/lib/env';
 import { PageHeader } from '@/components/page-header';
 import { ProductForm } from '@/features/products/product-form';
 
@@ -45,6 +45,7 @@ export default async function NewProductPage() {
         options={options}
         currency={currency}
         storageEnabled={isStorageConfigured()}
+        backgroundRemovalEnabled={isBackgroundRemovalConfigured()}
         defaultValues={{ reorderLevel: defaultLowStockLevel }}
       />
     </>

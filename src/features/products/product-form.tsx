@@ -32,6 +32,7 @@ export interface ProductFormProps {
   options: ProductFormOptions;
   currency: string;
   storageEnabled: boolean;
+  backgroundRemovalEnabled?: boolean;
   /** Present when editing. */
   productId?: string;
   defaultValues?: Partial<ProductInput>;
@@ -155,6 +156,7 @@ export function ProductForm({
   options,
   currency,
   storageEnabled,
+  backgroundRemovalEnabled = false,
   productId,
   defaultValues,
 }: ProductFormProps) {
@@ -188,7 +190,9 @@ export function ProductForm({
   const margin = sellingPrice > 0 ? ((sellingPrice - costPrice) / sellingPrice) * 100 : 0;
   const profitPerUnit = sellingPrice - costPrice;
 
-  const photoBusy = photoStatus === 'preparing' || photoStatus === 'uploading';
+  // 'reviewing' means a new photo is waiting for Save Image or Use Original —
+  // saving the product then would silently drop it.
+  const photoBusy = photoStatus === 'preparing' || photoStatus === 'uploading' || photoStatus === 'reviewing';
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
@@ -196,7 +200,11 @@ export function ProductForm({
     // Saving mid-upload would store the product without the photo that is
     // visibly sitting in the form.
     if (photoBusy) {
-      setFormError('The product photo is still uploading. It will only take a moment.');
+      setFormError(
+        photoStatus === 'reviewing'
+          ? 'Choose Save Image or Use Original for the new photo first.'
+          : 'The product photo is still uploading. It will only take a moment.',
+      );
       return;
     }
 
@@ -483,6 +491,7 @@ export function ProductForm({
                 onStatusChange={setPhotoStatus}
                 fileNameHint={watch('sku') || watch('name') || 'product'}
                 disabled={!storageEnabled}
+                backgroundRemovalEnabled={backgroundRemovalEnabled}
               />
 
               {/* `imageUrl` stays an internal value: it is written by the
@@ -507,7 +516,13 @@ export function ProductForm({
           <Link href={productId ? `/products/${productId}` : '/products'}>Cancel</Link>
         </Button>
         <Button type="submit" loading={isSubmitting} disabled={photoBusy}>
-          {photoBusy ? 'Uploading photo…' : isEdit ? 'Save changes' : 'Create product'}
+          {photoStatus === 'reviewing'
+            ? 'Finish the photo first'
+            : photoBusy
+              ? 'Uploading photo…'
+              : isEdit
+                ? 'Save changes'
+                : 'Create product'}
         </Button>
       </div>
     </form>

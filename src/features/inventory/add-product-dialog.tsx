@@ -60,12 +60,14 @@ export function AddProductDialog({
   defaultReorderLevel,
   currency,
   storageEnabled,
+  backgroundRemovalEnabled = false,
 }: {
   categories: { id: string; name: string }[];
   defaultUnitId: string;
   defaultReorderLevel: number;
   currency: string;
   storageEnabled: boolean;
+  backgroundRemovalEnabled?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -128,13 +130,19 @@ export function AddProductDialog({
     toast.success('Category added.');
   };
 
-  const photoBusy = photoStatus === 'preparing' || photoStatus === 'uploading';
+  // 'reviewing' means a new photo is waiting for Save Image or Use Original —
+  // saving the product then would silently drop it.
+  const photoBusy = photoStatus === 'preparing' || photoStatus === 'uploading' || photoStatus === 'reviewing';
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
 
     if (photoBusy) {
-      setFormError('The product photo is still uploading. It will only take a moment.');
+      setFormError(
+        photoStatus === 'reviewing'
+          ? 'Choose Save Image or Use Original for the new photo first.'
+          : 'The product photo is still uploading. It will only take a moment.',
+      );
       return;
     }
 
@@ -220,6 +228,7 @@ export function AddProductDialog({
                 onStatusChange={setPhotoStatus}
                 fileNameHint={watch('name') || 'product'}
                 disabled={!storageEnabled}
+                backgroundRemovalEnabled={backgroundRemovalEnabled}
               />
             </div>
 
@@ -346,7 +355,7 @@ export function AddProductDialog({
               {/* A product must not be saved while its photo is still on the
                   way up, or it would be saved without one. */}
               <Button type="submit" loading={isSubmitting} disabled={photoBusy}>
-                {photoBusy ? 'Uploading photo…' : 'Save Product'}
+                {photoStatus === 'reviewing' ? 'Finish the photo first' : photoBusy ? 'Uploading photo…' : 'Save Product'}
               </Button>
             </DialogFooter>
           </form>

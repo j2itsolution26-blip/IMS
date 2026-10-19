@@ -6,7 +6,7 @@ import { getStockLevels, type StockFilter, type StockSort } from '@/server/analy
 import { getInventorySnapshot } from '@/server/analytics/dashboard';
 import { getProductFormOptions } from '@/features/products/queries';
 import { getCurrency, getSettings, readNumber } from '@/server/services/settings-service';
-import { isStorageConfigured } from '@/lib/env';
+import { isBackgroundRemovalConfigured, isStorageConfigured } from '@/lib/env';
 import { formatCompactCurrency, formatCurrency, formatNumber } from '@/lib/format';
 import { PageHeader } from '@/components/page-header';
 import { EmptyState } from '@/components/empty-state';
@@ -103,6 +103,7 @@ export default async function InventoryPage({
       defaultReorderLevel={defaultReorderLevel}
       currency={currency}
       storageEnabled={storageEnabled}
+      backgroundRemovalEnabled={isBackgroundRemovalConfigured()}
     />
   );
 

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { requirePermission } from '@/lib/session';
 import { getProduct, getProductFormOptions } from '@/features/products/queries';
 import { getCurrency } from '@/server/services/settings-service';
-import { isStorageConfigured } from '@/lib/env';
+import { isBackgroundRemovalConfigured, isStorageConfigured } from '@/lib/env';
 import { toNum } from '@/lib/decimal';
 import { PageHeader } from '@/components/page-header';
 import { ProductForm } from '@/features/products/product-form';
@@ -39,6 +39,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
         options={options}
         currency={currency}
         storageEnabled={isStorageConfigured()}
+        backgroundRemovalEnabled={isBackgroundRemovalConfigured()}
         defaultValues={{
           name: product.name,
           sku: product.sku,

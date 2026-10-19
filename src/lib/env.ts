@@ -130,6 +130,16 @@ export function isStorageConfigured(): boolean {
   return Boolean(getSupabaseUrl() && getSupabaseSecretKey());
 }
 
+/**
+ * Whether product photos can have their background removed.
+ *
+ * Optional: without a key the photo field simply does not offer the action.
+ * `REMOVE_BG_API_KEY` is server-only and must never get a NEXT_PUBLIC_ name.
+ */
+export function isBackgroundRemovalConfigured(): boolean {
+  return Boolean(process.env.REMOVE_BG_API_KEY?.trim());
+}
+
 /** The environment variable names the secret key may arrive under, newest first. */
 const SECRET_KEY_VARS = ['SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY'] as const;
 

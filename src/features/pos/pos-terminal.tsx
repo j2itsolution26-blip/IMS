@@ -877,7 +877,7 @@ export function PosTerminal({
             </p>
           </Card>
         ) : (
-          <ul className="grid grid-cols-1 gap-4 min-[360px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <ul className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 min-[1800px]:grid-cols-6">
             {products.map((product) => (
               <li key={product.id}>
                 <ProductTile
@@ -1503,8 +1503,11 @@ function ProductTile({
         inCart > 0 && 'border-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]',
       )}
     >
-      <div className="relative aspect-[4/3] w-full bg-muted/60">
-        <div className="absolute inset-0 flex items-center justify-center p-3">
+      {/* A fixed-height photo well rather than an aspect ratio: on a wide
+          tile 4:3 grew the image to most of the card, pushing the price and
+          Add button below the fold. Photos are contain-fitted, never cropped. */}
+      <div className="relative h-[104px] w-full shrink-0 bg-muted/60 sm:h-[120px] xl:h-[128px]">
+        <div className="absolute inset-0 flex items-center justify-center px-2 pb-1 pt-6">
           {product.imageUrl ? (
             <ProductImage
               src={product.imageUrl}
@@ -1515,7 +1518,7 @@ function ProductTile({
           ) : (
             <span
               className={cn(
-                'flex h-16 w-16 items-center justify-center rounded-2xl text-xl font-semibold',
+                'flex h-14 w-14 items-center justify-center rounded-2xl text-lg font-semibold',
                 toneFor(product.name),
               )}
               aria-hidden="true"
@@ -1529,15 +1532,15 @@ function ProductTile({
             colour-blind reader and a sun-washed phone screen. */}
         <span
           className={cn(
-            'absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-card/90 px-2.5 py-1 text-xs font-semibold shadow-2xs backdrop-blur-sm',
+            'absolute left-2 top-2 inline-flex max-w-[calc(100%-3.25rem)] items-center gap-1 rounded-full bg-card/90 px-2 py-0.5 text-[11px] font-semibold shadow-2xs backdrop-blur-sm',
             stock.text,
           )}
         >
           <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', stock.dot)} aria-hidden="true" />
-          {stock.label}
+          <span className="truncate">{stock.label}</span>
         </span>
 
-        <div className="absolute right-2 top-2" onClick={(event) => event.stopPropagation()}>
+        <div className="absolute right-1 top-1" onClick={(event) => event.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -1567,12 +1570,20 @@ function ProductTile({
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col p-4">
-        <p className="line-clamp-2 text-[18px] font-semibold leading-tight">{product.name}</p>
-        <p className="mt-1 truncate text-[13px] text-muted-foreground">{product.sku}</p>
+      <div className="flex flex-1 flex-col p-3">
+        {/* Two lines are always reserved, so a short name does not make its
+            tile shorter than its neighbours. */}
+        <p className="line-clamp-2 min-h-[2.5em] text-base font-semibold leading-tight sm:text-[17px]">
+          {product.name}
+        </p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground" title={product.sku}>
+          {product.sku}
+        </p>
 
-        <div className="mt-5 flex items-center justify-between gap-2">
-          <span className="tabular text-[19px] font-bold leading-none">
+        {/* Pinned to the bottom so price and Add line up across a row; wraps
+            rather than overflowing on the narrowest tiles. */}
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 pt-2">
+          <span className="tabular text-xl font-bold leading-none">
             {formatCurrency(product.sellingPrice, currency)}
           </span>
 
@@ -1610,7 +1621,7 @@ function ProductTile({
                 event.stopPropagation();
                 onAdd();
               }}
-              className="inline-flex h-11 items-center gap-1.5 rounded-xl bg-primary/10 px-4 text-[15px] font-semibold text-primary transition-colors hover:bg-primary/15 active:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="inline-flex h-10 items-center gap-1 rounded-xl bg-primary/10 px-3 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 active:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               aria-label={`Add ${product.name}`}
             >
               <Plus className="h-4 w-4" /> Add

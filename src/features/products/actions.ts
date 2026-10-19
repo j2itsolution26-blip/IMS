@@ -8,6 +8,8 @@ import { ConflictError, NotFoundError } from '@/lib/errors';
 import { money, toNum } from '@/lib/decimal';
 import { diff, recordAudit } from '@/server/services/audit-service';
 import { deleteProductImage, uploadProductImage } from '@/server/services/storage-service';
+import { removeProductBackground } from '@/server/services/background-removal-service';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { productSchema } from '@/features/products/schema';
 import { findProductByBarcode, type BarcodeMatch } from '@/features/products/queries';
 
@@ -261,6 +263,30 @@ export async function uploadProductImageAction(formData: FormData): Promise<Acti
 
     const url = await uploadProductImage(file, sku);
     return { url };
+  });
+}
+
+/**
+ * Removes the background from a product photo and hands the cut-out back for
+ * review. Nothing is stored here — the user compares it with the original and
+ * only a photo they choose to save goes through `uploadProductImageAction`.
+ *
+ * Returned as a data URL: server actions carry JSON, and a preview-size PNG is
+ * a few hundred kilobytes.
+ */
+export async function removeProductBackgroundAction(
+  formData: FormData,
+): Promise<ActionResult<{ dataUrl: string }>> {
+  return runAction(async () => {
+    const user = await authorize('products.update');
+    // Every call spends paid credits, so a stuck retry loop must not drain them.
+    checkRateLimit(`remove-bg:${user.id}`, { limit: 20, windowMs: 60_000 });
+
+    const file = formData.get('file');
+    if (!(file instanceof File)) throw new ConflictError('No file was received.');
+
+    const result = await removeProductBackground(file);
+    return { dataUrl: `data:${result.contentType};base64,${result.bytes.toString('base64')}` };
   });
 }
 
