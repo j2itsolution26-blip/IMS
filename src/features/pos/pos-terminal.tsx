@@ -8,8 +8,6 @@ import {
   Check,
   Copy,
   Loader2,
-  Lock,
-  LogOut,
   Minus,
   MoreHorizontal,
   Package,
@@ -30,7 +28,7 @@ import type { PosCategoryChip, SellableProduct, SellableSort } from '@/features/
 import { normalizeBarcode } from '@/lib/barcode';
 import { ProductImage } from '@/components/product-image';
 import { checkout, lookupBarcode, lookupProducts } from '@/features/pos/actions';
-import { openShiftAction, closeShiftAction, previewShiftCloseAction } from '@/features/pos/shift-actions';
+import { ShiftBar, ShiftGate } from '@/features/pos/shift-dialogs';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -54,7 +52,7 @@ import { Separator } from '@/components/ui/misc';
 import { Receipt, type ReceiptData } from '@/features/pos/receipt';
 import { PosCameraScanner, type ScanOutcome } from '@/features/pos/pos-camera-scanner';
 import { QuantityInput } from '@/features/pos/quantity-input';
-import { formatCurrency, formatDateTime, formatQuantity } from '@/lib/format';
+import { formatCurrency, formatQuantity } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 /**
@@ -96,6 +94,8 @@ export interface PosTerminalProps {
   categoryChips: { total: number; lowStock: number; categories: PosCategoryChip[] };
   lowStockLevel: number;
   openShift: OpenShiftInfo | null;
+  /** Settings › suggested starting cash; a hint on the Open Shift dialog only. */
+  suggestedOpeningCash: number;
 }
 
 interface BasketLine {
@@ -173,6 +173,7 @@ export function PosTerminal({
   categoryChips,
   lowStockLevel,
   openShift,
+  suggestedOpeningCash,
 }: PosTerminalProps) {
   const router = useRouter();
 
@@ -203,75 +204,6 @@ export function PosTerminal({
 
   const [receipt, setReceipt] = React.useState<ReceiptData | null>(null);
 
-  // --- Shift -----------------------------------------------------------------
-
-  const [openingCash, setOpeningCash] = React.useState('');
-  const [openingShift, setOpeningShift] = React.useState(false);
-  const [closeOpen, setCloseOpen] = React.useState(false);
-  const [closePreview, setClosePreview] = React.useState<{
-    openingCash: number;
-    expectedCash: number;
-    totalSales: number;
-    transactionCount: number;
-  } | null>(null);
-  const [actualCash, setActualCash] = React.useState('');
-  const [closing, setClosing] = React.useState(false);
-  const [closeSummary, setCloseSummary] = React.useState<{
-    expectedCash: number;
-    actualCash: number;
-    difference: number;
-    totalSales: number;
-    transactionCount: number;
-  } | null>(null);
-
-  const onOpenShift = async () => {
-    const amount = Number(openingCash);
-    if (!Number.isFinite(amount) || amount < 0) {
-      toast.error('Enter a valid opening cash amount.');
-      return;
-    }
-    setOpeningShift(true);
-    const result = await openShiftAction({ openingCash: amount });
-    setOpeningShift(false);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
-    }
-    toast.success('Shift opened.');
-    router.refresh();
-  };
-
-  const openCloseDialog = async () => {
-    setCloseOpen(true);
-    setClosePreview(null);
-    const result = await previewShiftCloseAction();
-    if (result.ok) {
-      setClosePreview(result.data);
-      setActualCash(result.data.expectedCash.toFixed(2));
-    }
-  };
-
-  const onCloseShift = async () => {
-    const amount = Number(actualCash);
-    if (!Number.isFinite(amount) || amount < 0) {
-      toast.error('Enter a valid counted cash amount.');
-      return;
-    }
-    setClosing(true);
-    const result = await closeShiftAction({ actualCash: amount });
-    setClosing(false);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
-    }
-    setCloseSummary(result.data);
-  };
-
-  const onCloseSummaryDone = () => {
-    setCloseOpen(false);
-    setCloseSummary(null);
-    router.refresh();
-  };
 
   // --- Product lookup ------------------------------------------------------
 
@@ -729,44 +661,19 @@ export function PosTerminal({
   // --- No open shift: block the till entirely -------------------------------
 
   if (!openShift) {
-    return (
-      <Card className="mx-auto max-w-sm p-8 text-center">
-        <Lock className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
-        <p className="font-medium">Open your shift to start selling</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Count the cash in the drawer and enter it below.
-        </p>
-        <div className="mt-4 space-y-2 text-left">
-          <Label htmlFor="opening-cash">Opening cash</Label>
-          <Input
-            id="opening-cash"
-            type="number"
-            min={0}
-            step="0.01"
-            value={openingCash}
-            onChange={(event) => setOpeningCash(event.target.value)}
-            placeholder="0.00"
-            onKeyDown={(e) => e.key === 'Enter' && onOpenShift()}
-            autoFocus
-          />
-        </div>
-        <Button className="mt-4 w-full" size="lg" loading={openingShift} onClick={onOpenShift}>
-          Open shift
-        </Button>
-      </Card>
-    );
+    return <ShiftGate suggestedAmount={suggestedOpeningCash} currency={currency} />;
   }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
       {/* Product picker */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
-          <span>Shift open since {formatDateTime(new Date(openShift.openedAt))}</span>
-          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={openCloseDialog}>
-            <LogOut className="h-3.5 w-3.5" /> Close shift
-          </Button>
-        </div>
+        <ShiftBar
+          openedAt={openShift.openedAt}
+          openingCash={openShift.openingCash}
+          currency={currency}
+          hasUnfinishedOrder={basket.length > 0 || heldOrder !== null}
+        />
 
         <form onSubmit={onSearchSubmit} className="flex flex-col gap-2 sm:flex-row">
           <div className="relative flex-1">
@@ -1282,78 +1189,6 @@ export function PosTerminal({
         </DialogContent>
       </Dialog>
 
-      {/* Close shift */}
-      <Dialog open={closeOpen} onOpenChange={(open) => !open && !closing && setCloseOpen(false)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{closeSummary ? 'Shift closed' : 'Close shift'}</DialogTitle>
-          </DialogHeader>
-
-          {closeSummary ? (
-            <div className="space-y-2">
-              <Row label="Total sales" value={formatCurrency(closeSummary.totalSales, currency)} />
-              <Row label="Transactions" value={String(closeSummary.transactionCount)} />
-              <Row label="Expected cash" value={formatCurrency(closeSummary.expectedCash, currency)} />
-              <Row label="Actual cash" value={formatCurrency(closeSummary.actualCash, currency)} />
-              <Separator />
-              <div className="flex items-center justify-between">
-                <span className="font-semibold">Difference</span>
-                <span
-                  className={cn(
-                    'tabular text-lg font-bold',
-                    closeSummary.difference === 0
-                      ? 'text-success'
-                      : closeSummary.difference > 0
-                        ? 'text-success'
-                        : 'text-destructive',
-                  )}
-                >
-                  {closeSummary.difference > 0 ? '+' : ''}
-                  {formatCurrency(closeSummary.difference, currency)}
-                </span>
-              </div>
-            </div>
-          ) : closePreview ? (
-            <div className="space-y-3">
-              <Row label="Opening cash" value={formatCurrency(closePreview.openingCash, currency)} />
-              <Row label="Total sales" value={formatCurrency(closePreview.totalSales, currency)} />
-              <Row label="Transactions" value={String(closePreview.transactionCount)} />
-              <Row label="Expected cash" value={formatCurrency(closePreview.expectedCash, currency)} />
-              <div className="space-y-1.5">
-                <Label htmlFor="actual-cash">Actual cash counted</Label>
-                <Input
-                  id="actual-cash"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={actualCash}
-                  onChange={(event) => setActualCash(event.target.value)}
-                  autoFocus
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" /> Loading…
-            </div>
-          )}
-
-          <DialogFooter>
-            {closeSummary ? (
-              <Button onClick={onCloseSummaryDone}>Done</Button>
-            ) : (
-              <>
-                <Button variant="outline" onClick={() => setCloseOpen(false)} disabled={closing}>
-                  Cancel
-                </Button>
-                <Button onClick={onCloseShift} loading={closing} disabled={!closePreview}>
-                  Close shift
-                </Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

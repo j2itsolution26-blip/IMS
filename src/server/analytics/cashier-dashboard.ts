@@ -1,12 +1,12 @@
 import 'server-only';
 
-import type { PaymentMethod, Prisma, SaleStatus } from '@prisma/client';
+import type { PaymentMethod, SaleStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { D, money, toNum } from '@/lib/decimal';
 import { endOfStoreDay, startOfStoreDay } from '@/lib/store-time';
 import { COMPLETED_TRANSACTION_STATUSES } from '@/lib/sales-scope';
 import { cashierCashWindow, type CashierCashWindow } from '@/lib/cashier-window';
-import { getOpenShift, type OpenShiftSummary } from '@/server/services/shift-service';
+import { computeShiftSummary, getOpenShift, type OpenShiftSummary, type ShiftCloseSummary } from '@/server/services/shift-service';
 import { getInventoryKpis } from '@/server/analytics/inventory-dashboard';
 import { getStockLevels } from '@/server/analytics/inventory-analytics';
 
@@ -40,6 +40,8 @@ export interface CashierStockAlert {
 
 export interface CashierDashboardData {
   shift: OpenShiftSummary | null;
+  /** Live drawer figures for the open shift, from the server's shift maths. */
+  shiftSummary: ShiftCloseSummary | null;
   cashWindow: CashierCashWindow;
   transactionsToday: number;
   cashCollected: number;
@@ -57,7 +59,8 @@ export async function getCashierDashboard(userId: string, now: Date = new Date()
   const shift = await getOpenShift(userId);
   const cashWindow = cashierCashWindow(shift, now);
 
-  const [transactionsToday, cashCollected, kpis, recent, out, low] = await Promise.all([
+  const [shiftSummary, transactionsToday, cashCollected, kpis, recent, out, low] = await Promise.all([
+    shift ? computeShiftSummary(shift.id, shift.openingCash) : null,
     prisma.sale.count({
       where: {
         userId,
@@ -86,6 +89,7 @@ export async function getCashierDashboard(userId: string, now: Date = new Date()
 
   return {
     shift,
+    shiftSummary,
     cashWindow,
     transactionsToday,
     cashCollected,
@@ -118,33 +122,36 @@ export async function getCashierDashboard(userId: string, now: Date = new Date()
 }
 
 /**
- * Cash actually taken in, net of cash handed back on refunds.
- *
- * Only CASH payments count — GCash and card are not in the drawer — and a
- * voided sale's payment is left out, since that sale did not stand. Gross
- * sales are deliberately not used: a sale paid by GCash collected no cash.
+ * Cash actually kept from sales, net of cash refunds: what customers handed
+ * over less the change given back, on sales that were not voided. Only CASH
+ * counts — a GCash sale put nothing in the drawer — and gross sales are never
+ * used. For an open shift this is the shift's own drawer maths.
  */
 async function getCashCollected(userId: string, window: CashierCashWindow): Promise<number> {
-  const saleScope: Prisma.SaleWhereInput =
-    window.kind === 'shift' ? { shiftId: window.shiftId } : { userId };
-  const timeScope: Prisma.PaymentWhereInput =
-    window.kind === 'shift' ? {} : { createdAt: { gte: window.from, lte: window.to } };
+  if (window.kind === 'shift') {
+    const shift = await getOpenShift(userId);
+    if (!shift) return 0;
+    const summary = await computeShiftSummary(shift.id, shift.openingCash);
+    return toNum(money(D(summary.cashSales).minus(D(summary.cashRefunds))));
+  }
 
-  const [cashIn, cashOut] = await Promise.all([
+  const inWindow = { gte: window.from, lte: window.to };
+  const [tendered, change, refunds] = await Promise.all([
     prisma.payment.aggregate({
-      where: {
-        method: 'CASH',
-        direction: 'INBOUND',
-        sale: { ...saleScope, status: { not: 'VOIDED' } },
-        ...timeScope,
-      },
+      where: { method: 'CASH', direction: 'INBOUND', sale: { userId, status: { not: 'VOIDED' } }, createdAt: inWindow },
       _sum: { amount: true },
     }),
+    prisma.sale.aggregate({
+      where: { userId, status: { not: 'VOIDED' }, createdAt: inWindow },
+      _sum: { changeAmount: true },
+    }),
     prisma.payment.aggregate({
-      where: { method: 'CASH', direction: 'OUTBOUND', return: { sale: saleScope }, ...timeScope },
+      where: { method: 'CASH', direction: 'OUTBOUND', return: { sale: { userId } }, createdAt: inWindow },
       _sum: { amount: true },
     }),
   ]);
 
-  return toNum(money(D(cashIn._sum.amount ?? 0).minus(D(cashOut._sum.amount ?? 0))));
+  return toNum(
+    money(D(tendered._sum.amount ?? 0).minus(D(change._sum.changeAmount ?? 0)).minus(D(refunds._sum.amount ?? 0))),
+  );
 }

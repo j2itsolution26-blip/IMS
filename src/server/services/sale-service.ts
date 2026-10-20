@@ -9,7 +9,7 @@ import { nextDocumentNumber } from '@/server/services/numbering-service';
 import { recordAudit } from '@/server/services/audit-service';
 import { getSettings, readNumber } from '@/server/services/settings-service';
 import { getDefaultWarehouseId } from '@/server/services/warehouse-service';
-import { requireOpenShift } from '@/server/services/shift-service';
+import { lockShiftIfOpen, requireOpenShift } from '@/server/services/shift-service';
 
 /**
  * Sales / point of sale.
@@ -175,6 +175,12 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
 
   const result = await prisma.$transaction(
     async (tx) => {
+      // Holds the shift open until this sale commits; a close that started
+      // first wins and this sale is refused rather than landing on it.
+      if (!(await lockShiftIfOpen(tx, shift.id, 'share'))) {
+        throw new ConflictError('Your shift was closed. Open a new shift to keep selling.');
+      }
+
       const lines = await priceBasket(tx, input.items);
       const totals = totalsFor(lines, orderDiscount, taxRate);
 
@@ -263,6 +269,7 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
             amount,
             reference: payment.reference?.trim() || null,
             saleId: sale.id,
+            shiftId: shift.id,
             userId: input.userId,
           },
         });

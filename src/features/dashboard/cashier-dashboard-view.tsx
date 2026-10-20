@@ -46,6 +46,7 @@ export function CashierDashboardView({
   canSell,
   canViewSales,
   canViewInventory,
+  suggestedOpeningCash,
 }: {
   cashierName: string;
   data: CashierDashboardData;
@@ -53,6 +54,8 @@ export function CashierDashboardView({
   canSell: boolean;
   canViewSales: boolean;
   canViewInventory: boolean;
+  /** Settings › suggested starting cash, shown as a hint when opening a shift. */
+  suggestedOpeningCash: number;
 }) {
   const { shift } = data;
   const cashHint =
@@ -69,10 +72,16 @@ export function CashierDashboardView({
             Hello, <span className="font-medium text-foreground">{cashierName}</span>. Your sales and what is running out.
           </p>
         </div>
-        <ShiftStatus openedAt={shift?.openedAt ?? null} canSell={canSell} />
+        <ShiftStatus openedAt={shift?.openedAt ?? null} />
       </div>
 
-      {canSell && <PosQuickAccess currency={currency} />}
+      {canSell && (
+        <PosQuickAccess currency={currency} hasOpenShift={shift !== null} suggestedOpeningCash={suggestedOpeningCash} />
+      )}
+
+      {shift && data.shiftSummary && (
+        <ShiftCard cashierName={cashierName} shift={shift} summary={data.shiftSummary} currency={currency} />
+      )}
 
       <section aria-label="Your figures and stock" className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
@@ -119,7 +128,7 @@ export function CashierDashboardView({
 
 /* -------------------------------------------------------------------------- */
 
-function ShiftStatus({ openedAt, canSell }: { openedAt: Date | null; canSell: boolean }) {
+function ShiftStatus({ openedAt }: { openedAt: Date | null }) {
   if (openedAt) {
     return (
       <span className="inline-flex min-h-9 items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3 text-sm font-medium text-success">
@@ -129,17 +138,62 @@ function ShiftStatus({ openedAt, canSell }: { openedAt: Date | null; canSell: bo
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="inline-flex min-h-9 items-center gap-2 rounded-full border bg-muted px-3 text-sm font-medium text-muted-foreground">
-        <Clock className="h-4 w-4" aria-hidden="true" /> No shift open
-      </span>
-      {canSell && (
-        <Button asChild variant="outline" className="h-9">
-          {/* Shifts are opened at the till, with the starting cash counted there. */}
-          <Link href="/pos">Open shift at POS</Link>
-        </Button>
-      )}
-    </div>
+    <span className="inline-flex min-h-9 items-center gap-2 rounded-full border bg-muted px-3 text-sm font-medium text-muted-foreground">
+      <Clock className="h-4 w-4" aria-hidden="true" /> No shift open
+    </span>
+  );
+}
+
+/**
+ * The open shift's drawer, kept apart from the day's figures above: a shift
+ * can start mid-day, and only cash belongs in the drawer.
+ */
+function ShiftCard({
+  cashierName,
+  shift,
+  summary,
+  currency,
+}: {
+  cashierName: string;
+  shift: NonNullable<CashierDashboardData['shift']>;
+  summary: NonNullable<CashierDashboardData['shiftSummary']>;
+  currency: string;
+}) {
+  const rows: [string, string][] = [
+    ['Starting cash', formatCurrency(summary.openingCash, currency)],
+    ['Cash sales this shift', formatCurrency(summary.cashSales, currency)],
+    ['Cash in / out', `+${formatCurrency(summary.cashIn, currency)} / −${formatCurrency(summary.cashOut, currency)}`],
+    ['Cash refunds', `−${formatCurrency(summary.cashRefunds, currency)}`],
+  ];
+  return (
+    <section aria-labelledby="shift-card-title" className="mb-4 rounded-xl border bg-card p-4 shadow-2xs sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 id="shift-card-title" className="text-base font-semibold">
+            Current shift
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {cashierName} · opened {formatDateTime(shift.openedAt)} · {formatNumber(summary.transactionCount, 0)} sale
+            {summary.transactionCount === 1 ? '' : 's'} ({formatCurrency(summary.totalSales, currency)} all payments)
+          </p>
+        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-semibold text-success">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" /> Open
+        </span>
+      </div>
+      <dl className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-5">
+        {rows.map(([label, value]) => (
+          <div key={label} className="min-w-0">
+            <dt className="text-xs text-muted-foreground">{label}</dt>
+            <dd className="tabular truncate text-sm font-semibold">{value}</dd>
+          </div>
+        ))}
+        <div className="min-w-0 rounded-lg bg-primary/10 px-3 py-2 lg:-my-2">
+          <dt className="text-xs font-medium text-primary">Expected in drawer</dt>
+          <dd className="tabular text-lg font-bold text-primary">{formatCurrency(summary.expectedCash, currency)}</dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 

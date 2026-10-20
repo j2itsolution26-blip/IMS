@@ -11,7 +11,7 @@ import { getDashboardOverview } from '@/server/analytics/dashboard-overview';
 import { getInventoryDashboard } from '@/server/analytics/inventory-dashboard';
 import { getStockLevels } from '@/server/analytics/inventory-analytics';
 import { getCashierDashboard } from '@/server/analytics/cashier-dashboard';
-import { getSettings, readString } from '@/server/services/settings-service';
+import { getSettings, readNumber, readString } from '@/server/services/settings-service';
 import { DASHBOARD_PERIODS, DashboardView, type DashboardQuery } from '@/features/dashboard/dashboard-view';
 import {
   ATTENTION_FILTERS,
@@ -66,7 +66,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   if (variant === 'none') return <AccessDenied />;
 
-  if (variant === 'cashier') return renderCashier(user, currency);
+  if (variant === 'cashier') return renderCashier(user, currency, readNumber(settings, 'pos.suggestedOpeningCash'));
 
   if (variant === 'inventory') {
     return renderInventory({ user, params, currency, includeValue: false, header: <InventoryHeader /> });
@@ -182,7 +182,7 @@ async function renderInventory({
   );
 }
 
-async function renderCashier(user: CurrentUser, currency: string) {
+async function renderCashier(user: CurrentUser, currency: string, suggestedOpeningCash: number) {
   // The cashier's own sales and drawer cash only — never the store's takings.
   const data = await getCashierDashboard(user.id);
 
@@ -194,6 +194,7 @@ async function renderCashier(user: CurrentUser, currency: string) {
       canSell={userCan(user, 'pos.create')}
       canViewSales={userCan(user, 'sales.view')}
       canViewInventory={userCan(user, 'inventory.view')}
+      suggestedOpeningCash={suggestedOpeningCash}
     />
   );
 }

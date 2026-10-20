@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { D, money, sum, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { applyStockMovement, wholePieces } from '@/server/services/inventory-service';
+import { refundShiftFor } from '@/server/services/shift-service';
 import { nextDocumentNumber } from '@/server/services/numbering-service';
 import { recordAudit } from '@/server/services/audit-service';
 
@@ -140,7 +141,9 @@ export async function createSaleReturn(input: CreateSaleReturnInput) {
         }
       }
 
-      // Refund is money leaving the till.
+      // Refund is money leaving the till — the drawer of whoever pays it out
+      // (or the sale's shift, if still open). None open: recorded outside a
+      // shift and reported separately, never charged to a closed drawer.
       await tx.payment.create({
         data: {
           paymentNumber: await nextDocumentNumber('PAYMENT', tx),
@@ -149,6 +152,7 @@ export async function createSaleReturn(input: CreateSaleReturnInput) {
           amount: total,
           note: `Refund for ${saleReturn.returnNumber}`,
           returnId: saleReturn.id,
+          shiftId: await refundShiftFor(tx, input.userId, sale.shiftId),
           userId: input.userId,
         },
       });

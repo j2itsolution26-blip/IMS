@@ -56,7 +56,9 @@ model User {
   inventoryTransaction InventoryTransaction[]
   returns              Return[]
   payments             Payment[]
-  shifts               CashierShift[]
+  shifts               CashierShift[] @relation("ShiftCashier")
+  closedShifts         CashierShift[] @relation("ShiftClosedBy")
+  cashMovements        CashMovement[]
   passkeys             Passkey[]
 
   createdAt DateTime @default(now())
@@ -405,11 +407,13 @@ enum ReferenceType {
 model CashierShift {
   id     String @id @default(cuid())
   userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user   User   @relation("ShiftCashier", fields: [userId], references: [id], onDelete: Restrict)
 
-  status      ShiftStatus @default(OPEN)
-  openedAt    DateTime    @default(now())
-  openingCash Decimal     @db.Decimal(18, 4)
+  status       ShiftStatus @default(OPEN)
+  openedAt     DateTime    @default(now())
+  openingCash  Decimal     @db.Decimal(18, 4)
+  // Denominations, coins for change, anything noticed when counting the float.
+  openingNotes String?
 
   closedAt         DateTime?
   expectedCash     Decimal?  @db.Decimal(18, 4)
@@ -417,17 +421,56 @@ model CashierShift {
   difference       Decimal?  @db.Decimal(18, 4)
   totalSales       Decimal?  @db.Decimal(18, 4)
   transactionCount Int?
+  // The parts of expectedCash, frozen at close alongside it.
+  cashSales        Decimal?  @db.Decimal(18, 4)
+  cashRefunds      Decimal?  @db.Decimal(18, 4)
+  cashIn           Decimal?  @db.Decimal(18, 4)
+  cashOut          Decimal?  @db.Decimal(18, 4)
+  // Who closed it: the cashier, or the owner closing a shift left open.
+  closedById       String?
+  closedBy         User?     @relation("ShiftClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
 
+  // Closing notes.
   notes String?
 
-  sales Sale[]
+  sales     Sale[]
+  payments  Payment[]
+  movements CashMovement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Also: a partial unique index (migration 20261021090000) allows one OPEN
+  // shift per cashier, so concurrent opens cannot create a second.
   @@index([userId, status])
   @@index([status])
   @@map("cashier_shifts")
+}
+
+// Cash put into or taken out of a drawer during a shift for anything other
+// than a sale or refund — more change, a supplier paid from the till, a bank
+// drop. Append-only: a mistake is corrected with an opposite movement.
+model CashMovement {
+  id      String           @id @default(cuid())
+  shiftId String
+  shift   CashierShift     @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  type    CashMovementType
+  // Always positive; `type` gives the direction.
+  amount  Decimal          @db.Decimal(18, 4)
+  reason  String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@index([shiftId])
+  @@map("cash_movements")
+}
+
+enum CashMovementType {
+  CASH_IN
+  CASH_OUT
 }
 
 enum ShiftStatus {
@@ -537,10 +580,17 @@ model Payment {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
+  // The drawer this money went into or came out of. Set when the payment is
+  // made; a cash refund paid with no open shift has none and is reported as
+  // outside a shift.
+  shiftId String?
+  shift   CashierShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
 
   @@index([saleId])
   @@index([returnId])
+  @@index([shiftId])
   @@index([createdAt])
   @@index([method, createdAt])
   @@map("payments")

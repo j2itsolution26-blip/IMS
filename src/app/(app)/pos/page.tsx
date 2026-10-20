@@ -56,6 +56,7 @@ export default async function PosPage({ searchParams }: { searchParams: Promise<
         categoryChips={categoryChips}
         lowStockLevel={lowStockLevel}
         openShift={openShift ? { id: openShift.id, openedAt: openShift.openedAt.toISOString(), openingCash: openShift.openingCash } : null}
+        suggestedOpeningCash={readNumber(settings, 'pos.suggestedOpeningCash')}
       />
     </>
   );

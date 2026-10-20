@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { ArrowRight, Loader2, ScanBarcode, Search, ShoppingCart } from 'lucide-react';
+import { ArrowRight, Loader2, ScanBarcode, Search } from 'lucide-react';
 import type { SellableProduct } from '@/features/products/queries';
 import { lookupBarcode, lookupProducts } from '@/features/pos/actions';
 import { ScannerDialog } from '@/features/scanner/scanner-dialog';
@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { formatCurrency } from '@/lib/format';
 import { formatPieces } from '@/lib/quantity';
 import { cn } from '@/lib/utils';
+import { PosEntryButton } from '@/features/dashboard/pos-entry-button';
 
 type Lookup =
   | { status: 'idle' }
@@ -29,7 +30,15 @@ const MAX_RESULTS = 6;
  * the server), so they return exactly what the till would ring up. Nothing
  * here changes stock or starts a sale — that happens at the POS.
  */
-export function PosQuickAccess({ currency }: { currency: string }) {
+export function PosQuickAccess({
+  currency,
+  hasOpenShift,
+  suggestedOpeningCash,
+}: {
+  currency: string;
+  hasOpenShift: boolean;
+  suggestedOpeningCash: number;
+}) {
   const [term, setTerm] = React.useState('');
   const [lookup, setLookup] = React.useState<Lookup>({ status: 'idle' });
   const [scanning, setScanning] = React.useState(false);
@@ -72,11 +81,12 @@ export function PosQuickAccess({ currency }: { currency: string }) {
             Ring up a sale, or check a price and stock before the customer reaches the counter.
           </p>
         </div>
-        <Button asChild size="lg" className="h-12 w-full rounded-xl px-6 text-base sm:w-auto">
-          <Link href="/pos">
-            <ShoppingCart /> Open Point of Sale
-          </Link>
-        </Button>
+        <PosEntryButton
+          hasOpenShift={hasOpenShift}
+          suggestedAmount={suggestedOpeningCash}
+          currency={currency}
+          className="w-full sm:w-auto"
+        />
       </div>
 
       <form

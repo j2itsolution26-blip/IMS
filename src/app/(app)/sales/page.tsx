@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Calculator, PackageCheck, Receipt, ShoppingCart, TrendingUp, Undo2 } from 'lucide-react';
+import { Calculator, PackageCheck, Receipt, ShoppingCart, TrendingUp, Undo2, Wallet } from 'lucide-react';
 import type { PaymentMethod, SaleStatus } from '@prisma/client';
 import { requirePermission, userCan } from '@/lib/session';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
@@ -102,6 +102,13 @@ export default async function SalesPage({
 
         <div className="flex flex-wrap items-end gap-2">
           <PeriodPicker current={period} allowCustom customFrom={custom?.from} customTo={custom?.to} />
+          {canViewProfit && (
+            <Button asChild variant="outline" size="lg" className="h-11 rounded-xl">
+              <Link href="/sales/shifts">
+                <Wallet /> Shift history
+              </Link>
+            </Button>
+          )}
           {canViewProfit && <ExportMenu />}
           {userCan(user, 'pos.create') && (
             <Button asChild size="lg" className="h-11 rounded-xl">

@@ -39,6 +39,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   // Sales.
   { key: 'sales.defaultTaxRate', value: '0', type: 'NUMBER', group: 'sales', label: 'Tax rate (%)', description: 'Applied to the subtotal of every sale. Set to 0 to disable tax.' },
   { key: 'pos.receiptFooter', value: 'Thank you for your business!', type: 'STRING', group: 'sales', label: 'Receipt footer', description: 'Message printed at the bottom of every receipt.' },
+  { key: 'pos.suggestedOpeningCash', value: '1000', type: 'NUMBER', group: 'sales', label: 'Suggested starting cash (₱)', description: 'Shown as a hint when a cashier opens a shift. The cashier still enters the cash they actually counted. 0 hides the hint.' },
 
   // Security. Auto-lock is off by default: the counter must be ready for the
   // next customer, and the cashier can lock the screen by hand at any time.
