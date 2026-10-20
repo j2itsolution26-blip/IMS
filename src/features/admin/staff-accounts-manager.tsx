@@ -3,10 +3,10 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm, Controller } from 'react-hook-form';
-import { KeyRound, MoreHorizontal, Pencil, Plus, Trash2, UserCheck, UserX, Users, Wand2 } from 'lucide-react';
+import { Fingerprint, KeyRound, MoreHorizontal, Pencil, Plus, Trash2, UserCheck, UserX, Users, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ColumnDef } from '@tanstack/react-table';
-import { createUser, deleteUser, resetUserPassword, updateUser } from '@/features/admin/actions';
+import { createUser, deleteUser, resetUserPassword, revokeUserPasskeys, updateUser } from '@/features/admin/actions';
 import { DataTable } from '@/components/data-table';
 import { EmptyState } from '@/components/empty-state';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -117,6 +117,7 @@ export function StaffAccountsManager({
   const [resetting, setResetting] = React.useState<StaffRow | null>(null);
   const [statusTarget, setStatusTarget] = React.useState<StaffRow | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<StaffRow | null>(null);
+  const [passkeyTarget, setPasskeyTarget] = React.useState<StaffRow | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [formError, setFormError] = React.useState<string | null>(null);
 
@@ -256,6 +257,26 @@ export function StaffAccountsManager({
     router.refresh();
   };
 
+  const onRevokePasskeys = async () => {
+    if (!passkeyTarget) return;
+    setBusy(true);
+    const result = await revokeUserPasskeys(passkeyTarget.id);
+    setBusy(false);
+    const name = passkeyTarget.name;
+    setPasskeyTarget(null);
+
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(
+      result.data.removed === 0
+        ? `${name} had no passkeys.`
+        : `Removed ${result.data.removed} passkey${result.data.removed === 1 ? '' : 's'} for ${name}.`,
+    );
+    router.refresh();
+  };
+
   const columns = React.useMemo<ColumnDef<StaffRow, unknown>[]>(
     () => [
       {
@@ -326,6 +347,11 @@ export function StaffAccountsManager({
                 {resetPassword && (
                   <DropdownMenuItem onSelect={() => openReset(staff)}>
                     <KeyRound /> Reset Password
+                  </DropdownMenuItem>
+                )}
+                {resetPassword && (
+                  <DropdownMenuItem onSelect={() => setPasskeyTarget(staff)}>
+                    <Fingerprint /> Revoke Passkeys
                   </DropdownMenuItem>
                 )}
                 {changeStatus && (
@@ -695,6 +721,17 @@ export function StaffAccountsManager({
         confirmLabel="Remove staff"
         loading={busy}
         onConfirm={onDelete}
+      />
+
+      <ConfirmDialog
+        open={passkeyTarget !== null}
+        onOpenChange={(open) => !open && setPasskeyTarget(null)}
+        title={`Revoke ${passkeyTarget?.name}'s passkeys?`}
+        description="Every passkey on this account stops working and they are signed out everywhere. Their account and password are not changed, and they can add a new passkey after signing in with their password."
+        confirmLabel="Revoke passkeys"
+        destructive
+        loading={busy}
+        onConfirm={onRevokePasskeys}
       />
     </>
   );

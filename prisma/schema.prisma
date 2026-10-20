@@ -57,6 +57,7 @@ model User {
   returns              Return[]
   payments             Payment[]
   shifts               CashierShift[]
+  passkeys             Passkey[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -153,6 +154,37 @@ model Account {
   @@unique([providerId, accountId])
   @@index([userId])
   @@map("accounts")
+}
+
+// A WebAuthn passkey: the public half only. The private key never leaves the
+// user's device or passkey provider, and no biometric data ever reaches the
+// server — the device checks the face or fingerprint itself and signs.
+model Passkey {
+  id           String  @id @default(cuid())
+  // Base64url credential id, as the authenticator reports it.
+  credentialId String  @unique
+  // COSE public key, base64url. Verifies each sign-in signature.
+  publicKey    String
+  // Signature counter; 0 for authenticators that do not keep one.
+  counter      Int     @default(0)
+  // Comma-separated WebAuthn transports (internal, hybrid, usb, …).
+  transports   String?
+  // 'singleDevice' or 'multiDevice' (synced, e.g. iCloud Keychain).
+  deviceType   String
+  backedUp     Boolean @default(false)
+  // Authenticator model id; often all zeros for privacy.
+  aaguid       String?
+  // Shown in the profile so the owner can tell their devices apart.
+  name         String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("passkeys")
 }
 
 model Verification {

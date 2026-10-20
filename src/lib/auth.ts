@@ -7,12 +7,21 @@ import { getAppUrl, getTrustedOrigins } from '@/lib/env';
 import { isProvisioning } from '@/lib/provisioning-context';
 import { APIError } from 'better-auth/api';
 import { APP_NAME } from '@/lib/brand';
+import { resolvePasskeyConfig } from '@/lib/passkey-config';
+import { passkeyPlugin } from '@/lib/passkey-plugin';
 import {
   USERNAME_MAX_LENGTH,
   USERNAME_MIN_LENGTH,
   isValidUsername,
   normalizeUsername,
 } from '@/lib/username';
+
+/**
+ * Where passkeys may be used, from PASSKEY_RP_ID / PASSKEY_ORIGIN. Exported so
+ * the sign-in page offers the button only where the ceremony will accept it.
+ */
+export const passkeyConfig = resolvePasskeyConfig(process.env);
+if (!passkeyConfig.enabled) console.info(`[auth] Passkeys are off: ${passkeyConfig.reason}`);
 
 /** The one message every failed sign-in shows, whatever the actual reason. */
 const INVALID_CREDENTIALS = 'Invalid username/email or password.';
@@ -263,6 +272,9 @@ export const auth = betterAuth({
       usernameValidator: (value) => isValidUsername(normalizeUsername(value)),
       validationOrder: { username: 'post-normalization' },
     }),
+    // WebAuthn sign-in on the same accounts and sessions. Its endpoints refuse
+    // to run unless passkeys are configured for the requesting origin.
+    passkeyPlugin(passkeyConfig),
     // Must stay last: it writes the cookies set by the plugins above.
     nextCookies(),
   ],

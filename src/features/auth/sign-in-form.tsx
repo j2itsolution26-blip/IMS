@@ -4,13 +4,20 @@ import * as React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertCircle, Eye, EyeOff, Loader2, Lock, User } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, Fingerprint, Loader2, Lock, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { authClient } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { isEmailIdentifier, normalizeUsername } from '@/lib/username';
 import { isSafeReturnPath } from '@/lib/safe-path';
+import {
+  deviceCanCreatePasskey,
+  passkeyCount,
+  passkeysSupported,
+  signInWithPasskey,
+} from '@/features/auth/passkey-client';
+import { PasskeyOffer } from '@/features/auth/passkey-offer';
 
 // Deliberately loose: whether the identifier is a well-formed username or
 // email is the server's call, and every way of getting it wrong must end in
@@ -24,8 +31,53 @@ const INVALID_CREDENTIALS = 'Invalid username/email or password.';
 
 type FormValues = z.infer<typeof schema>;
 
-export function SignInForm({ redirectTo }: { redirectTo: string }) {
+/** "Not now" on the passkey offer, remembered on this device for a month. */
+const OFFER_DISMISSED_KEY = 'tpm.passkey-offer.dismissed-at';
+const OFFER_SNOOZE_MS = 30 * 24 * 60 * 60 * 1000;
+
+function offerSnoozed(): boolean {
+  try {
+    const at = Number(window.localStorage.getItem(OFFER_DISMISSED_KEY));
+    return Number.isFinite(at) && at > 0 && Date.now() - at < OFFER_SNOOZE_MS;
+  } catch {
+    return false;
+  }
+}
+
+function snoozeOffer() {
+  try {
+    window.localStorage.setItem(OFFER_DISMISSED_KEY, String(Date.now()));
+  } catch {
+    // Storage blocked: the offer simply comes back next time.
+  }
+}
+
+export function SignInForm({
+  redirectTo,
+  passkeysEnabled = false,
+}: {
+  redirectTo: string;
+  /** Decided on the server: passkeys are configured for the origin this page is served on. */
+  passkeysEnabled?: boolean;
+}) {
   const [formError, setFormError] = React.useState<string | null>(null);
+  const [passkeyBusy, setPasskeyBusy] = React.useState(false);
+  // Unknown until mounted, so the server and the first client render agree.
+  const [passkeySupport, setPasskeySupport] = React.useState<'unknown' | 'yes' | 'no'>('unknown');
+  // Set after a password sign-in on a device that could hold a passkey.
+  const [offerPasskey, setOfferPasskey] = React.useState(false);
+  const identifierRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    if (passkeysEnabled) setPasskeySupport(passkeysSupported() ? 'yes' : 'no');
+  }, [passkeysEnabled]);
+
+  const destination = isSafeReturnPath(redirectTo) ? redirectTo : '/dashboard';
+  // Hard navigation so the new session cookie is picked up by every
+  // server component on the destination page.
+  const goToApp = React.useCallback(() => {
+    window.location.href = destination;
+  }, [destination]);
   const [showPassword, setShowPassword] = React.useState(false);
   // On by default: a store counter should stay signed in between customers.
   // Untick on a shared or borrowed device to end the session with the browser.
@@ -79,10 +131,43 @@ export function SignInForm({ redirectTo }: { redirectTo: string }) {
       return;
     }
 
-    // Hard navigation so the new session cookie is picked up by every
-    // server component on the destination page.
-    window.location.href = isSafeReturnPath(redirectTo) ? redirectTo : '/dashboard';
+    // Signed in. Offer a passkey once, on a device that can hold one, to an
+    // account that has none yet — otherwise straight into the app.
+    if (passkeysEnabled && !offerSnoozed() && (await deviceCanCreatePasskey()) && (await passkeyCount()) === 0) {
+      setOfferPasskey(true);
+      return;
+    }
+    goToApp();
   });
+
+  const onPasskeySignIn = async () => {
+    setFormError(null);
+    setPasskeyBusy(true);
+    const outcome = await signInWithPasskey({ rememberMe });
+    if (outcome.ok) {
+      goToApp();
+      return;
+    }
+    // A failed passkey never falls through to a password attempt; the user
+    // chooses what to do next.
+    setPasskeyBusy(false);
+    setFormError(outcome.message);
+  };
+
+  const { ref: identifierFieldRef, ...identifierField } = register('identifier');
+  const busy = isSubmitting || passkeyBusy;
+
+  if (offerPasskey) {
+    return (
+      <PasskeyOffer
+        onDone={goToApp}
+        onNotNow={() => {
+          snoozeOffer();
+          goToApp();
+        }}
+      />
+    );
+  }
 
   return (
     <form onSubmit={onSubmit} className="space-y-5" noValidate>
@@ -124,7 +209,11 @@ export function SignInForm({ redirectTo }: { redirectTo: string }) {
               'disabled:cursor-not-allowed disabled:opacity-50',
               errors.identifier && 'border-destructive focus-visible:ring-destructive',
             )}
-            {...register('identifier')}
+            {...identifierField}
+            ref={(element) => {
+              identifierFieldRef(element);
+              identifierRef.current = element;
+            }}
           />
         </div>
         {errors.identifier && (
@@ -216,7 +305,7 @@ export function SignInForm({ redirectTo }: { redirectTo: string }) {
       <Button
         type="submit"
         className="h-12 w-full rounded-lg text-sm font-medium"
-        disabled={isSubmitting}
+        disabled={busy}
       >
         {isSubmitting ? (
           <>
@@ -227,6 +316,59 @@ export function SignInForm({ redirectTo }: { redirectTo: string }) {
           'Sign In'
         )}
       </Button>
+
+      {/* ── Passkey sign-in ── */}
+      {passkeysEnabled && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3" aria-hidden="true">
+            <span className="h-px flex-1 bg-border" />
+            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">or</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onPasskeySignIn}
+            disabled={busy || passkeySupport === 'no'}
+            aria-describedby="passkey-hint"
+            className="h-12 w-full rounded-lg border-primary/60 text-sm font-medium text-primary hover:border-primary hover:bg-primary/5 hover:text-primary"
+          >
+            {passkeyBusy ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Waiting for your device…
+              </>
+            ) : (
+              <>
+                <Fingerprint className="h-5 w-5" aria-hidden="true" />
+                Sign in with a passkey
+              </>
+            )}
+          </Button>
+
+          <p id="passkey-hint" className="text-center text-xs text-muted-foreground">
+            {passkeySupport === 'no'
+              ? 'This browser does not support passkeys. Use your username and password.'
+              : 'Use Face ID, fingerprint, or your device screen lock.'}
+          </p>
+
+          {formError && passkeySupport !== 'no' && (
+            <p className="text-center text-xs">
+              <button
+                type="button"
+                className="inline-flex min-h-9 items-center font-medium text-primary underline-offset-4 hover:underline"
+                onClick={() => {
+                  setFormError(null);
+                  identifierRef.current?.focus();
+                }}
+              >
+                Use username and password instead
+              </button>
+            </p>
+          )}
+        </div>
+      )}
     </form>
   );
 }

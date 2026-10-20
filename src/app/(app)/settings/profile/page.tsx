@@ -8,6 +8,10 @@ import { Badge } from '@/components/ui/badge';
 import { ProfileForm } from '@/features/admin/profile-form';
 import { ChangePasswordForm } from '@/features/admin/change-password-form';
 import { PosPinForm } from '@/features/admin/pos-pin-form';
+import { PasskeysManager } from '@/features/auth/passkeys-manager';
+import { passkeyConfig } from '@/lib/auth';
+import { passkeysAvailableAt } from '@/lib/passkey-config';
+import { requestOrigin } from '@/lib/request-origin';
 
 export const metadata: Metadata = { title: 'Profile' };
 export const dynamic = 'force-dynamic';
@@ -15,7 +19,7 @@ export const dynamic = 'force-dynamic';
 export default async function ProfilePage() {
   const user = await requireUser();
 
-  const [record, recentActivity] = await Promise.all([
+  const [record, recentActivity, passkeys, origin] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
       select: { name: true, username: true, email: true, phone: true, lastLoginAt: true, createdAt: true },
@@ -26,6 +30,12 @@ export default async function ProfilePage() {
       take: 10,
       select: { id: true, summary: true, createdAt: true },
     }),
+    prisma.passkey.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, backedUp: true, createdAt: true, lastUsedAt: true },
+    }),
+    requestOrigin(),
   ]);
 
   return (
@@ -73,6 +83,28 @@ export default async function ProfilePage() {
             </CardHeader>
             <CardContent>
               <PosPinForm hasPin={user.hasPin} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Passkeys</CardTitle>
+              <CardDescription>
+                Sign in with Face ID, your fingerprint, or your device&apos;s screen lock instead of your password.
+                Your device checks it; your face and fingerprint never reach the store&apos;s system.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <PasskeysManager
+                available={passkeysAvailableAt(passkeyConfig, origin)}
+                passkeys={passkeys.map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  backedUp: p.backedUp,
+                  createdAt: p.createdAt.toISOString(),
+                  lastUsedAt: p.lastUsedAt?.toISOString() ?? null,
+                }))}
+              />
             </CardContent>
           </Card>
         </div>

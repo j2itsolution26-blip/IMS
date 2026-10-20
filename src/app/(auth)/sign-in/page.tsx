@@ -3,6 +3,9 @@ import { redirect } from 'next/navigation';
 import { Lock } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
 import { SignInForm } from '@/features/auth/sign-in-form';
+import { passkeyConfig } from '@/lib/auth';
+import { passkeysAvailableAt } from '@/lib/passkey-config';
+import { requestOrigin } from '@/lib/request-origin';
 
 export const metadata: Metadata = { title: 'Sign in' };
 export const dynamic = 'force-dynamic';
@@ -66,7 +69,10 @@ export default async function SignInPage({
       )}
 
       {/* ── Sign-in form ── */}
-      <SignInForm redirectTo={next ?? '/dashboard'} />
+      <SignInForm
+        redirectTo={next ?? '/dashboard'}
+        passkeysEnabled={passkeysAvailableAt(passkeyConfig, await requestOrigin())}
+      />
 
       {/* There is no self-service recovery: owners reset staff passwords. */}
       <div className="space-y-3 border-t pt-5 text-center text-xs text-muted-foreground">

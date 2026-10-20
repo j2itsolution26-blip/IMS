@@ -442,6 +442,36 @@ export async function resetUserPassword(id: string, input: unknown): Promise<Act
   });
 }
 
+/**
+ * Removes every passkey on a staff account — for a lost phone or a device
+ * that changed hands. The account and its password are untouched, and its
+ * open sessions end so whoever held the device is signed out too.
+ */
+export async function revokeUserPasskeys(id: string): Promise<ActionResult<{ removed: number }>> {
+  return runAction(async () => {
+    const admin = await authorize('users.update');
+
+    // Same hierarchy as a password reset: both control how the account signs in.
+    const target = await loadManagedAccount(admin, id, ['resetPassword']);
+
+    const [{ count }] = await prisma.$transaction([
+      prisma.passkey.deleteMany({ where: { userId: id } }),
+      prisma.session.deleteMany({ where: { userId: id } }),
+    ]);
+
+    await recordAudit({
+      action: 'UPDATE',
+      entity: 'User',
+      entityId: id,
+      summary: `Revoked ${count} passkey${count === 1 ? '' : 's'} for ${target.email}`,
+      userId: admin.id,
+    });
+
+    revalidatePath('/settings/users');
+    return { removed: count };
+  });
+}
+
 export async function deleteUser(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
     const admin = await authorize('users.delete');
