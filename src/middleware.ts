@@ -45,7 +45,12 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  return NextResponse.next();
+  // Lets a server component know which page was asked for (a locked session
+  // is sent to /locked and returned here after unlocking). Overwrites any
+  // client-supplied value; it is only ever used as a same-site redirect path.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-pathname', pathname + request.nextUrl.search);
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {

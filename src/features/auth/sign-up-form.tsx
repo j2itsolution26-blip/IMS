@@ -13,6 +13,7 @@ import {
   EyeOff,
   Loader2,
   Lock,
+  AtSign,
   Mail,
   User,
 } from 'lucide-react';
@@ -22,11 +23,16 @@ import { Label } from '@/components/ui/label';
 import { authClient } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { validatePassword } from '@/lib/password';
+import { USERNAME_HINT, normalizeUsername, usernameProblem } from '@/lib/username';
 
 /** Zod schema for client-side form validation. */
 const schema = z
   .object({
     name: z.string().min(2, 'Enter your full name.').max(80),
+    username: z.string().superRefine((value, ctx) => {
+      const problem = usernameProblem(normalizeUsername(value));
+      if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+    }),
     email: z.string().min(1, 'Email is required.').email('Enter a valid email address.'),
     password: z.string().refine((val) => validatePassword(val).isValid, {
       message: 'Password must satisfy all requirements.',
@@ -58,12 +64,13 @@ export function SignUpForm() {
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { name: '', email: '', password: '', confirmPassword: '' },
+    defaultValues: { name: '', username: '', email: '', password: '', confirmPassword: '' },
     mode: 'onChange',
   });
 
   const nameValue = watch('name') || '';
   const emailValue = watch('email') || '';
+  const usernameValue = watch('username') || '';
 
   // ── Single-Source-Of-Truth Live Character-by-Character Password Analysis ──
   const passwordAnalysis = React.useMemo(() => {
@@ -132,6 +139,7 @@ export function SignUpForm() {
     passwordAnalysis.isValid &&
     passwordsMatch &&
     nameValue.trim().length >= 2 &&
+    usernameProblem(normalizeUsername(usernameValue)) === null &&
     isEmailValid;
 
   // Registered input handlers
@@ -143,6 +151,7 @@ export function SignUpForm() {
 
     const { error } = await authClient.signUp.email({
       name: values.name.trim(),
+      username: normalizeUsername(values.username),
       email: values.email.trim().toLowerCase(),
       password: values.password,
     });
@@ -225,6 +234,32 @@ export function SignUpForm() {
           {...register('name')}
         />
       </Field>
+
+      {/* ── Username field ── */}
+      <Field
+        id="username"
+        label="Username"
+        error={errors.username?.message}
+        icon={<AtSign className="h-4 w-4" />}
+      >
+        <input
+          id="username"
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          placeholder="Choose a username"
+          disabled={isSubmitting || isSuccess}
+          aria-invalid={Boolean(errors.username)}
+          aria-describedby={errors.username ? 'username-error' : 'username-hint'}
+          className={cn(inputBase, errors.username && 'border-destructive focus-visible:ring-destructive')}
+          {...register('username')}
+        />
+      </Field>
+      {!errors.username && (
+        <p id="username-hint" className="-mt-3 text-xs text-muted-foreground">
+          {USERNAME_HINT} You can sign in with this or your email.
+        </p>
+      )}
 
       {/* ── Email field ── */}
       <Field

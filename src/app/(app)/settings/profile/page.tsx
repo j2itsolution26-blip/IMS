@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { ProfileForm } from '@/features/admin/profile-form';
 import { ChangePasswordForm } from '@/features/admin/change-password-form';
+import { PosPinForm } from '@/features/admin/pos-pin-form';
 
 export const metadata: Metadata = { title: 'Profile' };
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,7 @@ export default async function ProfilePage() {
   const [record, recentActivity] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
-      select: { name: true, email: true, phone: true, lastLoginAt: true, createdAt: true },
+      select: { name: true, username: true, email: true, phone: true, lastLoginAt: true, createdAt: true },
     }),
     prisma.auditLog.findMany({
       where: { userId: user.id },
@@ -61,6 +62,19 @@ export default async function ProfilePage() {
               <ChangePasswordForm />
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Screen lock PIN</CardTitle>
+              <CardDescription>
+                A short PIN to unlock the screen after you lock it, so you stay signed in between
+                customers. Without one, the lock screen asks for your password.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <PosPinForm hasPin={user.hasPin} />
+            </CardContent>
+          </Card>
         </div>
 
         <div className="space-y-4">
@@ -69,6 +83,10 @@ export default async function ProfilePage() {
               <CardTitle className="text-base">Access</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Username</span>
+                <span className="font-mono font-medium">{record?.username ?? user.username}</span>
+              </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Role</span>
                 <Badge variant="default">{user.role.name}</Badge>

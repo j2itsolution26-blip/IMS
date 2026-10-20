@@ -2,10 +2,11 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 import { APIError } from 'better-auth/api';
-import { authorize, getCurrentUser, type CurrentUser } from '@/lib/session';
+import { authenticate, authorize, type CurrentUser } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { runAsProvisioning } from '@/lib/provisioning-context';
@@ -21,6 +22,7 @@ import {
 } from '@/server/services/account-policy';
 import { slugify } from '@/lib/utils';
 import { SETTING_DEFINITIONS } from '@/lib/settings-definitions';
+import { normalizeUsername, usernameProblem } from '@/lib/username';
 
 /**
  * Administration: system settings, user accounts, and role permissions.
@@ -117,6 +119,7 @@ async function loadManagedAccount(actor: CurrentUser, id: string, operations: Ac
     select: {
       id: true,
       name: true,
+      username: true,
       email: true,
       isActive: true,
       roleId: true,
@@ -157,12 +160,46 @@ const passwordSchema = z
   .regex(/[0-9]/, 'Include a number.')
   .regex(/[^A-Za-z0-9]/, 'Include a special character.');
 
+// Normalised first, then checked, so "Juan.Cruz " is stored as "juan.cruz" —
+// the same rules the sign-in endpoint and the database constraint apply.
+const usernameSchema = z
+  .string()
+  .transform(normalizeUsername)
+  .superRefine((value, ctx) => {
+    const problem = usernameProblem(value);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  });
+
+const USERNAME_TAKEN = new ValidationError('That username is already taken.', {
+  username: ['This username is already in use.'],
+});
+
+/** Refuses a username another account holds. Case-insensitive because both sides are normalised. */
+async function assertUsernameFree(username: string, exceptUserId?: string): Promise<void> {
+  const holder = await prisma.user.findUnique({ where: { username }, select: { id: true } });
+  if (holder && holder.id !== exceptUserId) throw USERNAME_TAKEN;
+}
+
+/** Turns a unique-constraint race on `username` into the same field error as the pre-check. */
+function rethrowUsernameConflict(error: unknown): never {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002' &&
+    String(error.meta?.target ?? '').includes('username')
+  ) {
+    throw USERNAME_TAKEN;
+  }
+  throw error;
+}
+
 const createUserSchema = z.object({
   name: z.string().trim().min(2, 'Enter a full name.').max(80),
+  username: usernameSchema,
   email: z.string().trim().toLowerCase().email('Enter a valid email address.'),
   password: passwordSchema,
   roleId: z.string().min(1, 'Choose a role.'),
   phone: z.string().trim().max(40).optional(),
+  isActive: z.boolean().default(true),
 });
 
 export async function createUser(input: unknown): Promise<ActionResult<{ id: string }>> {
@@ -187,6 +224,7 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
         email: ['This email is already registered.'],
       });
     }
+    await assertUsernameFree(values.username);
 
     // Better Auth owns password hashing, so the account is created through it
     // rather than by writing to the table directly. `runAsProvisioning` is what
@@ -200,7 +238,12 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     try {
       created = await runAsProvisioning(async () =>
         auth.api.signUpEmail({
-          body: { name: values.name, email: values.email, password: values.password },
+          body: {
+            name: values.name,
+            email: values.email,
+            password: values.password,
+            username: values.username,
+          },
         }),
       );
     } catch (error) {
@@ -210,6 +253,11 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
       if (error instanceof APIError) {
         const message =
           (error.body as { message?: string } | undefined)?.message ?? error.message;
+        if (/username/i.test(message)) {
+          throw /taken/i.test(message)
+            ? USERNAME_TAKEN
+            : new ValidationError(message, { username: [message] });
+        }
         throw /exist/i.test(message)
           ? new ValidationError('That email address already has an account.', {
               email: ['This email is already registered.'],
@@ -248,7 +296,7 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     try {
       await prisma.user.update({
         where: { id: userId },
-        data: { roleId: values.roleId, phone: values.phone || null },
+        data: { roleId: values.roleId, phone: values.phone || null, isActive: values.isActive },
       });
     } catch (error) {
       await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
@@ -259,7 +307,9 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
       action: 'CREATE',
       entity: 'User',
       entityId: userId,
-      summary: `Created user ${values.name} (${values.email}) with role ${role.name}`,
+      summary: `Created user ${values.name} (@${values.username}, ${values.email}) with role ${role.name}${
+        values.isActive ? '' : ', inactive'
+      }`,
       userId: admin.id,
     });
 
@@ -270,6 +320,7 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
 
 const updateUserSchema = z.object({
   name: z.string().trim().min(2).max(80),
+  username: usernameSchema,
   roleId: z.string().min(1, 'Choose a role.'),
   phone: z.string().trim().max(40).optional(),
   isActive: z.boolean(),
@@ -315,15 +366,21 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
       }
     }
 
-    await prisma.user.update({
-      where: { id },
-      data: {
-        name: values.name,
-        roleId: values.roleId,
-        phone: values.phone || null,
-        isActive: values.isActive,
-      },
-    });
+    const usernameChanged = values.username !== target.username;
+    if (usernameChanged) await assertUsernameFree(values.username, id);
+
+    await prisma.user
+      .update({
+        where: { id },
+        data: {
+          name: values.name,
+          ...(usernameChanged && { username: values.username, displayUsername: values.username }),
+          roleId: values.roleId,
+          phone: values.phone || null,
+          isActive: values.isActive,
+        },
+      })
+      .catch(rethrowUsernameConflict);
 
     // Revoking access should take effect immediately, not when the cookie expires.
     if (!values.isActive) {
@@ -334,9 +391,9 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
       action: 'UPDATE',
       entity: 'User',
       entityId: id,
-      summary: `Updated user ${target.email} — role ${target.role.name} → ${newRole.name}, ${
-        values.isActive ? 'active' : 'deactivated'
-      }`,
+      summary: `Updated user ${target.email} — ${
+        usernameChanged ? `username @${target.username} → @${values.username}, ` : ''
+      }role ${target.role.name} → ${newRole.name}, ${values.isActive ? 'active' : 'deactivated'}`,
       userId: admin.id,
     });
 
@@ -568,8 +625,7 @@ const profileSchema = z.object({
 /** Self-service profile update — no admin permission required. */
 export async function updateOwnProfile(input: unknown): Promise<ActionResult<void>> {
   return runAction(async () => {
-    const user = await getCurrentUser();
-    if (!user) throw new NotFoundError('Session');
+    const user = await authenticate();
 
     const values = parseInput(profileSchema, input);
 

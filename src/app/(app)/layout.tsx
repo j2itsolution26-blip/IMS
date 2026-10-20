@@ -2,7 +2,7 @@ import { requireUser, userCan } from '@/lib/session';
 import { AppShell } from '@/components/layout/app-shell';
 import { UserMenu } from '@/components/layout/user-menu';
 import { countActionableStock } from '@/server/analytics/badges';
-import { getSettings, readString } from '@/server/services/settings-service';
+import { getSettings, readNumber, readString } from '@/server/services/settings-service';
 
 /**
  * Authenticated shell.
@@ -29,6 +29,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         email: user.email,
         image: user.image,
         roleName: user.role.name,
+      }}
+      screenLock={{
+        user: { name: user.name, username: user.username, hasPin: user.hasPin },
+        autoLockMinutes: readNumber(settings, 'security.autoLockMinutes'),
       }}
       userSlot={
         <UserMenu

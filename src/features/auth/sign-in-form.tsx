@@ -4,23 +4,32 @@ import * as React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertCircle, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, Loader2, Lock, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { authClient } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
+import { isEmailIdentifier, normalizeUsername } from '@/lib/username';
+import { isSafeReturnPath } from '@/lib/safe-path';
 
+// Deliberately loose: whether the identifier is a well-formed username or
+// email is the server's call, and every way of getting it wrong must end in
+// the same generic message.
 const schema = z.object({
-  email: z.string().min(1, 'Email is required.').email('Enter a valid email address.'),
+  identifier: z.string().trim().min(1, 'Enter your username or email.'),
   password: z.string().min(1, 'Password is required.'),
 });
+
+const INVALID_CREDENTIALS = 'Invalid username/email or password.';
 
 type FormValues = z.infer<typeof schema>;
 
 export function SignInForm({ redirectTo }: { redirectTo: string }) {
   const [formError, setFormError] = React.useState<string | null>(null);
   const [showPassword, setShowPassword] = React.useState(false);
-  const [rememberMe, setRememberMe] = React.useState(false);
+  // On by default: a store counter should stay signed in between customers.
+  // Untick on a shared or borrowed device to end the session with the browser.
+  const [rememberMe, setRememberMe] = React.useState(true);
 
   const {
     register,
@@ -28,22 +37,33 @@ export function SignInForm({ redirectTo }: { redirectTo: string }) {
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: '', password: '' },
+    defaultValues: { identifier: '', password: '' },
   });
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
 
-    const { error } = await authClient.signIn.email({
-      email: values.email,
-      password: values.password,
-    });
+    // One account system, two ways to name it. An `@` never appears in a
+    // username, so it decides which Better Auth endpoint checks the password.
+    const identifier = values.identifier.trim();
+    const { error } = isEmailIdentifier(identifier)
+      ? await authClient.signIn.email({
+          email: identifier.toLowerCase(),
+          password: values.password,
+          rememberMe,
+        })
+      : await authClient.signIn.username({
+          username: normalizeUsername(identifier),
+          password: values.password,
+          rememberMe,
+        });
 
     if (error) {
-      // Never distinguish "no such user" from "wrong password" — that turns the
-      // login form into an account enumeration oracle.
-      if (error.status === 401 || error.status === 403) {
-        setFormError('Those credentials are not valid.');
+      // Never distinguish "no such user", "malformed username", "deactivated"
+      // or "wrong password" — that turns the login form into an account
+      // enumeration oracle.
+      if (error.status === 400 || error.status === 401 || error.status === 403 || error.status === 422) {
+        setFormError(INVALID_CREDENTIALS);
         return;
       }
 
@@ -61,7 +81,7 @@ export function SignInForm({ redirectTo }: { redirectTo: string }) {
 
     // Hard navigation so the new session cookie is picked up by every
     // server component on the destination page.
-    window.location.href = redirectTo.startsWith('/') ? redirectTo : '/dashboard';
+    window.location.href = isSafeReturnPath(redirectTo) ? redirectTo : '/dashboard';
   });
 
   return (
@@ -77,36 +97,39 @@ export function SignInForm({ redirectTo }: { redirectTo: string }) {
         </div>
       )}
 
-      {/* ── Email field ── */}
+      {/* ── Username or email field ── */}
       <div className="space-y-2">
-        <Label htmlFor="email" className="text-sm font-medium">
-          Email address
+        <Label htmlFor="identifier" className="text-sm font-medium">
+          Username or Email
         </Label>
         <div className="relative">
           <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
-            <Mail className="h-4 w-4" />
+            <User className="h-4 w-4" />
           </span>
           <input
-            id="email"
-            type="email"
-            autoComplete="email"
+            id="identifier"
+            type="text"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             autoFocus
-            placeholder="Enter your email address"
-            aria-invalid={Boolean(errors.email)}
-            aria-describedby={errors.email ? 'email-error' : undefined}
+            placeholder="Enter your username or email"
+            aria-invalid={Boolean(errors.identifier)}
+            aria-describedby={errors.identifier ? 'identifier-error' : undefined}
             className={cn(
               'flex h-12 w-full rounded-lg border border-input bg-transparent pl-10 pr-4 text-sm shadow-sm transition-colors',
               'placeholder:text-muted-foreground/60',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               'disabled:cursor-not-allowed disabled:opacity-50',
-              errors.email && 'border-destructive focus-visible:ring-destructive',
+              errors.identifier && 'border-destructive focus-visible:ring-destructive',
             )}
-            {...register('email')}
+            {...register('identifier')}
           />
         </div>
-        {errors.email && (
-          <p id="email-error" className="text-xs text-destructive" role="alert">
-            {errors.email.message}
+        {errors.identifier && (
+          <p id="identifier-error" className="text-xs text-destructive" role="alert">
+            {errors.identifier.message}
           </p>
         )}
       </div>
@@ -155,9 +178,11 @@ export function SignInForm({ redirectTo }: { redirectTo: string }) {
       {/* ── Remember me row ── */}
       <div className="flex items-center">
         <button
+          id="remember-device"
           type="button"
           role="checkbox"
           aria-checked={rememberMe}
+          aria-labelledby="remember-device-label"
           onClick={() => setRememberMe((prev) => !prev)}
           className={cn(
             'flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
@@ -178,12 +203,13 @@ export function SignInForm({ redirectTo }: { redirectTo: string }) {
             </svg>
           )}
         </button>
-        <label
+        <span
+          id="remember-device-label"
           className="ml-2 cursor-pointer select-none text-sm text-muted-foreground"
           onClick={() => setRememberMe((prev) => !prev)}
         >
-          Remember me
-        </label>
+          Remember this device
+        </span>
       </div>
 
       {/* ── Submit button ── */}

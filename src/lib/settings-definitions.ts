@@ -39,6 +39,10 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   // Sales.
   { key: 'sales.defaultTaxRate', value: '0', type: 'NUMBER', group: 'sales', label: 'Tax rate (%)', description: 'Applied to the subtotal of every sale. Set to 0 to disable tax.' },
   { key: 'pos.receiptFooter', value: 'Thank you for your business!', type: 'STRING', group: 'sales', label: 'Receipt footer', description: 'Message printed at the bottom of every receipt.' },
+
+  // Security. Auto-lock is off by default: the counter must be ready for the
+  // next customer, and the cashier can lock the screen by hand at any time.
+  { key: 'security.autoLockMinutes', value: '0', type: 'NUMBER', group: 'security', label: 'Auto-lock screen after (minutes)', description: 'Locks the screen after this many minutes without use. The cashier stays signed in and unlocks with their PIN or password. 0 turns auto-lock off.' },
 ];
 
 export const SETTING_DEFAULTS = new Map(SETTING_DEFINITIONS.map((d) => [d.key, d.value]));

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Sidebar, type UserInfo } from '@/components/layout/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { GlobalSearch } from '@/components/layout/global-search';
+import { LockScreenButton, ScreenLockProvider } from '@/features/auth/screen-lock';
 import { cn } from '@/lib/utils';
 
 interface AppShellProps {
@@ -14,6 +15,8 @@ interface AppShellProps {
   companyName: string;
   user?: UserInfo;
   userSlot: React.ReactNode;
+  /** Who the lock screen is for, and the optional idle auto-lock (0 = off). */
+  screenLock: { user: { name: string; username: string; hasPin: boolean }; autoLockMinutes: number };
   children: React.ReactNode;
 }
 
@@ -31,6 +34,7 @@ export function AppShell({
   companyName,
   user,
   userSlot,
+  screenLock,
   children,
 }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
@@ -63,6 +67,7 @@ export function AppShell({
   }, []);
 
   return (
+    <ScreenLockProvider user={screenLock.user} autoLockMinutes={screenLock.autoLockMinutes}>
     <div className="min-h-dvh bg-background text-foreground antialiased selection:bg-primary/20">
       <a
         href="#main-content"
@@ -103,6 +108,7 @@ export function AppShell({
           <GlobalSearch />
 
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
+            <LockScreenButton />
             <ThemeToggle variant="dropdown" />
             {userSlot}
           </div>
@@ -114,5 +120,6 @@ export function AppShell({
         </main>
       </div>
     </div>
+    </ScreenLockProvider>
   );
 }

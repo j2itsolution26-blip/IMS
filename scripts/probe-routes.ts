@@ -72,7 +72,7 @@ async function main() {
   if (!ownerRole) throw new Error('Owner role missing — run npm run db:bootstrap first.');
 
   await runAsProvisioning(async () =>
-    auth.api.signUpEmail({ body: { name: 'Probe Account', email: EMAIL, password: PASSWORD } }),
+    auth.api.signUpEmail({ body: { name: 'Probe Account', email: EMAIL, password: PASSWORD, username: 'probe_account' } }),
   );
   await prisma.user.update({ where: { email: EMAIL }, data: { roleId: ownerRole.id } });
 

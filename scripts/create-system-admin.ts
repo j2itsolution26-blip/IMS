@@ -6,7 +6,9 @@
  * default administrator or a known password.
  *
  * Usage:
- *   npm run admin:create -- --email=admin@example.com --name="Platform Admin"
+ *   npm run admin:create -- --email=admin@example.com --name="Platform Admin" [--username=admin]
+ *
+ * The username defaults to one derived from the email address.
  *
  * The password is read from ADMIN_PASSWORD, or generated and printed once if
  * that is unset. It is never written to the audit trail or committed anywhere.
@@ -18,6 +20,7 @@
 import { randomBytes } from 'node:crypto';
 import { auth } from '../src/lib/auth';
 import { prisma } from '../src/lib/prisma';
+import { normalizeUsername, suggestUsername, usernameProblem } from '../src/lib/username';
 import { runAsProvisioning } from '../src/lib/provisioning-context';
 import { SYSTEM_ADMIN_ROLE_SLUG } from '../src/lib/permissions';
 
@@ -67,13 +70,33 @@ async function main() {
     process.exit(1);
   }
 
+  const requested = arg('username');
+  let username: string;
+  if (requested) {
+    username = normalizeUsername(requested);
+    const problem = usernameProblem(username);
+    if (problem) {
+      console.error(`Invalid --username: ${problem}`);
+      process.exit(1);
+    }
+    if (await prisma.user.findUnique({ where: { username }, select: { id: true } })) {
+      console.error(`The username ${username} is already taken. Choose another with --username=.`);
+      process.exit(1);
+    }
+  } else {
+    const taken = new Set(
+      (await prisma.user.findMany({ select: { username: true } })).map((row) => row.username),
+    );
+    username = suggestUsername(email, taken);
+  }
+
   const password = process.env.ADMIN_PASSWORD?.trim() || generatePassword();
   const generated = !process.env.ADMIN_PASSWORD?.trim();
 
   // Better Auth owns hashing, so the account is created through it rather than
   // written to the table directly.
   const created = await runAsProvisioning(async () =>
-    auth.api.signUpEmail({ body: { name, email, password } }),
+    auth.api.signUpEmail({ body: { name, email, password, username } }),
   );
 
   const userId = created?.user?.id;
@@ -81,7 +104,7 @@ async function main() {
 
   await prisma.user.update({ where: { id: userId }, data: { roleId: role.id } });
 
-  console.log(`\nSystem Administrator created: ${email}`);
+  console.log(`\nSystem Administrator created: ${email} (username: ${username})`);
   if (generated) {
     console.log(`Temporary password: ${password}`);
     console.log('Store it in your password manager and change it after signing in.');

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm, Controller } from 'react-hook-form';
-import { KeyRound, MoreHorizontal, Pencil, Plus, Trash2, UserCheck, UserX, Users } from 'lucide-react';
+import { KeyRound, MoreHorizontal, Pencil, Plus, Trash2, UserCheck, UserX, Users, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ColumnDef } from '@tanstack/react-table';
 import { createUser, deleteUser, resetUserPassword, updateUser } from '@/features/admin/actions';
@@ -25,12 +25,14 @@ import {
 } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { FormError, FormField } from '@/components/form';
-import { validatePassword } from '@/lib/password';
+import { generatePassword, validatePassword } from '@/lib/password';
+import { USERNAME_HINT, normalizeUsername, usernameProblem } from '@/lib/username';
 import { initials } from '@/lib/utils';
 
 export interface StaffRow {
   id: string;
   name: string;
+  username: string;
   email: string;
   phone: string | null;
   roleId: string;
@@ -52,17 +54,26 @@ export interface StaffRow {
 
 interface CreateValues {
   name: string;
+  username: string;
   email: string;
   password: string;
   confirmPassword: string;
   roleId: string;
+  status: 'active' | 'inactive';
 }
 
 interface EditValues {
   name: string;
+  username: string;
   phone: string;
   roleId: string;
 }
+
+/** react-hook-form rule shared by the create and edit dialogs. */
+const usernameRules = {
+  required: 'Enter a username.',
+  validate: (value: string) => usernameProblem(normalizeUsername(value)) ?? true,
+};
 
 interface ResetValues {
   password: string;
@@ -70,6 +81,16 @@ interface ResetValues {
 }
 
 const PASSWORD_HINT = 'At least 10 characters, with an uppercase letter, a lowercase letter, a number, and a symbol.';
+
+const emptyCreate = (roles: { id: string }[]): CreateValues => ({
+  name: '',
+  username: '',
+  email: '',
+  password: '',
+  confirmPassword: '',
+  roleId: roles[0]?.id ?? '',
+  status: 'active',
+});
 
 /**
  * Staff account management, reached from Settings.
@@ -100,14 +121,14 @@ export function StaffAccountsManager({
   const [formError, setFormError] = React.useState<string | null>(null);
 
   const createForm = useForm<CreateValues>({
-    defaultValues: { name: '', email: '', password: '', confirmPassword: '', roleId: roles[0]?.id ?? '' },
+    defaultValues: emptyCreate(roles),
   });
-  const editForm = useForm<EditValues>({ defaultValues: { name: '', phone: '', roleId: '' } });
+  const editForm = useForm<EditValues>({ defaultValues: { name: '', username: '', phone: '', roleId: '' } });
   const resetForm = useForm<ResetValues>({ defaultValues: { password: '', confirmPassword: '' } });
 
   const openCreate = () => {
     setFormError(null);
-    createForm.reset({ name: '', email: '', password: '', confirmPassword: '', roleId: roles[0]?.id ?? '' });
+    createForm.reset(emptyCreate(roles));
     setCreateOpen(true);
   };
 
@@ -118,7 +139,7 @@ export function StaffAccountsManager({
 
   const openEdit = (staff: StaffRow) => {
     setFormError(null);
-    editForm.reset({ name: staff.name, phone: staff.phone ?? '', roleId: staff.roleId });
+    editForm.reset({ name: staff.name, username: staff.username, phone: staff.phone ?? '', roleId: staff.roleId });
     setEditing(staff);
   };
 
@@ -130,19 +151,31 @@ export function StaffAccountsManager({
 
   const onCreate = createForm.handleSubmit(async (values) => {
     setFormError(null);
+    const username = normalizeUsername(values.username);
     const result = await createUser({
       name: values.name,
+      username,
       email: values.email,
       password: values.password,
       roleId: values.roleId,
+      isActive: values.status === 'active',
     });
 
     if (!result.ok) {
       setFormError(result.error);
+      // Put a server-side field error (such as a taken username) on its field.
+      for (const field of ['username', 'email', 'password'] as const) {
+        const message = result.fieldErrors?.[field]?.[0];
+        if (message) createForm.setError(field, { message });
+      }
       return;
     }
 
-    toast.success(`${values.name} can now sign in.`);
+    toast.success(
+      values.status === 'active'
+        ? `${values.name} can now sign in as ${username}.`
+        : `Account for ${values.name} created as inactive.`,
+    );
     setCreateOpen(false);
     router.refresh();
   });
@@ -151,9 +184,15 @@ export function StaffAccountsManager({
     if (!editing) return;
     setFormError(null);
 
-    const result = await updateUser(editing.id, { ...values, isActive: editing.isActive });
+    const result = await updateUser(editing.id, {
+      ...values,
+      username: normalizeUsername(values.username),
+      isActive: editing.isActive,
+    });
     if (!result.ok) {
       setFormError(result.error);
+      const message = result.fieldErrors?.username?.[0];
+      if (message) editForm.setError('username', { message });
       return;
     }
 
@@ -182,6 +221,7 @@ export function StaffAccountsManager({
     setBusy(true);
     const result = await updateUser(statusTarget.id, {
       name: statusTarget.name,
+      username: statusTarget.username,
       phone: statusTarget.phone ?? '',
       roleId: statusTarget.roleId,
       isActive: !statusTarget.isActive,
@@ -232,6 +272,11 @@ export function StaffAccountsManager({
             </p>
           </div>
         ),
+      },
+      {
+        accessorKey: 'username',
+        header: 'Username',
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.username}</span>,
       },
       {
         accessorKey: 'email',
@@ -324,8 +369,8 @@ export function StaffAccountsManager({
       <DataTable
         columns={columns}
         data={rows}
-        searchKeys={['name', 'email', 'roleName']}
-        searchPlaceholder="Search name, email, or role…"
+        searchKeys={['name', 'username', 'email', 'roleName']}
+        searchPlaceholder="Search name, username, email, or role…"
         emptyState={
           <EmptyState
             icon={Users}
@@ -352,6 +397,22 @@ export function StaffAccountsManager({
               <Input id="staff-name" {...createForm.register('name', { required: 'Enter a name.' })} autoFocus />
             </FormField>
 
+            <FormField
+              id="staff-username"
+              label="Username"
+              required
+              description={`${USERNAME_HINT} They sign in with this or their email.`}
+              error={createForm.formState.errors.username}
+            >
+              <Input
+                id="staff-username"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                {...createForm.register('username', usernameRules)}
+              />
+            </FormField>
+
             <FormField id="staff-email" label="Email Address" required error={createForm.formState.errors.email}>
               <Input
                 id="staff-email"
@@ -368,15 +429,30 @@ export function StaffAccountsManager({
               description={PASSWORD_HINT}
               error={createForm.formState.errors.password}
             >
-              <Input
-                id="staff-password"
-                type="text"
-                autoComplete="new-password"
-                {...createForm.register('password', {
-                  required: 'Set a password.',
-                  validate: (value) => validatePassword(value).isValid || PASSWORD_HINT,
-                })}
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="staff-password"
+                  type="text"
+                  autoComplete="new-password"
+                  className="font-mono"
+                  {...createForm.register('password', {
+                    required: 'Set a password.',
+                    validate: (value) => validatePassword(value).isValid || PASSWORD_HINT,
+                  })}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => {
+                    const password = generatePassword();
+                    createForm.setValue('password', password, { shouldValidate: true });
+                    createForm.setValue('confirmPassword', password, { shouldValidate: true });
+                  }}
+                >
+                  <Wand2 /> Generate
+                </Button>
+              </div>
             </FormField>
 
             <FormField
@@ -418,6 +494,29 @@ export function StaffAccountsManager({
               />
             </FormField>
 
+            <FormField
+              id="staff-status"
+              label="Account Status"
+              required
+              description="An inactive account exists but cannot sign in until you enable it."
+            >
+              <Controller
+                name="status"
+                control={createForm.control}
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="staff-status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </FormField>
+
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
                 Cancel
@@ -443,6 +542,22 @@ export function StaffAccountsManager({
 
             <FormField id="edit-name" label="Full Name" required error={editForm.formState.errors.name}>
               <Input id="edit-name" {...editForm.register('name', { required: 'Enter a name.' })} />
+            </FormField>
+
+            <FormField
+              id="edit-username"
+              label="Username"
+              required
+              description={USERNAME_HINT}
+              error={editForm.formState.errors.username}
+            >
+              <Input
+                id="edit-username"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                {...editForm.register('username', usernameRules)}
+              />
             </FormField>
 
             <FormField id="edit-phone" label="Phone">

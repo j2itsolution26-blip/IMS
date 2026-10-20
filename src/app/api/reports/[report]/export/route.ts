@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { getCurrentUser } from '@/lib/session';
+import { LOCKED_MESSAGE, getCurrentUser } from '@/lib/session';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { RateLimitError } from '@/lib/errors';
 import { resolveReportWindow, toDateRange } from '@/server/reports/report-window';
@@ -34,6 +34,7 @@ export async function GET(
 ) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (user.isLocked) return NextResponse.json({ error: LOCKED_MESSAGE }, { status: 403 });
 
   const { report: reportId } = await params;
   const report = getReport(reportId);

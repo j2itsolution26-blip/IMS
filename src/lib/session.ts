@@ -3,20 +3,32 @@ import 'server-only';
 import { cache } from 'react';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { APIError } from 'better-auth/api';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import type { PermissionKey } from '@/lib/permissions';
 import { ForbiddenError, UnauthorizedError } from '@/lib/errors';
+import { isSafeReturnPath } from '@/lib/safe-path';
 
 export interface CurrentUser {
   id: string;
   name: string;
+  username: string;
   email: string;
   image: string | null;
   isActive: boolean;
   role: { id: string; name: string; slug: string };
   permissions: Set<PermissionKey>;
+  /** The Better Auth session this request is running under. */
+  sessionId: string;
+  /** True while the POS lock screen is up for this session. */
+  isLocked: boolean;
+  /** Whether the lock screen can offer PIN entry (the hash never leaves the server). */
+  hasPin: boolean;
 }
+
+/** Message for any action attempted while the screen is locked. */
+export const LOCKED_MESSAGE = 'The screen is locked. Unlock it to continue.';
 
 /**
  * Resolves the signed-in user and their effective permissions.
@@ -28,31 +40,43 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   let session: Awaited<ReturnType<typeof auth.api.getSession>> = null;
 
   try {
-    session = await auth.api.getSession({ headers: await headers() });
+    // Read from the database every time, never from a cached cookie copy, so
+    // a revoked session stops working on the very next request.
+    session = await auth.api.getSession({
+      headers: await headers(),
+      query: { disableCookieCache: true },
+    });
   } catch (error) {
-    // A cookie that cannot be verified is an unauthenticated request, not a
-    // server fault. The usual cause is BETTER_AUTH_SECRET changing (or being
-    // set for the first time) while browsers still hold cookies signed under
-    // the previous value — every one of those sessions becomes unverifiable at
-    // once. Letting this propagate turns a routine "sign in again" into a 500
-    // on every authenticated page.
+    // A cookie that cannot be verified (wrong secret, tampered, expired)
+    // already comes back as `null` above — Better Auth only throws when it
+    // could not *check* the session, typically because the database was
+    // briefly unreachable. Treating that as "signed out" used to send the
+    // cashier through /api/session/reset, which deleted a perfectly good
+    // cookie over a network blip.
     //
-    // The error is logged rather than swallowed: it is a real signal when it
-    // appears for any other reason.
-    console.error('[auth] session could not be verified; treating as signed out', error);
-    return null;
+    // So only an explicit authentication refusal counts as signed out.
+    // Anything else propagates to the error boundary, which offers a retry
+    // and leaves the cookie — and the session — intact.
+    if (error instanceof APIError && (error.statusCode === 401 || error.statusCode === 403)) {
+      return null;
+    }
+    console.error('[auth] session could not be checked; keeping the cookie', error);
+    throw error;
   }
 
   if (!session?.user?.id) return null;
 
-  const user = await prisma.user.findUnique({
+  const [user, sessionRow] = await Promise.all([
+    prisma.user.findUnique({
     where: { id: session.user.id },
     select: {
       id: true,
       name: true,
+      username: true,
       email: true,
       image: true,
       isActive: true,
+      posPinHash: true,
       role: {
         select: {
           id: true,
@@ -62,20 +86,29 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
         },
       },
     },
-  });
+    }),
+    prisma.session.findUnique({
+      where: { id: session.session.id },
+      select: { lockedAt: true },
+    }),
+  ]);
 
   // A deactivated account keeps a valid cookie until it expires, so the check
   // has to happen on every request, not just at sign-in.
-  if (!user || !user.isActive) return null;
+  if (!user || !user.isActive || !sessionRow) return null;
 
   return {
     id: user.id,
     name: user.name,
+    username: user.username,
     email: user.email,
     image: user.image,
     isActive: user.isActive,
     role: { id: user.role.id, name: user.role.name, slug: user.role.slug },
     permissions: new Set(user.role.permissions.map((rp) => rp.permission.key as PermissionKey)),
+    sessionId: session.session.id,
+    isLocked: sessionRow.lockedAt !== null,
+    hasPin: user.posPinHash !== null,
   };
 });
 
@@ -102,8 +135,16 @@ export function userCanAny(user: CurrentUser | null, permissions: PermissionKey[
 export async function requireUser(): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user) redirect('/api/session/reset');
+  // A locked session is still signed in, but no page renders for it. A screen
+  // locked mid-shift is covered client-side without navigating (so the POS
+  // cart survives); this catches a refresh or a newly opened page.
+  if (user.isLocked) {
+    const path = (await headers()).get('x-pathname');
+    redirect(isSafeReturnPath(path) ? `/locked?next=${encodeURIComponent(path)}` : '/locked');
+  }
   return user;
 }
+
 
 /** For pages: 403s through the nearest error boundary. */
 export async function requirePermission(permission: PermissionKey): Promise<CurrentUser> {
@@ -118,9 +159,21 @@ export async function requirePermission(permission: PermissionKey): Promise<Curr
 export async function authorize(permission: PermissionKey): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user) throw new UnauthorizedError();
+  if (user.isLocked) throw new ForbiddenError(LOCKED_MESSAGE);
   if (!user.permissions.has(permission)) {
     throw new ForbiddenError(`You do not have permission to ${permission.replace('.', ' ')}.`);
   }
+  return user;
+}
+
+/**
+ * For self-service server actions that need a signed-in, unlocked user but no
+ * particular permission (own profile, own PIN).
+ */
+export async function authenticate(): Promise<CurrentUser> {
+  const user = await getCurrentUser();
+  if (!user) throw new UnauthorizedError();
+  if (user.isLocked) throw new ForbiddenError(LOCKED_MESSAGE);
   return user;
 }
 

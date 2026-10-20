@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getCurrentUser } from '@/lib/session';
+import { LOCKED_MESSAGE, getCurrentUser } from '@/lib/session';
 import { toNum } from '@/lib/decimal';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { RateLimitError } from '@/lib/errors';
@@ -28,6 +28,9 @@ export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (user.isLocked) {
+    return NextResponse.json({ error: LOCKED_MESSAGE }, { status: 403 });
   }
 
   try {

@@ -14,6 +14,7 @@ import { OWNER_ROLE_SLUG, SYSTEM_ADMIN_ROLE_SLUG } from '@/lib/permissions';
 export interface PlatformAccount {
   id: string;
   name: string;
+  username: string;
   email: string;
   phone: string | null;
   isActive: boolean;
@@ -26,6 +27,7 @@ export interface PlatformAccount {
 const ACCOUNT_SELECT = {
   id: true,
   name: true,
+  username: true,
   email: true,
   phone: true,
   isActive: true,
@@ -37,6 +39,7 @@ const ACCOUNT_SELECT = {
 type AccountRow = {
   id: string;
   name: string;
+  username: string;
   email: string;
   phone: string | null;
   isActive: boolean;
@@ -48,6 +51,7 @@ type AccountRow = {
 const toAccount = (row: AccountRow): PlatformAccount => ({
   id: row.id,
   name: row.name,
+  username: row.username,
   email: row.email,
   phone: row.phone,
   isActive: row.isActive,
@@ -69,6 +73,7 @@ export async function listOwnerAccounts(search?: string): Promise<PlatformAccoun
             OR: [
               { name: { contains: term, mode: 'insensitive' } },
               { email: { contains: term, mode: 'insensitive' } },
+              { username: { contains: term, mode: 'insensitive' } },
             ],
           }
         : {}),

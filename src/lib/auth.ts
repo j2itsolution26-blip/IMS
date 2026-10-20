@@ -1,10 +1,20 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { nextCookies } from 'better-auth/next-js';
+import { username } from 'better-auth/plugins';
 import { prisma } from '@/lib/prisma';
 import { getAppUrl, getTrustedOrigins } from '@/lib/env';
 import { isProvisioning } from '@/lib/provisioning-context';
 import { APIError } from 'better-auth/api';
+import {
+  USERNAME_MAX_LENGTH,
+  USERNAME_MIN_LENGTH,
+  isValidUsername,
+  normalizeUsername,
+} from '@/lib/username';
+
+/** The one message every failed sign-in shows, whatever the actual reason. */
+const INVALID_CREDENTIALS = 'Invalid username/email or password.';
 
 /**
  * Atomically claims the right to create the first Owner account.
@@ -128,10 +138,21 @@ export const auth = betterAuth({
     requireEmailVerification: false,
   },
 
+  // A store counter must stay ready for the next customer, so sessions are
+  // long-lived and sliding: each day the device is used pushes expiry another
+  // 30 days out, so a POS in daily use never signs itself out. Sessions still
+  // live in the database, so they stay revocable — logout, deactivation and a
+  // password reset delete the row, and that takes effect on the next request.
+  //
+  // "Remember this device" unticked (`rememberMe: false`) gives a cookie that
+  // ends when the browser closes, on top of the same server-side expiry.
   session: {
-    expiresIn: 60 * 60 * 24 * 7,
+    expiresIn: 60 * 60 * 24 * 30,
     updateAge: 60 * 60 * 24,
-    cookieCache: { enabled: true, maxAge: 60 * 5 },
+    // Off so a revoked session stops working at once. With the cache on, a
+    // signed copy of the session in a cookie was trusted for up to 5 minutes
+    // after its row was deleted.
+    cookieCache: { enabled: false },
   },
 
   advanced: {
@@ -171,6 +192,15 @@ export const auth = betterAuth({
             }
           }
 
+          // Every account signs in by username, and the column is NOT NULL.
+          // The username plugin has already validated and normalised it and
+          // checked it is free; this turns a missing one into a clear message
+          // instead of a database constraint error.
+          const name = (user as { username?: unknown }).username;
+          if (typeof name !== 'string' || !isValidUsername(normalizeUsername(name))) {
+            throw new APIError('BAD_REQUEST', { message: 'Choose a valid username.' });
+          }
+
           return {
             data: { ...user, roleId: await resolveRoleIdForNewUser() },
           };
@@ -179,6 +209,19 @@ export const auth = betterAuth({
     },
     session: {
       create: {
+        // Both sign-in endpoints (email and username) only check the password.
+        // A deactivated account must not get a session at all, and the refusal
+        // reads exactly like a wrong password so it reveals nothing.
+        before: async (session) => {
+          const owner = await prisma.user.findUnique({
+            where: { id: session.userId },
+            select: { isActive: true },
+          });
+          if (!owner?.isActive) {
+            throw new APIError('UNAUTHORIZED', { message: INVALID_CREDENTIALS });
+          }
+          return { data: session };
+        },
         after: async (session) => {
           // Recording the login here (rather than in the UI) means every entry
           // point — form, API, future SSO — is captured.
@@ -204,7 +247,24 @@ export const auth = betterAuth({
     },
   },
 
-  plugins: [nextCookies()],
+  plugins: [
+    // Adds `username`/`displayUsername` to the user and the
+    // `/sign-in/username` endpoint, on the same accounts, password hashes and
+    // sessions as email sign-in — not a second login system.
+    username({
+      minUsernameLength: USERNAME_MIN_LENGTH,
+      maxUsernameLength: USERNAME_MAX_LENGTH,
+      usernameNormalization: normalizeUsername,
+      // Validate the trimmed, lowercased form, so "Juan.Cruz " is accepted as
+      // "juan.cruz" rather than rejected for its capitals or spaces. The
+      // validator normalises too because the sign-in endpoint passes it the
+      // raw value regardless of `validationOrder`.
+      usernameValidator: (value) => isValidUsername(normalizeUsername(value)),
+      validationOrder: { username: 'post-normalization' },
+    }),
+    // Must stay last: it writes the cookies set by the plugins above.
+    nextCookies(),
+  ],
 });
 
 export type Auth = typeof auth;

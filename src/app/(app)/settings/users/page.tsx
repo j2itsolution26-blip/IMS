@@ -33,6 +33,7 @@ export default async function StaffAccountsPage() {
       select: {
         id: true,
         name: true,
+        username: true,
         email: true,
         phone: true,
         isActive: true,
@@ -59,6 +60,7 @@ export default async function StaffAccountsPage() {
     return {
       id: user.id,
       name: user.name,
+      username: user.username,
       email: user.email,
       phone: user.phone,
       roleId: user.role.id,

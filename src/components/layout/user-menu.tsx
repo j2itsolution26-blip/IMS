@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { LogOut, Settings, User as UserIcon, Users } from 'lucide-react';
+import { Lock, LogOut, Settings, User as UserIcon, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage, Separator } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { authClient } from '@/lib/auth-client';
 import { initials } from '@/lib/utils';
+import { useScreenLock } from '@/features/auth/screen-lock';
 
 interface UserMenuProps {
   name: string;
@@ -26,6 +27,7 @@ interface UserMenuProps {
 
 export function UserMenu({ name, email, image, roleName, canManageSettings, canManageStaff }: UserMenuProps) {
   const [signingOut, setSigningOut] = React.useState(false);
+  const screenLock = useScreenLock();
 
   const onSignOut = async () => {
     setSigningOut(true);
@@ -60,6 +62,12 @@ export function UserMenu({ name, email, image, roleName, canManageSettings, canM
           </p>
         </div>
         <Separator className="my-1" />
+
+        {screenLock && (
+          <DropdownMenuItem onSelect={screenLock.lock}>
+            <Lock /> Lock screen
+          </DropdownMenuItem>
+        )}
 
         <DropdownMenuItem asChild>
           <Link href="/settings/profile">

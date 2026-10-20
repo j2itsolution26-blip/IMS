@@ -27,7 +27,7 @@ async function main() {
 
   console.log('\n1. Account creation mints NO session (the reported bug)');
   const created = await runAsProvisioning(async () =>
-    auth.api.signUpEmail({ body: { name: 'Verify User', email: EMAIL, password: PASSWORD } }));
+    auth.api.signUpEmail({ body: { name: 'Verify User', email: EMAIL, password: PASSWORD, username: 'verify_user' } }));
   const userId = created?.user?.id;
   check('account created', Boolean(userId));
   const sessions = await prisma.session.count({ where: { userId } });
@@ -58,7 +58,7 @@ async function main() {
   check('guard 1: pre-check finds the existing account', Boolean(preCheck));
 
   const dup = await runAsProvisioning(async () =>
-    auth.api.signUpEmail({ body: { name: 'Dup', email: EMAIL, password: PASSWORD } }));
+    auth.api.signUpEmail({ body: { name: 'Dup', email: EMAIL, password: PASSWORD, username: 'verify_dup' } }));
   const phantom = await prisma.user.findUnique({
     where: { id: dup!.user.id }, select: { id: true } });
   check('guard 2: phantom id is not persisted', phantom === null, `id=${dup?.user?.id}`);
@@ -70,7 +70,7 @@ async function main() {
   console.log('\n5. Password policy enforced server-side');
   try {
     await runAsProvisioning(async () =>
-      auth.api.signUpEmail({ body: { name: 'Weak', email: 'weak@localhost.test', password: 'short' } }));
+      auth.api.signUpEmail({ body: { name: 'Weak', email: 'weak@localhost.test', password: 'short', username: 'verify_weak' } }));
     check('weak password rejected', false, 'no error thrown');
     await prisma.user.deleteMany({ where: { email: 'weak@localhost.test' } });
   } catch (e) {
@@ -80,7 +80,7 @@ async function main() {
 
   console.log('\n6. Public sign-up still blocked (no provisioning context)');
   try {
-    await auth.api.signUpEmail({ body: { name: 'Public', email: 'public@localhost.test', password: PASSWORD } });
+    await auth.api.signUpEmail({ body: { name: 'Public', email: 'public@localhost.test', password: PASSWORD, username: 'verify_public' } });
     check('public sign-up blocked', false, 'account was created!');
     await prisma.user.deleteMany({ where: { email: 'public@localhost.test' } });
   } catch (e) {

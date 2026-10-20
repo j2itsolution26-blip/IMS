@@ -21,6 +21,7 @@ import {
 import { EmptyState } from '@/components/empty-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatDateTime } from '@/lib/format';
+import { USERNAME_HINT } from '@/lib/username';
 
 type Dialogs = { kind: 'create' } | { kind: 'reset' | 'toggle'; account: PlatformAccount } | null;
 
@@ -35,12 +36,12 @@ export function OwnerAccountsManager({ accounts }: { accounts: PlatformAccount[]
   const [dialog, setDialog] = React.useState<Dialogs>(null);
   const [busy, setBusy] = React.useState(false);
 
-  const [form, setForm] = React.useState({ name: '', email: '', password: '', phone: '' });
+  const [form, setForm] = React.useState({ name: '', username: '', email: '', password: '', phone: '' });
   const [password, setPassword] = React.useState('');
 
   const close = () => {
     setDialog(null);
-    setForm({ name: '', email: '', password: '', phone: '' });
+    setForm({ name: '', username: '', email: '', password: '', phone: '' });
     setPassword('');
   };
 
@@ -126,7 +127,9 @@ export function OwnerAccountsManager({ accounts }: { accounts: PlatformAccount[]
                 <TableRow key={account.id}>
                   <TableCell>
                     <p className="font-medium">{account.name}</p>
-                    <p className="text-xs text-muted-foreground">{account.roleName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      @{account.username} · {account.roleName}
+                    </p>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{account.email}</TableCell>
                   <TableCell>
@@ -185,6 +188,20 @@ export function OwnerAccountsManager({ accounts }: { accounts: PlatformAccount[]
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 autoFocus
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="owner-username">Username</Label>
+              <Input
+                id="owner-username"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={form.username}
+                onChange={(e) => setForm({ ...form, username: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                {USERNAME_HINT} The owner can sign in with this or their email.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="owner-email">Email address</Label>

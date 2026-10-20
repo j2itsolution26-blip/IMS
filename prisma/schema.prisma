@@ -32,11 +32,19 @@ model User {
   id            String    @id @default(cuid())
   name          String
   email         String    @unique
+  // Sign-in name, stored trimmed and lowercase so uniqueness is
+  // case-insensitive (a CHECK constraint in migration 20261020090000 holds
+  // it to that form). `displayUsername` keeps the capitalisation as typed.
+  username        String  @unique
+  displayUsername String?
   emailVerified Boolean   @default(false)
   image         String?
   phone         String?
   isActive      Boolean   @default(true)
   lastLoginAt   DateTime?
+  // Hash of the POS lock-screen PIN (same hasher as passwords). Optional: with
+  // no PIN the lock screen asks for the account password.
+  posPinHash    String?
 
   roleId String
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
@@ -107,6 +115,12 @@ model Session {
   expiresAt DateTime
   ipAddress String?
   userAgent String?
+
+  // Set while the POS lock screen is up. A locked session stays signed in but
+  // every page and server action refuses it until it is unlocked.
+  lockedAt       DateTime?
+  // Wrong PIN/password attempts on the lock screen since it was last unlocked.
+  unlockFailures Int       @default(0)
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)

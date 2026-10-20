@@ -11,6 +11,7 @@ import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { runAsProvisioning } from '@/lib/provisioning-context';
 import { recordAudit } from '@/server/services/audit-service';
 import { OWNER_ROLE_SLUG, SYSTEM_ADMIN_ROLE_SLUG } from '@/lib/permissions';
+import { normalizeUsername, usernameProblem } from '@/lib/username';
 
 /**
  * Platform administration.
@@ -30,6 +31,13 @@ const passwordSchema = z
 
 const createOwnerSchema = z.object({
   name: z.string().trim().min(2, 'Enter a full name.').max(80),
+  username: z
+    .string()
+    .transform(normalizeUsername)
+    .superRefine((value, ctx) => {
+      const problem = usernameProblem(value);
+      if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+    }),
   email: z.string().trim().toLowerCase().email('Enter a valid email address.'),
   password: passwordSchema,
   phone: z.string().trim().max(40).optional(),
@@ -70,6 +78,16 @@ export async function createOwnerAccount(input: unknown): Promise<ActionResult<{
       });
     }
 
+    const usernameHolder = await prisma.user.findUnique({
+      where: { username: values.username },
+      select: { id: true },
+    });
+    if (usernameHolder) {
+      throw new ValidationError('That username is already taken.', {
+        username: ['This username is already in use.'],
+      });
+    }
+
     // Better Auth owns hashing, so the account is created through it rather
     // than written to the table directly. No session is opened — the admin's
     // own cookie must survive this call.
@@ -77,12 +95,20 @@ export async function createOwnerAccount(input: unknown): Promise<ActionResult<{
     try {
       created = await runAsProvisioning(async () =>
         auth.api.signUpEmail({
-          body: { name: values.name, email: values.email, password: values.password },
+          body: {
+            name: values.name,
+            email: values.email,
+            password: values.password,
+            username: values.username,
+          },
         }),
       );
     } catch (error) {
       if (error instanceof APIError) {
         const message = (error.body as { message?: string } | undefined)?.message ?? error.message;
+        if (/username/i.test(message)) {
+          throw new ValidationError(message, { username: [message] });
+        }
         throw /exist/i.test(message)
           ? new ValidationError('That email address already has an account.', {
               email: ['This email is already registered.'],
@@ -107,7 +133,7 @@ export async function createOwnerAccount(input: unknown): Promise<ActionResult<{
       action: 'CREATE',
       entity: 'User',
       entityId: userId,
-      summary: `Created owner account ${values.email}`,
+      summary: `Created owner account @${values.username} (${values.email})`,
       userId: admin.id,
     });
 
