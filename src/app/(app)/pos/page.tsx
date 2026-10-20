@@ -10,8 +10,10 @@ import { STORE_TIME_ZONE } from '@/lib/store-time';
 export const metadata: Metadata = { title: 'Point of Sale' };
 export const dynamic = 'force-dynamic';
 
-export default async function PosPage() {
+export default async function PosPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const user = await requirePermission('pos.view');
+  // A search started on the dashboard carries on here.
+  const initialQuery = ((await searchParams).q ?? '').trim().slice(0, 80);
 
   const settings = await getSettings();
   const lowStockLevel = readNumber(settings, 'inventory.defaultLowStockLevel');
@@ -19,7 +21,7 @@ export default async function PosPage() {
   const [company, openShift, initialProducts, categoryChips] = await Promise.all([
     getCompanyProfile(),
     getOpenShift(user.id),
-    searchSellableProducts('', 40),
+    searchSellableProducts(initialQuery, 40),
     getPosCategories(lowStockLevel),
   ]);
 
@@ -37,6 +39,7 @@ export default async function PosPage() {
 
       <PosTerminal
         initialProducts={initialProducts}
+        initialQuery={initialQuery}
         currency={company.currency}
         taxRate={readNumber(settings, 'sales.defaultTaxRate')}
         cashierName={user.name}

@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requirePermission, userCan } from '@/lib/session';
+import { getCurrentUser, requirePermission, userCan } from '@/lib/session';
+import { canViewSaleRecord } from '@/lib/sales-scope';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { formatPieces } from '@/lib/quantity';
 import { getSale, getReceiptData } from '@/features/sales/queries';
@@ -19,9 +20,12 @@ import { ReceiptButton } from '@/features/sales/receipt-button';
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const user = await getCurrentUser();
+  if (!user || !userCan(user, 'sales.view')) return { title: 'Sale' };
   const { id } = await params;
   const sale = await getSale(id);
-  return { title: sale?.invoiceNumber ?? 'Sale' };
+  // Same rule as the page: another cashier's invoice number is not named.
+  return { title: sale && canViewSaleRecord(user, sale.cashier.id) ? sale.invoiceNumber : 'Sale' };
 }
 
 export default async function SaleDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -35,7 +39,9 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
     getCurrency(),
     getCompanyProfile(),
   ]);
-  if (!sale) notFound();
+  // A cashier may open only the sales they rang up. Another cashier's sale
+  // answers as missing, so its existence is not confirmed either.
+  if (!sale || !canViewSaleRecord(user, sale.cashier.id)) notFound();
   const receiptData = await getReceiptData(id);
 
   return (

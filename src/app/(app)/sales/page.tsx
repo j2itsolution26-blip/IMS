@@ -6,8 +6,9 @@ import { requirePermission, userCan } from '@/lib/session';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { listCashiers, listSales } from '@/features/sales/queries';
 import { getCurrency } from '@/server/services/settings-service';
-import { inlineLabel, resolveRangeFromParams } from '@/server/analytics/date-range';
-import { getSalesOverview, redactSalesOverviewProfit } from '@/server/analytics/sales-overview';
+import { inlineLabel, resolveRangeFromParams, type DateRange } from '@/server/analytics/date-range';
+import { getSalesOverview, redactSalesOverviewProfit, type SalesOverview } from '@/server/analytics/sales-overview';
+import { salesScopeUserId } from '@/lib/sales-scope';
 import { formatCurrency, formatNumber, humanizeEnum } from '@/lib/format';
 import { SaleInvoiceRows } from '@/features/sales/sale-invoice-rows';
 import { ExportMenu } from '@/features/sales/export-menu';
@@ -60,29 +61,29 @@ export default async function SalesPage({
   // Profit and cost are the owner's. Staff who may view sales see the takings
   // only; the figures are zeroed here, before anything is rendered.
   const canViewProfit = userCan(user, FINANCIAL_PERMISSION);
+  // Store-wide takings are the owner's too. Anyone else sees only the sales
+  // they rang up: the store analytics and the cashier list are not queried.
+  const ownOnly = salesScopeUserId(user);
 
   // One pass for the analytics, one for the paged table beneath it.
   const [rawOverview, cashiers, result] = await Promise.all([
-    getSalesOverview(range),
-    listCashiers(),
+    ownOnly ? null : getSalesOverview(range),
+    ownOnly ? [] : listCashiers(),
     listSales({
       search: params.q,
       status: STATUSES.includes(params.status as SaleStatus) ? (params.status as SaleStatus) : 'ALL',
       paymentMethod: PAYMENT_METHODS.includes(params.method as PaymentMethod)
         ? (params.method as PaymentMethod)
         : undefined,
-      userId: params.cashier || undefined,
+      userId: ownOnly ?? (params.cashier || undefined),
       from: range.from,
       to: range.to,
       page: Number(params.page) || 1,
       includeCost: canViewProfit,
     }),
   ]);
-  const overview = canViewProfit ? rawOverview : redactSalesOverviewProfit(rawOverview);
-
-  const { current, change } = overview.summary;
+  const overview = rawOverview && (canViewProfit ? rawOverview : redactSalesOverviewProfit(rawOverview));
   const label = inlineLabel(range);
-  const comparison = `vs previous ${range.isCustom ? 'period' : label}`;
 
   return (
     <>
@@ -91,9 +92,11 @@ export default async function SalesPage({
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">Sales</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {canViewProfit
-              ? 'Track revenue, profit, transactions, and sales history.'
-              : 'Track revenue, transactions, and sales history.'}
+            {ownOnly
+              ? 'Your own sales and receipts.'
+              : canViewProfit
+                ? 'Track revenue, profit, transactions, and sales history.'
+                : 'Track revenue, transactions, and sales history.'}
           </p>
         </div>
 
@@ -110,6 +113,123 @@ export default async function SalesPage({
         </div>
       </div>
 
+      {overview ? (
+        <StoreSalesAnalytics overview={overview} range={range} currency={currency} canViewProfit={canViewProfit} />
+      ) : (
+        <section aria-label="Your sales summary" className="mb-4 grid gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
+          <KpiCard label="Your sales" value={formatCurrency(result.summary.revenue, currency)} icon={Receipt} hint={label} />
+          <KpiCard label="Your receipts" value={formatNumber(result.summary.count, 0)} icon={ShoppingCart} hint={label} />
+        </section>
+      )}
+
+      {/* Sales history */}
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="text-base font-semibold">Recent sales</h2>
+          <p className="text-xs text-muted-foreground">
+            Every invoice {label}. Voided sales are excluded from the totals above.
+          </p>
+        </div>
+      </div>
+
+      <div className="mb-4 rounded-xl border bg-card p-3 shadow-2xs [&>div]:mb-0">
+        <FilterBar
+          searchPlaceholder="Search invoice number…"
+          selects={[
+            // A viewer limited to their own sales has no other cashier to pick.
+            ...(ownOnly
+              ? []
+              : [
+                  {
+                    name: 'cashier',
+                    label: 'Cashier',
+                    allLabel: 'All cashiers',
+                    width: 'w-[170px]',
+                    options: cashiers.map((cashier) => ({ value: cashier.id, label: cashier.name })),
+                  },
+                ]),
+            {
+              name: 'method',
+              label: 'Payment',
+              allLabel: 'All payments',
+              width: 'w-[150px]',
+              options: PAYMENT_METHODS.map((method) => ({ value: method, label: humanizeEnum(method) })),
+            },
+            {
+              name: 'status',
+              label: 'Status',
+              allLabel: 'All statuses',
+              width: 'w-[180px]',
+              options: STATUSES.map((status) => ({ value: status, label: SALE_STATUS_LABEL[status] })),
+            },
+          ]}
+        />
+      </div>
+
+      <div className="overflow-hidden rounded-xl border bg-card shadow-2xs">
+        {result.rows.length === 0 ? (
+          <EmptyState
+            icon={Receipt}
+            title="No sales in this period"
+            description="Complete a sale at the POS and it will appear here with its full line detail and payments."
+            action={
+              userCan(user, 'pos.create') && (
+                <Button asChild>
+                  <Link href="/pos">Open the POS</Link>
+                </Button>
+              )
+            }
+          />
+        ) : (
+          <>
+            {/* Every column stays present at every width and the table scrolls
+                sideways instead, rather than dropping the unit price, cashier,
+                or payment method on a narrow screen. */}
+            <Table className="min-w-[1000px]">
+              <TableHeader className="bg-muted/40">
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className={HEAD}>Invoice</TableHead>
+                  <TableHead className={HEAD}>Item</TableHead>
+                  <TableHead className={`${HEAD} text-right`}>Qty</TableHead>
+                  <TableHead className={`${HEAD} text-right`}>Unit price</TableHead>
+                  <TableHead className={`${HEAD} text-right`}>Line total</TableHead>
+                  <TableHead className={HEAD}>Cashier</TableHead>
+                  <TableHead className={HEAD}>Payment</TableHead>
+                  <TableHead className={`${HEAD} text-right`}>Invoice total</TableHead>
+                  <TableHead className={HEAD}>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {result.rows.map((sale) => (
+                  <SaleInvoiceRows key={sale.id} sale={sale} currency={currency} />
+                ))}
+              </TableBody>
+            </Table>
+            <PaginationBar page={result.page} pageCount={result.pageCount} total={result.total} />
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** The store-wide figures and charts — only ever rendered for a viewer who may read every sale. */
+function StoreSalesAnalytics({
+  overview,
+  range,
+  currency,
+  canViewProfit,
+}: {
+  overview: SalesOverview;
+  range: DateRange;
+  currency: string;
+  canViewProfit: boolean;
+}) {
+  const { current, change } = overview.summary;
+  const comparison = `vs previous ${range.isCustom ? 'period' : inlineLabel(range)}`;
+
+  return (
+    <>
       {/* KPIs */}
       <section aria-label="Sales summary" className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <KpiCard
@@ -203,89 +323,6 @@ export default async function SalesPage({
         />
         <CategorySalesPanel categories={overview.categories} currency={currency} />
         <HourlySalesPanel hourly={overview.hourly} currency={currency} rangeLabel={range.label} />
-      </div>
-
-      {/* Sales history */}
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h2 className="text-base font-semibold">Recent sales</h2>
-          <p className="text-xs text-muted-foreground">
-            Every invoice {label}. Voided sales are excluded from the totals above.
-          </p>
-        </div>
-      </div>
-
-      <div className="mb-4 rounded-xl border bg-card p-3 shadow-2xs [&>div]:mb-0">
-        <FilterBar
-          searchPlaceholder="Search invoice number…"
-          selects={[
-            {
-              name: 'cashier',
-              label: 'Cashier',
-              allLabel: 'All cashiers',
-              width: 'w-[170px]',
-              options: cashiers.map((cashier) => ({ value: cashier.id, label: cashier.name })),
-            },
-            {
-              name: 'method',
-              label: 'Payment',
-              allLabel: 'All payments',
-              width: 'w-[150px]',
-              options: PAYMENT_METHODS.map((method) => ({ value: method, label: humanizeEnum(method) })),
-            },
-            {
-              name: 'status',
-              label: 'Status',
-              allLabel: 'All statuses',
-              width: 'w-[180px]',
-              options: STATUSES.map((status) => ({ value: status, label: SALE_STATUS_LABEL[status] })),
-            },
-          ]}
-        />
-      </div>
-
-      <div className="overflow-hidden rounded-xl border bg-card shadow-2xs">
-        {result.rows.length === 0 ? (
-          <EmptyState
-            icon={Receipt}
-            title="No sales in this period"
-            description="Complete a sale at the POS and it will appear here with its full line detail and payments."
-            action={
-              userCan(user, 'pos.create') && (
-                <Button asChild>
-                  <Link href="/pos">Open the POS</Link>
-                </Button>
-              )
-            }
-          />
-        ) : (
-          <>
-            {/* Every column stays present at every width and the table scrolls
-                sideways instead, rather than dropping the unit price, cashier,
-                or payment method on a narrow screen. */}
-            <Table className="min-w-[1000px]">
-              <TableHeader className="bg-muted/40">
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className={HEAD}>Invoice</TableHead>
-                  <TableHead className={HEAD}>Item</TableHead>
-                  <TableHead className={`${HEAD} text-right`}>Qty</TableHead>
-                  <TableHead className={`${HEAD} text-right`}>Unit price</TableHead>
-                  <TableHead className={`${HEAD} text-right`}>Line total</TableHead>
-                  <TableHead className={HEAD}>Cashier</TableHead>
-                  <TableHead className={HEAD}>Payment</TableHead>
-                  <TableHead className={`${HEAD} text-right`}>Invoice total</TableHead>
-                  <TableHead className={HEAD}>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {result.rows.map((sale) => (
-                  <SaleInvoiceRows key={sale.id} sale={sale} currency={currency} />
-                ))}
-              </TableBody>
-            </Table>
-            <PaginationBar page={result.page} pageCount={result.pageCount} total={result.total} />
-          </>
-        )}
       </div>
     </>
   );

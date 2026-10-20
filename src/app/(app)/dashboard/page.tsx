@@ -8,9 +8,9 @@ import { resolveDashboardVariant } from '@/lib/dashboard-access';
 import { cn } from '@/lib/utils';
 import { resolveRangeFromParams } from '@/server/analytics/date-range';
 import { getDashboardOverview } from '@/server/analytics/dashboard-overview';
-import { getInventoryDashboard, getInventoryKpis } from '@/server/analytics/inventory-dashboard';
+import { getInventoryDashboard } from '@/server/analytics/inventory-dashboard';
 import { getStockLevels } from '@/server/analytics/inventory-analytics';
-import { getOpenShift, previewShiftClose } from '@/server/services/shift-service';
+import { getCashierDashboard } from '@/server/analytics/cashier-dashboard';
 import { getSettings, readString } from '@/server/services/settings-service';
 import { DASHBOARD_PERIODS, DashboardView, type DashboardQuery } from '@/features/dashboard/dashboard-view';
 import {
@@ -43,7 +43,7 @@ type SearchParams = {
  *   Owner           — Sales Dashboard (with cost and profit), plus the
  *                     Inventory Operations view under ?view=inventory
  *   Inventory Staff — Inventory Operations Dashboard only
- *   Cashier         — Till dashboard: own shift, availability, low stock
+ *   Cashier         — Cashier dashboard: POS access, own takings, stock alerts
  *   Platform admin  — redirected to /system-admin
  *
  * Only the chosen variant's queries run, so a role never receives — in the
@@ -183,24 +183,17 @@ async function renderInventory({
 }
 
 async function renderCashier(user: CurrentUser, currency: string) {
-  const shift = await getOpenShift(user.id);
-  const [shiftTotals, kpis, out, low] = await Promise.all([
-    // The cashier's own shift only — never the store's takings.
-    shift ? previewShiftClose(user.id) : null,
-    getInventoryKpis(),
-    getStockLevels({ status: 'OUT_OF_STOCK', sort: 'name', page: 1, pageSize: 10 }),
-    getStockLevels({ status: 'LOW_ANY', sort: 'attention', page: 1, pageSize: 10 }),
-  ]);
+  // The cashier's own sales and drawer cash only — never the store's takings.
+  const data = await getCashierDashboard(user.id);
 
   return (
     <CashierDashboardView
       cashierName={user.name}
-      shift={shift}
-      shiftTotals={shiftTotals}
-      kpis={kpis}
-      runningOut={[...out.rows, ...low.rows].slice(0, 10)}
-      canSell={userCan(user, 'pos.create')}
+      data={data}
       currency={currency}
+      canSell={userCan(user, 'pos.create')}
+      canViewSales={userCan(user, 'sales.view')}
+      canViewInventory={userCan(user, 'inventory.view')}
     />
   );
 }

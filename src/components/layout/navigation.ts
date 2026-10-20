@@ -98,8 +98,11 @@ export const NAVIGATION: NavSection[] = [
     label: 'Store',
     items: [
       // The sidebar drops items a role cannot open, so Inventory Staff see
-      // Dashboard → Products → Inventory → Reports, and a cashier Dashboard → POS.
+      // Dashboard → Products → Inventory → Reports, and a cashier
+      // Dashboard → POS → Products → Inventory → Reports → Sales. POS sits
+      // second because ringing up sales is a cashier's whole day.
       { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permission: 'dashboard.view' },
+      { label: 'POS', href: '/pos', icon: ScanBarcode, permission: 'pos.view' },
       {
         label: 'Products',
         icon: Package,
@@ -120,7 +123,6 @@ export const NAVIGATION: NavSection[] = [
         match: ['/inventory/movements', '/inventory/adjustments'],
       },
       { label: 'Reports', href: '/reports', icon: FileBarChart, permission: 'reports.view' },
-      { label: 'POS', href: '/pos', icon: ScanBarcode, permission: 'pos.view' },
       { label: 'Sales', href: '/sales', icon: ShoppingCart, permission: 'sales.view' },
       { label: 'Settings', href: '/settings', icon: Settings, permission: 'settings.view', exact: true },
     ],

@@ -1,142 +1,340 @@
 import Link from 'next/link';
-import { Clock, PackageCheck, PackageX, Receipt, ScanBarcode, ShoppingCart, TriangleAlert } from 'lucide-react';
-import type { InventoryKpis } from '@/server/analytics/inventory-dashboard';
-import type { StockLevelRow } from '@/server/analytics/inventory-analytics';
-import type { OpenShiftSummary, ShiftCloseSummary } from '@/server/services/shift-service';
-import { formatCurrency, formatDateTime, formatNumber } from '@/lib/format';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Banknote,
+  Clock,
+  PackageCheck,
+  PackageSearch,
+  Receipt,
+  ShoppingCart,
+  TriangleAlert,
+} from 'lucide-react';
+import type { SaleStatus } from '@prisma/client';
+import type { CashierDashboardData, CashierRecentSale } from '@/server/analytics/cashier-dashboard';
+import { formatCurrency, formatDateTime, formatNumber, formatTime } from '@/lib/format';
 import { formatPieces } from '@/lib/quantity';
 import { cn } from '@/lib/utils';
 import { Panel, PanelEmpty } from '@/components/panel';
 import { ProductImage } from '@/components/product-image';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { KpiCard } from '@/features/dashboard/kpi-card';
+import { PosQuickAccess } from '@/features/dashboard/pos-quick-access';
 
 /**
- * The Cashier dashboard: what someone at the till needs before and during a
- * shift. Their own shift's takings, which products are running out (so a
- * customer can be told before checkout), and the way to the POS.
+ * The Cashier dashboard: the way into the till, the cashier's own takings,
+ * and what is running out.
  *
- * It deliberately carries no store-wide revenue, cost or profit. The page
- * that renders it never queries them for a cashier.
+ * Every money figure is the signed-in cashier's own — their transactions,
+ * their drawer cash — read on the server by `getCashierDashboard`. It carries
+ * no store-wide revenue, cost or profit; the page never queries them for a
+ * cashier.
  */
+
+const STATUS: Record<SaleStatus, { label: string; variant: 'success' | 'warning' | 'destructive' }> = {
+  COMPLETED: { label: 'Completed', variant: 'success' },
+  PARTIALLY_RETURNED: { label: 'Partly refunded', variant: 'warning' },
+  RETURNED: { label: 'Refunded', variant: 'warning' },
+  VOIDED: { label: 'Voided', variant: 'destructive' },
+};
+
+const METHOD: Record<string, string> = { CASH: 'Cash', GCASH: 'GCash', CARD: 'Card', OTHER: 'Other', Split: 'Split' };
+
 export function CashierDashboardView({
   cashierName,
-  shift,
-  shiftTotals,
-  kpis,
-  runningOut,
-  canSell,
+  data,
   currency,
+  canSell,
+  canViewSales,
+  canViewInventory,
 }: {
   cashierName: string;
-  shift: OpenShiftSummary | null;
-  /** Totals for the cashier's own open shift only. */
-  shiftTotals: ShiftCloseSummary | null;
-  kpis: InventoryKpis;
-  runningOut: StockLevelRow[];
-  canSell: boolean;
+  data: CashierDashboardData;
   currency: string;
+  canSell: boolean;
+  canViewSales: boolean;
+  canViewInventory: boolean;
 }) {
+  const { shift } = data;
+  const cashHint =
+    data.cashWindow.kind === 'shift'
+      ? `This shift, since ${formatTime(data.cashWindow.since)}`
+      : 'Today · no shift open';
+
   return (
     <>
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">Till Dashboard</h1>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">Cashier Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Hello, <span className="font-medium text-foreground">{cashierName}</span>. Your shift and what is running out.
+            Hello, <span className="font-medium text-foreground">{cashierName}</span>. Your sales and what is running out.
           </p>
         </div>
-        {canSell && (
-          <Button asChild size="lg" className="h-11 rounded-xl">
-            <Link href="/pos">
-              <ScanBarcode /> Open POS
-            </Link>
-          </Button>
-        )}
+        <ShiftStatus openedAt={shift?.openedAt ?? null} canSell={canSell} />
       </div>
 
-      <section aria-label="Your shift and stock availability" className="mb-4 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
-        {shift && shiftTotals ? (
-          <>
-            <KpiCard
-              label="Your shift sales"
-              value={formatCurrency(shiftTotals.totalSales, currency)}
-              icon={Receipt}
-              hint={`Since ${formatDateTime(shift.openedAt)}`}
-            />
-            <KpiCard
-              label="Your transactions"
-              value={formatNumber(shiftTotals.transactionCount, 0)}
-              icon={ShoppingCart}
-              hint="This shift"
-            />
-          </>
-        ) : (
-          <div className="flex flex-col justify-between rounded-xl border border-dashed bg-card p-4 min-[420px]:col-span-2">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Clock className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> No shift open
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Open a shift at the POS with your starting cash. Your sales for the shift will show here.
-            </p>
-          </div>
-        )}
-        <KpiCard
-          label="Low stock"
-          value={formatNumber(kpis.lowStock, 0)}
-          icon={TriangleAlert}
-          tone={kpis.lowStock > 0 ? 'warning' : 'default'}
-          hint="Running out — tell the owner"
-          href="/inventory?status=LOW_ANY"
+      {canSell && <PosQuickAccess currency={currency} />}
+
+      <section aria-label="Your figures and stock" className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat
+          label="Transactions today"
+          value={formatNumber(data.transactionsToday, 0)}
+          hint="Your completed sales"
+          icon={ShoppingCart}
         />
-        <KpiCard
-          label="Out of stock"
-          value={formatNumber(kpis.outOfStock, 0)}
-          icon={PackageX}
-          tone={kpis.outOfStock > 0 ? 'destructive' : 'default'}
-          hint={kpis.outOfStock > 0 ? 'Cannot be sold right now' : 'Everything can be sold'}
-          href="/inventory?status=OUT_OF_STOCK"
+        <Stat
+          label="Cash collected"
+          value={formatCurrency(data.cashCollected, currency)}
+          hint={cashHint}
+          icon={Banknote}
+        />
+        <Stat
+          label="Products available"
+          value={formatNumber(data.productsAvailable, 0)}
+          hint="Active and in stock"
+          icon={PackageCheck}
+        />
+        <Stat
+          label="Low stock alerts"
+          value={formatNumber(data.lowStockAlerts, 0)}
+          hint={data.outOfStock > 0 ? `${formatNumber(data.outOfStock, 0)} out of stock` : 'At or below reorder level'}
+          icon={TriangleAlert}
+          tone={data.outOfStock > 0 ? 'destructive' : data.lowStockAlerts > 0 ? 'warning' : 'default'}
+          href={canViewInventory ? '/inventory?status=LOW_ANY' : undefined}
         />
       </section>
 
-      <Panel
-        title="Running out"
-        description="Out of stock first, then low. Check these before ringing up a large order."
-        action={
-          <Link href="/inventory?status=LOW_ANY" className="text-xs font-semibold text-primary hover:underline">
+      <div className="grid items-start gap-4 lg:grid-cols-5">
+        <RecentTransactions
+          sales={data.recentSales}
+          currency={currency}
+          canViewSales={canViewSales}
+          canSell={canSell}
+          className="lg:col-span-3"
+        />
+        <StockAlerts alerts={data.stockAlerts} canViewInventory={canViewInventory} className="lg:col-span-2" />
+      </div>
+    </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+function ShiftStatus({ openedAt, canSell }: { openedAt: Date | null; canSell: boolean }) {
+  if (openedAt) {
+    return (
+      <span className="inline-flex min-h-9 items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3 text-sm font-medium text-success">
+        <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
+        Shift open since {formatTime(openedAt)}
+      </span>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="inline-flex min-h-9 items-center gap-2 rounded-full border bg-muted px-3 text-sm font-medium text-muted-foreground">
+        <Clock className="h-4 w-4" aria-hidden="true" /> No shift open
+      </span>
+      {canSell && (
+        <Button asChild variant="outline" className="h-9">
+          {/* Shifts are opened at the till, with the starting cash counted there. */}
+          <Link href="/pos">Open shift at POS</Link>
+        </Button>
+      )}
+    </div>
+  );
+}
+
+const STAT_TONE = {
+  default: 'bg-primary/10 text-primary',
+  warning: 'bg-warning/15 text-warning',
+  destructive: 'bg-destructive/10 text-destructive',
+} as const;
+
+/**
+ * A compact headline figure. Sized for two to a row on a phone, where the
+ * dashboard-wide KPI card's large numerals would not fit a currency amount.
+ */
+function Stat({
+  label,
+  value,
+  hint,
+  icon: Icon,
+  tone = 'default',
+  href,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  icon: LucideIcon;
+  tone?: keyof typeof STAT_TONE;
+  href?: string;
+}) {
+  const body = (
+    <div
+      className={cn(
+        'flex h-full min-w-0 flex-col rounded-xl border bg-card p-3 shadow-2xs transition-colors sm:p-4',
+        href && 'hover:border-primary/40',
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[11px] font-medium uppercase leading-tight tracking-wide text-muted-foreground sm:text-xs">
+          {label}
+        </p>
+        <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg sm:h-8 sm:w-8', STAT_TONE[tone])}>
+          <Icon className="h-4 w-4" aria-hidden="true" />
+        </span>
+      </div>
+      <p className="tabular mt-2 break-words text-xl font-bold leading-tight tracking-tight sm:text-2xl">{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+
+  return href ? (
+    <Link
+      href={href}
+      className="block min-w-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    >
+      {body}
+    </Link>
+  ) : (
+    body
+  );
+}
+
+function RecentTransactions({
+  sales,
+  currency,
+  canViewSales,
+  canSell,
+  className,
+}: {
+  sales: CashierRecentSale[];
+  currency: string;
+  canViewSales: boolean;
+  canSell: boolean;
+  className?: string;
+}) {
+  return (
+    <Panel
+      title="Your recent transactions"
+      description="Your latest receipts, voided and refunded ones included."
+      className={className}
+      action={
+        canViewSales && sales.length > 0 ? (
+          <Link href="/sales" className="inline-flex min-h-9 items-center text-xs font-semibold text-primary hover:underline">
             View all
           </Link>
-        }
-      >
-        {runningOut.length === 0 ? (
-          <PanelEmpty icon={PackageCheck} title="Everything is in stock" description="No product is at or below its low-stock level." />
-        ) : (
-          <ul className="grid divide-y sm:grid-cols-2 sm:divide-y-0">
-            {runningOut.map((row) => {
-              const out = row.available <= 0;
-              return (
-                <li key={row.productId} className="flex items-center gap-3 px-4 py-2.5 sm:border-b">
-                  <ProductImage src={row.imageUrl} alt={row.name} size="sm" className="h-9 w-9 shrink-0 rounded-lg" />
-                  <div className="min-w-0 flex-1">
-                    <Link href={`/products/${row.productId}`} className="block truncate text-sm font-medium hover:underline">
-                      {row.name}
-                    </Link>
-                    <p className="truncate text-xs text-muted-foreground">{row.barcode ?? row.sku}</p>
-                  </div>
+        ) : undefined
+      }
+    >
+      {sales.length === 0 ? (
+        <PanelEmpty
+          icon={Receipt}
+          title="No transactions yet"
+          description="Sales you ring up at the POS appear here with their receipts."
+          action={
+            canSell ? (
+              <Button asChild size="sm">
+                <Link href="/pos">Open the POS</Link>
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <ul className="divide-y">
+          {sales.map((sale) => {
+            const status = STATUS[sale.status];
+            return (
+              <li key={sale.id} className="flex items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-mono text-sm font-medium">{sale.invoiceNumber}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {formatDateTime(sale.createdAt)}
+                    {sale.paymentMethod ? ` · ${METHOD[sale.paymentMethod] ?? sale.paymentMethod}` : ''}
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
                   <span
                     className={cn(
-                      'tabular shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold',
-                      out ? 'bg-destructive/10 text-destructive' : 'bg-warning/15 text-warning',
+                      'tabular text-sm font-semibold',
+                      sale.status === 'VOIDED' && 'text-muted-foreground line-through',
                     )}
                   >
-                    {out ? 'Out of stock' : `${formatPieces(row.available)} left`}
+                    {formatCurrency(sale.total, currency)}
                   </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Panel>
-    </>
+                  <Badge variant={status.variant} className="px-2 py-0 text-[11px]">
+                    {status.label}
+                  </Badge>
+                </div>
+                {canViewSales && (
+                  <Button asChild variant="ghost" size="sm" className="h-10 shrink-0 px-2.5">
+                    <Link href={`/sales/${sale.id}`} aria-label={`View receipt ${sale.invoiceNumber}`}>
+                      <Receipt /> <span className="hidden sm:inline">Receipt</span>
+                    </Link>
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+function StockAlerts({
+  alerts,
+  canViewInventory,
+  className,
+}: {
+  alerts: CashierDashboardData['stockAlerts'];
+  canViewInventory: boolean;
+  className?: string;
+}) {
+  return (
+    <Panel
+      title="Inventory alerts"
+      description="Out of stock first, then low. Tell a customer before ringing up a large order."
+      className={className}
+      action={
+        canViewInventory ? (
+          <Link
+            href="/inventory?status=LOW_ANY"
+            className="inline-flex min-h-9 items-center text-xs font-semibold text-primary hover:underline"
+          >
+            View Inventory
+          </Link>
+        ) : undefined
+      }
+    >
+      {alerts.length === 0 ? (
+        <PanelEmpty icon={PackageSearch} title="Everything is in stock" description="No product is at or below its reorder level." />
+      ) : (
+        <ul className="divide-y">
+          {alerts.map((row) => {
+            const out = row.available <= 0;
+            return (
+              <li key={row.productId} className="flex items-center gap-3 px-4 py-2.5">
+                <ProductImage src={row.imageUrl} alt={row.name} size="sm" className="h-9 w-9 shrink-0 rounded-lg" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{row.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {row.code}
+                    {row.threshold > 0 ? ` · reorder at ${formatPieces(row.threshold)}` : ''}
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    'tabular shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold',
+                    out ? 'bg-destructive/10 text-destructive' : 'bg-warning/15 text-warning',
+                  )}
+                >
+                  {out ? 'Out of stock' : `${formatPieces(row.available)} left`}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Panel>
   );
 }

@@ -215,10 +215,14 @@ export async function getSale(id: string, { includeCost = false }: { includeCost
 
 export type SaleDetail = NonNullable<Awaited<ReturnType<typeof getSale>>>;
 
-/** Assembles the same receipt shape the till prints, for "View/Print receipt" after the fact. */
-export async function getReceiptData(id: string) {
+/**
+ * Assembles the same receipt shape the till prints, for "View/Print receipt"
+ * after the fact. With `cashierId` set, a sale rung up by anyone else comes
+ * back as null — see `salesScopeUserId`.
+ */
+export async function getReceiptData(id: string, { cashierId = null }: { cashierId?: string | null } = {}) {
   const sale = await getSale(id);
-  if (!sale) return null;
+  if (!sale || (cashierId !== null && sale.cashier.id !== cashierId)) return null;
 
   return {
     invoiceNumber: sale.invoiceNumber,

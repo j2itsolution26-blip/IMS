@@ -5,6 +5,7 @@ import { toNum } from '@/lib/decimal';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { RateLimitError } from '@/lib/errors';
 import { formatDate } from '@/lib/format';
+import { salesScopeUserId } from '@/lib/sales-scope';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,10 +76,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (user.permissions.has('sales.view')) {
+    const salesScope = salesScopeUserId(user);
     tasks.push(
       prisma.sale
         .findMany({
-          where: { invoiceNumber: contains },
+          // A cashier finds only the sales they rang up — see `salesScopeUserId`.
+          where: { invoiceNumber: contains, ...(salesScope ? { userId: salesScope } : {}) },
           select: { id: true, invoiceNumber: true, total: true, createdAt: true },
           take: 4,
           orderBy: { createdAt: 'desc' },

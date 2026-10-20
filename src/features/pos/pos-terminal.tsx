@@ -77,6 +77,8 @@ export interface OpenShiftInfo {
 
 export interface PosTerminalProps {
   initialProducts: SellableProduct[];
+  /** Pre-fills the search box, e.g. a lookup carried over from the dashboard. */
+  initialQuery?: string;
   currency: string;
   taxRate: number;
   company: {
@@ -159,6 +161,7 @@ function currencySymbolFor(currency: string): string {
 
 export function PosTerminal({
   initialProducts,
+  initialQuery = '',
   currency,
   taxRate,
   company,
@@ -173,7 +176,7 @@ export function PosTerminal({
 }: PosTerminalProps) {
   const router = useRouter();
 
-  const [term, setTerm] = React.useState('');
+  const [term, setTerm] = React.useState(initialQuery);
   const [products, setProducts] = React.useState(initialProducts);
   const [searching, setSearching] = React.useState(false);
 

@@ -8,6 +8,7 @@ import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { voidSale } from '@/server/services/sale-service';
 import { createSaleReturn } from '@/server/services/return-service';
 import { getReceiptData } from '@/features/sales/queries';
+import { salesScopeUserId } from '@/lib/sales-scope';
 import { getCompanyProfile } from '@/server/services/settings-service';
 import type { ReceiptData } from '@/features/pos/receipt';
 
@@ -19,9 +20,13 @@ import type { ReceiptData } from '@/features/pos/receipt';
  */
 export async function getSaleReceiptAction(saleId: string): Promise<ActionResult<ReceiptData | null>> {
   return runAction(async () => {
-    await authorize('sales.view');
+    const user = await authorize('sales.view');
 
-    const [receipt, company] = await Promise.all([getReceiptData(saleId), getCompanyProfile()]);
+    // A cashier reprints only their own receipts; anything else reads as missing.
+    const [receipt, company] = await Promise.all([
+      getReceiptData(saleId, { cashierId: salesScopeUserId(user) }),
+      getCompanyProfile(),
+    ]);
     if (!receipt) return null;
 
     return {

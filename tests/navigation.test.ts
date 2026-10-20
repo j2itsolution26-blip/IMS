@@ -24,8 +24,8 @@ const grantedFor = (slug: string) => {
   return new Set<string>(resolveRolePermissions(role));
 };
 
-test('store navigation puts Products directly below Dashboard', () => {
-  assert.deepEqual(labels(store.items).slice(0, 4), ['Dashboard', 'Products', 'Inventory', 'Reports']);
+test('store navigation puts POS directly below Dashboard, then Products', () => {
+  assert.deepEqual(labels(store.items).slice(0, 5), ['Dashboard', 'POS', 'Products', 'Inventory', 'Reports']);
   assert.ok(isNavGroup(products));
   assert.deepEqual(labels(products.children), ['All Products', 'Categories', 'Stock Management']);
 });
