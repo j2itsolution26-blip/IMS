@@ -1,23 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Boxes, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, ShieldCheck } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
 import { SignUpForm } from '@/features/auth/sign-up-form';
 
 export const metadata: Metadata = { title: 'Create owner account' };
 export const dynamic = 'force-dynamic';
-
-/** Small brand lockup repeated at the top of every state this page can render. */
-function BrandHeader() {
-  return (
-    <div className="mb-6 flex items-center gap-2.5 lg:hidden">
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-        <Boxes className="h-4.5 w-4.5" />
-      </span>
-      <span className="text-base font-semibold tracking-tight">Point of Sale</span>
-    </div>
-  );
-}
 
 /** Primary-button-styled link, matching the sign-in page's "Create Owner Account" CTA. */
 function BackToSignIn() {
@@ -50,7 +38,6 @@ export default async function SignUpPage() {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
-          <BrandHeader />
           <h1 className="text-2xl font-bold tracking-tight">Database not reachable</h1>
           <p className="text-sm text-muted-foreground">
             The application could not connect to PostgreSQL.
@@ -89,7 +76,6 @@ export default async function SignUpPage() {
     return (
       <div className="space-y-8">
         <div className="space-y-2">
-          <BrandHeader />
           <div className="mb-1 flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 className="h-4 w-4" />
             <span className="text-xs font-semibold uppercase tracking-wide">Setup complete</span>
@@ -113,7 +99,6 @@ export default async function SignUpPage() {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
-          <BrandHeader />
           <h1 className="text-2xl font-bold tracking-tight">Finish the database setup</h1>
           <p className="text-sm text-muted-foreground">
             Roles and permissions have not been installed yet.
@@ -133,9 +118,7 @@ export default async function SignUpPage() {
 
   return (
     <div className="space-y-8">
-      {/* ── Brand header ── */}
       <div className="space-y-2">
-        <BrandHeader />
 
         <div className="mb-1 flex items-center gap-2 text-primary">
           <ShieldCheck className="h-4 w-4" />

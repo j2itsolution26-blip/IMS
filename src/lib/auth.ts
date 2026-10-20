@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getAppUrl, getTrustedOrigins } from '@/lib/env';
 import { isProvisioning } from '@/lib/provisioning-context';
 import { APIError } from 'better-auth/api';
+import { APP_NAME } from '@/lib/brand';
 import {
   USERNAME_MAX_LENGTH,
   USERNAME_MIN_LENGTH,
@@ -107,7 +108,7 @@ async function resolveRoleIdForNewUser(): Promise<string> {
 }
 
 export const auth = betterAuth({
-  appName: 'Point of Sale',
+  appName: APP_NAME,
   baseURL: getAppUrl(),
   // A Vercel deployment is reachable on its production domain, its branch
   // alias, and a unique per-deployment URL simultaneously. Trusting only

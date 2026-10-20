@@ -1,7 +1,10 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { Menu } from 'lucide-react';
+import { BrandMark } from '@/components/brand';
+import { APP_NAME } from '@/lib/brand';
 import { Button } from '@/components/ui/button';
 import { Sidebar, type UserInfo } from '@/components/layout/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -104,6 +107,15 @@ export function AppShell({
           >
             <Menu className="h-5 w-5" />
           </Button>
+
+          {/* The sidebar carries the brand on desktop; below lg it is a drawer. */}
+          <Link
+            href="/dashboard"
+            className="hidden shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:block lg:hidden"
+            aria-label={`${APP_NAME} dashboard`}
+          >
+            <BrandMark className="h-8 w-8 rounded-md" />
+          </Link>
 
           <GlobalSearch />
 

@@ -100,7 +100,7 @@ export function SignInForm({ redirectTo }: { redirectTo: string }) {
       {/* ── Username or email field ── */}
       <div className="space-y-2">
         <Label htmlFor="identifier" className="text-sm font-medium">
-          Username or Email
+          Username or email
         </Label>
         <div className="relative">
           <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">

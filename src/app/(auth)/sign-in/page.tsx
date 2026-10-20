@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { Boxes } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
 import { SignInForm } from '@/features/auth/sign-in-form';
 
@@ -43,21 +43,11 @@ export default async function SignInPage({
   const sessionExpired = reason === 'session-expired';
 
   return (
-    <div className="space-y-8">
-      {/* ── Brand header ── */}
-      <div className="space-y-2">
-        <div className="mb-6 flex items-center gap-2.5 lg:hidden">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-            <Boxes className="h-4.5 w-4.5" />
-          </span>
-          <span className="text-base font-semibold tracking-tight">
-            Point of Sale
-          </span>
-        </div>
-
+    <div className="space-y-6">
+      <div className="space-y-1.5">
         <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
         <p className="text-sm text-muted-foreground">
-          Sign in to access your inventory dashboard.
+          Sign in to your TindahanProMax account.
         </p>
       </div>
 
@@ -77,6 +67,15 @@ export default async function SignInPage({
 
       {/* ── Sign-in form ── */}
       <SignInForm redirectTo={next ?? '/dashboard'} />
+
+      {/* There is no self-service recovery: owners reset staff passwords. */}
+      <div className="space-y-3 border-t pt-5 text-center text-xs text-muted-foreground">
+        <p>Forgot your password? Ask your store owner to reset it.</p>
+        <p className="flex items-center justify-center gap-1.5">
+          <Lock className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          Secure access &bull; Only authorized staff can sign in
+        </p>
+      </div>
     </div>
   );
 }

@@ -1,183 +1,104 @@
-import { Boxes, BarChart3, Package, TrendingUp, ShieldCheck } from 'lucide-react';
+import { Boxes, ScanBarcode, ShieldCheck, TrendingUp } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { BrandLogo } from '@/components/brand';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { APP_NAME } from '@/lib/brand';
+
+const FEATURES: { icon: LucideIcon; title: string; text: string }[] = [
+  { icon: ScanBarcode, title: 'Fast Checkout', text: 'Scan, total and print in seconds.' },
+  { icon: Boxes, title: 'Smart Inventory', text: 'Know what is running low before it runs out.' },
+  { icon: TrendingUp, title: 'Sales Insights', text: "See today's sales and best sellers at a glance." },
+];
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh">
-      {/* ── Left branding panel ── */}
-      <div className="relative hidden w-[55%] overflow-hidden bg-gradient-to-br from-[#0F172A] via-[#1E293B] to-[#0F172A] lg:flex lg:flex-col lg:justify-between">
-        {/* Subtle grid pattern overlay */}
+      {/* ── Branding panel (desktop only) ── */}
+      <aside className="relative hidden w-[52%] overflow-hidden bg-[#0B1A2E] text-white lg:flex">
+        {/* Emerald glow, kept low so text stays the focus. */}
+        <div
+          className="pointer-events-none absolute inset-0"
+          aria-hidden="true"
+          style={{
+            backgroundImage:
+              'radial-gradient(60% 50% at 0% 0%, rgba(16,185,129,0.22), transparent 70%),' +
+              'radial-gradient(50% 45% at 100% 100%, rgba(34,197,94,0.16), transparent 70%),' +
+              'radial-gradient(30% 25% at 85% 10%, rgba(245,158,11,0.08), transparent 70%)',
+          }}
+        />
+        {/* Shelf-like grid that fades out towards the edges. */}
         <svg
-          className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.04]"
+          className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.07] [mask-image:radial-gradient(ellipse_at_center,black_35%,transparent_80%)]"
           aria-hidden="true"
         >
           <defs>
-            <pattern id="auth-grid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="1" />
+            <pattern id="auth-grid" width="48" height="48" patternUnits="userSpaceOnUse">
+              <path d="M 48 0 L 0 0 0 48" fill="none" stroke="white" strokeWidth="1" />
+              <circle cx="0" cy="0" r="1.5" fill="white" />
             </pattern>
           </defs>
           <rect width="100%" height="100%" fill="url(#auth-grid)" />
         </svg>
 
-        {/* Decorative gradient blobs */}
-        <div className="pointer-events-none absolute -left-24 -top-24 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-32 -right-32 h-[28rem] w-[28rem] rounded-full bg-blue-600/8 blur-3xl" />
+        <div className="relative z-10 mx-auto flex w-full max-w-2xl flex-col justify-between gap-10 p-10 xl:p-14">
+          <BrandLogo
+            priority
+            sizes="(min-width: 1280px) 340px, 280px"
+            className="w-[280px] drop-shadow-[0_12px_32px_rgba(0,0,0,0.35)] xl:w-[340px]"
+          />
 
-        {/* Top: Brand */}
-        <div className="relative z-10 p-10">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/25">
-              <Boxes className="h-5 w-5" />
-            </span>
-            <span className="text-lg font-semibold tracking-tight text-white">
-              Point of Sale
-            </span>
-          </div>
-        </div>
-
-        {/* Center: Hero illustration + messaging */}
-        <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-10">
-          {/* Illustration */}
-          <div className="mb-10 w-full max-w-md">
-            <AuthIllustration />
-          </div>
-
-          {/* Value proposition */}
-          <div className="w-full max-w-md text-center">
-            <h2 className="text-2xl font-bold tracking-tight text-white xl:text-3xl">
-              Manage inventory with confidence
+          <div>
+            <h2 className="text-4xl font-bold leading-tight tracking-tight xl:text-5xl">
+              Your Store. <span className="text-emerald-400">Smarter.</span>
             </h2>
-            <p className="mt-3 text-base leading-relaxed text-slate-400">
-              Track stock, monitor products, and make better business decisions from one
-              centralized platform.
+            <p className="mt-4 max-w-md text-base leading-relaxed text-slate-300">
+              Sell faster, track every item, and manage your tindahan in one simple system.
             </p>
+
+            <ul className="mt-8 grid gap-3 xl:grid-cols-3">
+              {FEATURES.map(({ icon: Icon, title, text }) => (
+                <li
+                  key={title}
+                  className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur-sm xl:flex-col"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400">
+                    <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold">{title}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-slate-400">{text}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
 
-          {/* Feature pills */}
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <FeaturePill icon={<Package className="h-3.5 w-3.5" />} text="Stock Tracking" />
-            <FeaturePill icon={<BarChart3 className="h-3.5 w-3.5" />} text="Analytics" />
-            <FeaturePill icon={<TrendingUp className="h-3.5 w-3.5" />} text="Sales Insights" />
-          </div>
+          <p className="flex items-center gap-2 text-xs text-slate-400">
+            <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
+            Secure sessions &bull; Role-based access for every account
+          </p>
         </div>
+      </aside>
 
-        {/* Bottom: Trust footer */}
-        <div className="relative z-10 p-10">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            <span>Enterprise-grade security &bull; Encrypted data at rest</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Right auth panel ── */}
-      <div className="relative flex w-full flex-col bg-background lg:w-[45%]">
-        {/* Theme toggle */}
-        <div className="flex justify-end p-4 lg:p-6">
+      {/* ── Sign-in panel ── */}
+      <main className="relative flex min-w-0 flex-1 flex-col bg-background pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <div className="flex justify-end">
           <ThemeToggle />
         </div>
 
-        {/* Auth form — centered */}
-        <div className="flex flex-1 flex-col items-center justify-center px-5 pb-8 sm:px-8">
-          <div className="w-full max-w-[440px]">
+        <div className="flex flex-1 flex-col items-center justify-center py-4 sm:py-8">
+          {/* Compact logo in place of the branding panel on small screens. */}
+          <BrandLogo priority sizes="200px" className="mb-6 w-[180px] sm:w-[200px] lg:hidden" />
+
+          <div className="w-full max-w-[440px] rounded-2xl border bg-card p-6 text-card-foreground shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-8px_rgba(15,23,42,0.12)] sm:p-8 dark:shadow-none">
             {children}
           </div>
         </div>
 
-        {/* Secure footer */}
-        <div className="flex items-center justify-center gap-1.5 pb-6 text-xs text-muted-foreground">
-          <ShieldCheck className="h-3.5 w-3.5" />
-          <span>Secure access &bull; Point of Sale</span>
-        </div>
-      </div>
+        <p className="text-center text-xs text-muted-foreground">
+          &copy; {new Date().getFullYear()} {APP_NAME}
+        </p>
+      </main>
     </div>
-  );
-}
-
-/* ── Feature pill ── */
-function FeaturePill({ icon, text }: { icon: React.ReactNode; text: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs font-medium text-slate-300 backdrop-blur-sm">
-      {icon}
-      {text}
-    </span>
-  );
-}
-
-/* ── Warehouse / Inventory SVG illustration ── */
-function AuthIllustration() {
-  return (
-    <svg
-      viewBox="0 0 400 260"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className="w-full drop-shadow-2xl"
-      aria-hidden="true"
-    >
-      {/* Background card */}
-      <rect x="20" y="20" width="360" height="220" rx="16" fill="white" fillOpacity="0.04" stroke="white" strokeOpacity="0.08" />
-
-      {/* Warehouse shelves */}
-      {/* Shelf 1 */}
-      <rect x="50" y="60" width="120" height="6" rx="2" fill="white" fillOpacity="0.12" />
-      {/* Boxes on shelf 1 */}
-      <rect x="55" y="36" width="22" height="22" rx="4" fill="#3B82F6" fillOpacity="0.6" />
-      <rect x="82" y="40" width="18" height="18" rx="3" fill="#3B82F6" fillOpacity="0.4" />
-      <rect x="105" y="34" width="24" height="24" rx="4" fill="#60A5FA" fillOpacity="0.5" />
-      <rect x="134" y="42" width="16" height="16" rx="3" fill="#3B82F6" fillOpacity="0.35" />
-
-      {/* Shelf 2 */}
-      <rect x="50" y="110" width="120" height="6" rx="2" fill="white" fillOpacity="0.12" />
-      {/* Boxes on shelf 2 */}
-      <rect x="55" y="86" width="20" height="22" rx="4" fill="#60A5FA" fillOpacity="0.45" />
-      <rect x="80" y="90" width="26" height="18" rx="3" fill="#3B82F6" fillOpacity="0.5" />
-      <rect x="112" y="84" width="20" height="24" rx="4" fill="#3B82F6" fillOpacity="0.3" />
-      <rect x="138" y="92" width="18" height="16" rx="3" fill="#60A5FA" fillOpacity="0.4" />
-
-      {/* Shelf 3 */}
-      <rect x="50" y="160" width="120" height="6" rx="2" fill="white" fillOpacity="0.12" />
-      {/* Boxes on shelf 3 */}
-      <rect x="58" y="136" width="24" height="22" rx="4" fill="#3B82F6" fillOpacity="0.45" />
-      <rect x="88" y="140" width="18" height="18" rx="3" fill="#60A5FA" fillOpacity="0.35" />
-      <rect x="112" y="138" width="22" height="20" rx="4" fill="#3B82F6" fillOpacity="0.55" />
-
-      {/* Shelf posts */}
-      <rect x="50" y="36" width="4" height="130" rx="2" fill="white" fillOpacity="0.08" />
-      <rect x="166" y="36" width="4" height="130" rx="2" fill="white" fillOpacity="0.08" />
-
-      {/* ── Dashboard / chart area ── */}
-      {/* Chart card */}
-      <rect x="200" y="36" width="160" height="100" rx="10" fill="white" fillOpacity="0.06" stroke="white" strokeOpacity="0.08" />
-
-      {/* Mini bar chart */}
-      <rect x="220" y="98" width="14" height="24" rx="3" fill="#3B82F6" fillOpacity="0.7" />
-      <rect x="240" y="82" width="14" height="40" rx="3" fill="#3B82F6" fillOpacity="0.9" />
-      <rect x="260" y="90" width="14" height="32" rx="3" fill="#60A5FA" fillOpacity="0.6" />
-      <rect x="280" y="72" width="14" height="50" rx="3" fill="#3B82F6" fillOpacity="0.8" />
-      <rect x="300" y="60" width="14" height="62" rx="3" fill="#60A5FA" fillOpacity="0.7" />
-      <rect x="320" y="78" width="14" height="44" rx="3" fill="#3B82F6" fillOpacity="0.5" />
-
-      {/* Chart label */}
-      <rect x="216" y="46" width="60" height="8" rx="4" fill="white" fillOpacity="0.15" />
-      <rect x="216" y="58" width="40" height="6" rx="3" fill="white" fillOpacity="0.08" />
-
-      {/* ── Stock indicator cards ── */}
-      {/* Card 1 */}
-      <rect x="200" y="150" width="74" height="48" rx="8" fill="white" fillOpacity="0.06" stroke="white" strokeOpacity="0.08" />
-      <rect x="212" y="162" width="32" height="6" rx="3" fill="white" fillOpacity="0.15" />
-      <rect x="212" y="174" width="48" height="10" rx="4" fill="#22C55E" fillOpacity="0.5" />
-
-      {/* Card 2 */}
-      <rect x="286" y="150" width="74" height="48" rx="8" fill="white" fillOpacity="0.06" stroke="white" strokeOpacity="0.08" />
-      <rect x="298" y="162" width="28" height="6" rx="3" fill="white" fillOpacity="0.15" />
-      <rect x="298" y="174" width="48" height="10" rx="4" fill="#3B82F6" fillOpacity="0.5" />
-
-      {/* ── Floating product card ── */}
-      <rect x="60" y="180" width="100" height="44" rx="8" fill="white" fillOpacity="0.06" stroke="white" strokeOpacity="0.1" />
-      <rect x="72" y="190" width="14" height="14" rx="4" fill="#60A5FA" fillOpacity="0.4" />
-      <rect x="92" y="191" width="50" height="5" rx="2.5" fill="white" fillOpacity="0.15" />
-      <rect x="92" y="200" width="36" height="5" rx="2.5" fill="white" fillOpacity="0.08" />
-      <circle cx="152" cy="197" r="3" fill="#22C55E" fillOpacity="0.6" />
-    </svg>
   );
 }

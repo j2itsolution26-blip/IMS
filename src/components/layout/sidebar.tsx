@@ -9,7 +9,6 @@ import {
   ChevronRight,
   ChevronsUpDown,
   LogOut,
-  ScanBarcode,
   Settings as SettingsIcon,
   User as UserIcon,
   Users,
@@ -17,6 +16,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, initials } from '@/lib/utils';
+import { APP_NAME } from '@/lib/brand';
+import { BrandMark } from '@/components/brand';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/misc';
@@ -142,9 +143,7 @@ export function Sidebar({
             onClick={onClose}
             title={companyName}
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-transform hover:scale-105">
-              <ScanBarcode className="h-5 w-5" />
-            </span>
+            <BrandMark className="h-10 w-10 rounded-lg shadow-sm transition-transform hover:scale-105" />
             <div
               className={cn(
                 'flex min-w-0 flex-col justify-center transition-opacity duration-200',
@@ -155,7 +154,7 @@ export function Sidebar({
                 {companyName}
               </span>
               <span className="truncate text-[10px] font-medium uppercase leading-tight tracking-wider text-sidebar-muted-foreground">
-                Point of Sale
+                {APP_NAME}
               </span>
             </div>
           </Link>

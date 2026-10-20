@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Boxes } from 'lucide-react';
+import { BrandLogo } from '@/components/brand';
 import { Button } from '@/components/ui/button';
 
 /**
@@ -9,9 +9,7 @@ import { Button } from '@/components/ui/button';
 export default function NotFound() {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-muted/30 px-4 text-center">
-      <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-        <Boxes className="h-5 w-5" aria-hidden="true" />
-      </span>
+      <BrandLogo sizes="160px" className="w-[160px]" />
 
       <div>
         <h1 className="text-xl font-semibold">Page not found</h1>

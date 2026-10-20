@@ -14,7 +14,8 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    --primary: 221 83% 53%;
+    /* TindahanProMax emerald (#15803D) — 5:1 against white text. */
+    --primary: 142 72% 29%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 210 40% 96%;
@@ -37,7 +38,7 @@
 
     --border: 214 32% 91%;
     --input: 214 32% 91%;
-    --ring: 221 83% 53%;
+    --ring: 142 72% 29%;
 
     /* Sidebar tokens — fixed dark navy, deliberately not theme-switching:
        the POS sidebar reads the same whether the content area is in light
@@ -47,7 +48,7 @@
     --sidebar-background: 222 47% 11%;
     --sidebar-foreground: 210 40% 96%;
     --sidebar-muted-foreground: 215 20% 65%;
-    --sidebar-accent: 217 91% 60%;
+    --sidebar-accent: 142 64% 45%;
     --sidebar-border: 217 33% 20%;
 
     /* Categorical series, assigned in this fixed order and never cycled.
@@ -83,7 +84,7 @@
     --popover: 222 44% 10%;
     --popover-foreground: 210 40% 96%;
 
-    --primary: 217 91% 60%;
+    --primary: 142 64% 45%;
     --primary-foreground: 222 47% 11%;
 
     --secondary: 217 33% 17%;
@@ -106,7 +107,7 @@
 
     --border: 217 33% 20%;
     --input: 217 33% 20%;
-    --ring: 217 91% 60%;
+    --ring: 142 64% 45%;
 
     /* Sidebar tokens intentionally NOT redefined here — see :root note above. */
 
