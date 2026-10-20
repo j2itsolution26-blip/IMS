@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { StockStatus } from '@/server/analytics/inventory-analytics';
 import { formatCurrency, formatNumber, formatQuantity, formatRelative } from '@/lib/format';
+import { formatPieces } from '@/lib/quantity';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ProductImage } from '@/components/product-image';
 import { ProductRowActions } from '@/features/inventory/product-row-actions';
@@ -12,8 +13,8 @@ export interface InventoryListRow {
   sku: string;
   imageUrl: string | null;
   categoryName: string;
-  unit: string;
   sellingPrice: number;
+  /** Zero unless the viewer may see cost; the page strips it on the server. */
   costPrice: number;
   onHand: number;
   reorderLevel: number;
@@ -117,11 +118,13 @@ export function InventoryProductList({
   currency,
   canAdjustStock,
   canEditProduct,
+  canViewCost,
 }: {
   rows: InventoryListRow[];
   currency: string;
   canAdjustStock: boolean;
   canEditProduct: boolean;
+  canViewCost: boolean;
 }) {
   return (
     <>
@@ -141,7 +144,7 @@ export function InventoryProductList({
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 <span className="tabular font-semibold">{formatCurrency(row.sellingPrice, currency)}</span>
                 <span className="tabular text-muted-foreground">
-                  {formatQuantity(row.onHand)} {row.unit}
+                  {formatPieces(row.onHand)}
                 </span>
                 <StatusPill status={row.status} />
               </div>
@@ -152,8 +155,6 @@ export function InventoryProductList({
               productName={row.name}
               sku={row.sku}
               onHand={row.onHand}
-              unit={row.unit}
-              costPrice={row.costPrice}
               canAdjustStock={canAdjustStock}
               canEditProduct={canEditProduct}
             />
@@ -210,9 +211,13 @@ export function InventoryProductList({
                     <p className="tabular whitespace-nowrap text-sm font-semibold">
                       {formatCurrency(row.sellingPrice, currency)}
                     </p>
-                    <p className="tabular whitespace-nowrap text-xs text-muted-foreground">
-                      Cost {formatCurrency(row.costPrice, currency)} · {formatNumber(margin, 0)}%
-                    </p>
+                    {canViewCost ? (
+                      <p className="tabular whitespace-nowrap text-xs text-muted-foreground">
+                        Cost {formatCurrency(row.costPrice, currency)} · {formatNumber(margin, 0)}%
+                      </p>
+                    ) : (
+                      <p className="whitespace-nowrap text-xs text-muted-foreground">per piece</p>
+                    )}
                   </TableCell>
 
                   <TableCell className={cn(CELL, 'w-[240px]')}>
@@ -229,10 +234,10 @@ export function InventoryProductList({
                       >
                         {formatQuantity(row.onHand)}
                       </span>
-                      <span className="text-xs text-muted-foreground">{row.unit}</span>
+                      <span className="text-xs text-muted-foreground">pcs</span>
                       {row.reorderLevel > 0 && (
                         <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">
-                          Reorder at {formatQuantity(row.reorderLevel)}
+                          Reorder at {formatPieces(row.reorderLevel)}
                         </span>
                       )}
                     </div>
@@ -253,8 +258,6 @@ export function InventoryProductList({
                       productName={row.name}
                       sku={row.sku}
                       onHand={row.onHand}
-                      unit={row.unit}
-                      costPrice={row.costPrice}
                       canAdjustStock={canAdjustStock}
                       canEditProduct={canEditProduct}
                     />

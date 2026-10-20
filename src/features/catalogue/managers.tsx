@@ -1,30 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import { FolderTree, Scale } from 'lucide-react';
+import { FolderTree } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Badge } from '@/components/ui/badge';
 import { ResourceManager, type FieldSpec } from '@/features/catalogue/resource-manager';
-import {
-  categorySchema,
-  unitSchema,
-  type CategoryInput,
-  type UnitInput,
-} from '@/features/catalogue/schemas';
-import {
-  createCategory,
-  createUnit,
-  deleteCategory,
-  deleteUnit,
-  updateCategory,
-  updateUnit,
-} from '@/features/catalogue/actions';
+import { categorySchema, type CategoryInput } from '@/features/catalogue/schemas';
+import { createCategory, deleteCategory, updateCategory } from '@/features/catalogue/actions';
 import { formatNumber } from '@/lib/format';
 
 /**
- * Category and Unit management. These are the only two reference lists a
- * sari-sari store needs, and they live inside the Inventory page rather than
- * as their own top-level nav items.
+ * Category management. Categories are the only reference list the store
+ * needs (every product is sold by the piece, so there are no units), and it
+ * lives inside the Inventory page rather than as its own nav item.
  */
 
 export interface Permissions {
@@ -146,104 +134,6 @@ export function CategoriesManager({
       onCreate={createCategory}
       onUpdate={updateCategory}
       onDelete={deleteCategory}
-    />
-  );
-}
-
-// --- Units ------------------------------------------------------------------
-
-export interface UnitRow {
-  id: string;
-  name: string;
-  abbreviation: string;
-  factor: number;
-  allowDecimal: boolean;
-  productCount: number;
-  isActive: boolean;
-}
-
-export function UnitsManager({ rows, permissions }: { rows: UnitRow[]; permissions: Permissions }) {
-  const columns = React.useMemo<ColumnDef<UnitRow, unknown>[]>(
-    () => [
-      {
-        accessorKey: 'name',
-        header: 'Unit',
-        cell: ({ row }) => (
-          <div>
-            <p className="font-medium">{row.original.name}</p>
-            <p className="text-xs text-muted-foreground">{row.original.abbreviation}</p>
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'factor',
-        header: 'Factor',
-        cell: ({ row }) => <span className="tabular text-sm">{formatNumber(row.original.factor, 4)}</span>,
-      },
-      {
-        accessorKey: 'allowDecimal',
-        header: 'Fractional',
-        cell: ({ row }) => (
-          <Badge variant={row.original.allowDecimal ? 'default' : 'secondary'}>
-            {row.original.allowDecimal ? 'Allowed' : 'Whole only'}
-          </Badge>
-        ),
-      },
-      {
-        accessorKey: 'productCount',
-        header: 'Products',
-        cell: ({ row }) => countCell(row.original.productCount, 'product'),
-      },
-      activeBadge<UnitRow>(),
-    ],
-    [],
-  );
-
-  const fields: FieldSpec<UnitInput>[] = [
-    { kind: 'text', name: 'name', label: 'Name', placeholder: 'Piece, Bottle, Sachet…', required: true },
-    { kind: 'text', name: 'abbreviation', label: 'Abbreviation', placeholder: 'pc, btl, sct', required: true },
-    {
-      kind: 'number',
-      name: 'factor',
-      label: 'Factor',
-      step: '0.0001',
-      min: 0.0001,
-      description: 'How many base units this represents. 1 for a base unit, 24 for a case of 24.',
-      colSpan: 2,
-    },
-    {
-      kind: 'switch',
-      name: 'allowDecimal',
-      label: 'Allow fractional quantities',
-      description: 'Turn on for weight or volume, e.g. 0.25 kg.',
-    },
-    { kind: 'switch', name: 'isActive', label: 'Active' },
-  ];
-
-  return (
-    <ResourceManager<UnitRow, UnitInput>
-      rows={rows}
-      columns={columns}
-      searchKeys={['name', 'abbreviation']}
-      schema={unitSchema}
-      fields={fields}
-      emptyValues={{ name: '', abbreviation: '', factor: 1, allowDecimal: false, isActive: true }}
-      toFormValues={(row) => ({
-        name: row.name,
-        abbreviation: row.abbreviation,
-        factor: row.factor,
-        allowDecimal: row.allowDecimal,
-        isActive: row.isActive,
-      })}
-      singular="Unit"
-      plural="Units"
-      displayName={(row) => row.name}
-      emptyIcon={Scale}
-      emptyDescription="Units define how each product is counted — pieces, bottles, sachets. Every product needs one."
-      {...permissions}
-      onCreate={createUnit}
-      onUpdate={updateUnit}
-      onDelete={deleteUnit}
     />
   );
 }

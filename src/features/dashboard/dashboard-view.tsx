@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   CalendarDays,
   CalendarRange,
@@ -47,7 +48,6 @@ export interface DashboardQuery {
   from?: string;
   to?: string;
   top: 5 | 10;
-  sort: 'units' | 'revenue';
 }
 
 function hrefWith(base: string, query: Partial<DashboardQuery>): string {
@@ -74,7 +74,10 @@ export function DashboardView({
   currency,
   generatedAt,
   data,
+  tabs,
 }: {
+  /** The owner's Sales / Inventory switch, rendered above the header. */
+  tabs?: ReactNode;
   storeName: string;
   query: DashboardQuery;
   range: DateRange;
@@ -99,10 +102,11 @@ export function DashboardView({
   });
 
   const keep = { period: query.period, from: query.from, to: query.to };
-  const self = (patch: Partial<DashboardQuery>) => hrefWith('/dashboard', { ...keep, top: query.top, sort: query.sort, ...patch });
+  const self = (patch: Partial<DashboardQuery>) => hrefWith('/dashboard', { ...keep, top: query.top, ...patch });
 
   return (
     <>
+      {tabs}
       {/* Header */}
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
@@ -228,11 +232,6 @@ export function DashboardView({
             label: `Top ${top}`,
             href: self({ top }),
             active: query.top === top,
-          }))}
-          sortOptions={(['units', 'revenue'] as const).map((sort) => ({
-            label: sort === 'units' ? 'Units' : 'Revenue',
-            href: self({ sort }),
-            active: query.sort === sort,
           }))}
         />
         <RecentTransactionsPanel

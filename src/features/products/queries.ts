@@ -21,6 +21,8 @@ export interface ProductListQuery {
   pageSize?: number;
   sort?: 'name' | 'sku' | 'price' | 'stock' | 'created';
   direction?: 'asc' | 'desc';
+  /** Cost and margin are the owner's. Without this they are zeroed before leaving the server. */
+  includeCost?: boolean;
 }
 
 export interface ProductListRow {
@@ -30,7 +32,7 @@ export interface ProductListRow {
   barcode: string | null;
   imageUrl: string | null;
   categoryName: string;
-  unitAbbreviation: string;
+  /** Zeroed unless the caller may see cost (see `includeCost`). */
   costPrice: number;
   sellingPrice: number;
   marginPercent: number;
@@ -87,7 +89,6 @@ export async function listProducts(query: ProductListQuery = {}) {
         status: true,
         isTrackable: true,
         category: { select: { name: true } },
-        unit: { select: { abbreviation: true } },
         inventory: { select: { quantity: true } },
       },
     }),
@@ -106,10 +107,12 @@ export async function listProducts(query: ProductListQuery = {}) {
       barcode: row.barcode,
       imageUrl: row.imageUrl,
       categoryName: row.category.name,
-      unitAbbreviation: row.unit.abbreviation,
-      costPrice,
+      costPrice: query.includeCost ? costPrice : 0,
       sellingPrice,
-      marginPercent: sellingPrice > 0 ? Number((((sellingPrice - costPrice) / sellingPrice) * 100).toFixed(1)) : 0,
+      marginPercent:
+        query.includeCost && sellingPrice > 0
+          ? Number((((sellingPrice - costPrice) / sellingPrice) * 100).toFixed(1))
+          : 0,
       onHand: row.inventory.reduce((acc, i) => acc + toNum(i.quantity), 0),
       reorderLevel,
       status: row.status,
@@ -128,20 +131,13 @@ export async function listProducts(query: ProductListQuery = {}) {
 
 /** Reference lists for the product form's select inputs. */
 export async function getProductFormOptions() {
-  const [categories, units] = await Promise.all([
-    prisma.category.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
-    }),
-    prisma.unit.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true, abbreviation: true },
-      orderBy: { name: 'asc' },
-    }),
-  ]);
+  const categories = await prisma.category.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
 
-  return { categories, units };
+  return { categories };
 }
 
 export async function getProduct(id: string) {
@@ -149,7 +145,6 @@ export async function getProduct(id: string) {
     where: { id },
     include: {
       category: { select: { id: true, name: true } },
-      unit: { select: { id: true, name: true, abbreviation: true } },
       inventory: {
         select: {
           quantity: true,
@@ -187,9 +182,9 @@ export async function getProductHistory(id: string, days = 90) {
         user: { select: { name: true } },
       },
     }),
-    prisma.$queryRaw<{ unitsSold: string; revenue: string; profit: string; orders: number }[]>`
+    prisma.$queryRaw<{ piecesSold: string; revenue: string; profit: string; orders: number }[]>`
       SELECT
-        COALESCE(SUM(si.quantity), 0)::text  AS "unitsSold",
+        COALESCE(SUM(si.quantity), 0)::text  AS "piecesSold",
         COALESCE(SUM(si.total), 0)::text     AS "revenue",
         COALESCE(SUM(si.total - si."unitCost" * si.quantity), 0)::text AS "profit",
         COUNT(DISTINCT s.id)::int            AS "orders"
@@ -220,7 +215,7 @@ export async function getProductHistory(id: string, days = 90) {
     })),
     performance: {
       windowDays: days,
-      unitsSold: Number(stats?.unitsSold ?? 0),
+      piecesSold: Number(stats?.piecesSold ?? 0),
       revenue: Number(stats?.revenue ?? 0),
       profit: Number(stats?.profit ?? 0),
       orders: stats?.orders ?? 0,
@@ -289,7 +284,6 @@ export async function searchSellableProducts(term: string, limit = 24, filters: 
       imageUrl: true,
       sellingPrice: true,
       isTrackable: true,
-      unit: { select: { abbreviation: true, allowDecimal: true } },
       category: { select: { name: true } },
       inventory: {
         where: { warehouseId },
@@ -310,8 +304,6 @@ export async function searchSellableProducts(term: string, limit = 24, filters: 
       imageUrl: p.imageUrl,
       sellingPrice: toNum(p.sellingPrice),
       isTrackable: p.isTrackable,
-      unitAbbreviation: p.unit.abbreviation,
-      allowDecimal: p.unit.allowDecimal,
       categoryName: p.category.name,
       available,
     };

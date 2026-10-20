@@ -9,7 +9,7 @@ import { lookupInventoryBarcode } from '@/features/inventory/actions';
 import { ScannerDialog } from '@/features/scanner/scanner-dialog';
 import { primeAudio, type ScanFeedback } from '@/features/scanner/scanner-panel';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { formatQuantity } from '@/lib/format';
+import { formatPieces } from '@/lib/quantity';
 import { cn } from '@/lib/utils';
 
 export interface StockTab {
@@ -28,9 +28,12 @@ export interface StockTab {
 export function InventorySearchFilter({
   tabs,
   categories,
+  showValueSort = false,
 }: {
   tabs: StockTab[];
   categories: { id: string; name: string }[];
+  /** Sorting by stock value reveals cost, so it is offered only to the owner. */
+  showValueSort?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -99,7 +102,7 @@ export function InventorySearchFilter({
       params.delete('status');
       params.delete('category');
     });
-    return { tone: 'success', title: product.name, meta: `${formatQuantity(product.onHand)} ${product.unit}` };
+    return { tone: 'success', title: product.name, meta: formatPieces(product.onHand) };
   };
 
   const setParam = (name: string, value: string, fallback: string) =>
@@ -216,7 +219,7 @@ export function InventorySearchFilter({
               <SelectItem value="stock">Sort: Stock level</SelectItem>
               <SelectItem value="name">Sort: Name</SelectItem>
               <SelectItem value="price">Sort: Price</SelectItem>
-              <SelectItem value="value">Sort: Stock value</SelectItem>
+              {showValueSort && <SelectItem value="value">Sort: Stock value</SelectItem>}
             </SelectContent>
           </Select>
         </div>

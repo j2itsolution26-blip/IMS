@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { requirePermission } from '@/lib/session';
+import { requirePermission, userCan } from '@/lib/session';
+import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { getProduct, getProductFormOptions } from '@/features/products/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { isBackgroundRemovalConfigured, isStorageConfigured } from '@/lib/env';
@@ -12,7 +13,7 @@ export const metadata: Metadata = { title: 'Edit product' };
 export const dynamic = 'force-dynamic';
 
 export default async function EditProductPage({ params }: { params: Promise<{ id: string }> }) {
-  await requirePermission('products.update');
+  const user = await requirePermission('products.update');
   const { id } = await params;
 
   const [product, options, currency] = await Promise.all([
@@ -40,6 +41,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
         currency={currency}
         storageEnabled={isStorageConfigured()}
         backgroundRemovalEnabled={isBackgroundRemovalConfigured()}
+        canViewProfit={userCan(user, FINANCIAL_PERMISSION)}
         defaultValues={{
           name: product.name,
           sku: product.sku,
@@ -47,7 +49,6 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
           description: product.description ?? '',
           imageUrl: product.imageUrl ?? '',
           categoryId: product.categoryId,
-          unitId: product.unitId,
           costPrice: toNum(product.costPrice),
           sellingPrice: toNum(product.sellingPrice),
           minStock: toNum(product.minStock),

@@ -2,9 +2,9 @@ import 'server-only';
 
 import { Prisma, type PaymentMethod } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { D, money, qty as q3, sum, toNum, type Numeric } from '@/lib/decimal';
+import { D, money, sum, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
-import { applyStockMovement } from '@/server/services/inventory-service';
+import { applyStockMovement, wholePieces } from '@/server/services/inventory-service';
 import { nextDocumentNumber } from '@/server/services/numbering-service';
 import { recordAudit } from '@/server/services/audit-service';
 
@@ -59,7 +59,7 @@ export async function createSaleReturn(input: CreateSaleReturnInput) {
         const item = itemsById.get(line.saleItemId);
         if (!item) throw new NotFoundError('Sale line');
 
-        const quantity = q3(line.quantity);
+        const quantity = wholePieces(line.quantity, 'A returned quantity');
         if (quantity.lessThanOrEqualTo(0)) continue;
 
         // Cannot return more than was bought, across all returns on this sale.

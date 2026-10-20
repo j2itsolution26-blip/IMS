@@ -35,12 +35,15 @@ export function SalesPerformancePanel({
   granularity,
   currency,
   rangeLabel,
+  showProfit = false,
   className,
 }: {
   trend: SalesOverview['trend'];
   granularity: SalesOverview['granularity'];
   currency: string;
   rangeLabel: string;
+  /** Profit is the owner's; off for everyone else. */
+  showProfit?: boolean;
   className?: string;
 }) {
   const hasSales = trend.some((point) => point.revenue > 0 || point.orders > 0);
@@ -50,14 +53,14 @@ export function SalesPerformancePanel({
   return (
     <Panel
       title="Sales performance"
-      description={`Revenue, profit and transactions — ${rangeLabel.toLowerCase()}, ${grain}.`}
+      description={`${showProfit ? 'Revenue, profit' : 'Revenue'} and transactions — ${rangeLabel.toLowerCase()}, ${grain}.`}
       className={className}
     >
       {!hasSales ? (
         <PanelEmpty
           icon={LineChart}
           title="No sales yet"
-          description="Complete your first sale to start seeing revenue and profit trends."
+          description="Complete your first sale to start seeing sales trends."
           action={OpenPos}
         />
       ) : (
@@ -65,6 +68,7 @@ export function SalesPerformancePanel({
           <TrendChart
             currency={currency}
             height={260}
+            showProfit={showProfit}
             data={trend.map((point) => ({
               label: point.label,
               revenue: point.revenue,
@@ -159,10 +163,12 @@ export function PaymentMethodsPanel({
 export function DailySalesPanel({
   daily,
   currency,
+  showProfit = false,
   className,
 }: {
   daily: SalesOverview['daily'];
   currency: string;
+  showProfit?: boolean;
   className?: string;
 }) {
   const rows = daily.filter((day) => day.orders > 0).slice(0, 6);
@@ -190,7 +196,7 @@ export function DailySalesPanel({
                 <th scope="col" className="px-4 py-2 text-right font-medium">Txns</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">Items</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">Revenue</th>
-                <th scope="col" className="px-4 py-2 text-right font-medium">Profit</th>
+                {showProfit && <th scope="col" className="px-4 py-2 text-right font-medium">Profit</th>}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -209,9 +215,11 @@ export function DailySalesPanel({
                   <td className="tabular px-4 py-2.5 text-right font-semibold">
                     {formatCurrency(day.revenue, currency)}
                   </td>
-                  <td className="tabular px-4 py-2.5 text-right text-muted-foreground">
-                    {formatCurrency(day.profit, currency)}
-                  </td>
+                  {showProfit && (
+                    <td className="tabular px-4 py-2.5 text-right text-muted-foreground">
+                      {formatCurrency(day.profit, currency)}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -227,16 +235,18 @@ export function DailySalesPanel({
 export function MonthlySalesPanel({
   monthly,
   currency,
+  showProfit = false,
   className,
 }: {
   monthly: SalesOverview['monthly'];
   currency: string;
+  showProfit?: boolean;
   className?: string;
 }) {
   return (
     <Panel
       title="Monthly sales"
-      description="Revenue and profit over the last six months."
+      description={showProfit ? 'Revenue and profit over the last six months.' : 'Revenue over the last six months.'}
       className={className}
     >
       <div className="p-4">
@@ -244,11 +254,11 @@ export function MonthlySalesPanel({
           data={monthly.map((month) => ({
             label: month.label,
             value: month.revenue,
-            secondary: month.profit,
+            ...(showProfit ? { secondary: month.profit } : {}),
           }))}
           currency={currency}
           valueLabel="Revenue"
-          secondaryLabel="Profit"
+          secondaryLabel={showProfit ? 'Profit' : undefined}
           height={210}
           emptyMessage="Months with completed sales will appear here."
         />
@@ -304,11 +314,13 @@ export function SalesComparisonPanel({
   comparison,
   labels,
   currency,
+  showProfit = false,
   className,
 }: {
   comparison: SalesOverview['monthComparison'];
   labels: SalesOverview['monthLabels'];
   currency: string;
+  showProfit?: boolean;
   className?: string;
 }) {
   const { current, previous, change } = comparison;
@@ -327,12 +339,14 @@ export function SalesComparisonPanel({
           change={change.revenue}
           previous={against(formatCurrency(previous.revenue, currency))}
         />
-        <ComparisonRow
-          label="Profit"
-          value={formatCurrency(current.netProfit, currency)}
-          change={change.netProfit}
-          previous={against(formatCurrency(previous.netProfit, currency))}
-        />
+        {showProfit && (
+          <ComparisonRow
+            label="Profit"
+            value={formatCurrency(current.netProfit, currency)}
+            change={change.netProfit}
+            previous={against(formatCurrency(previous.netProfit, currency))}
+          />
+        )}
         <ComparisonRow
           label="Transactions"
           value={formatNumber(current.transactionCount, 0)}
@@ -355,10 +369,12 @@ export function SalesComparisonPanel({
 export function TopProductsPanel({
   products,
   currency,
+  showProfit = false,
   className,
 }: {
   products: SalesOverview['topProducts'];
   currency: string;
+  showProfit?: boolean;
   className?: string;
 }) {
   return (
@@ -384,7 +400,9 @@ export function TopProductsPanel({
                 <th scope="col" className="px-4 py-2 font-medium">Product</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">Qty</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">Revenue</th>
-                <th scope="col" className="hidden px-4 py-2 text-right font-medium sm:table-cell">Profit</th>
+                {showProfit && (
+                  <th scope="col" className="hidden px-4 py-2 text-right font-medium sm:table-cell">Profit</th>
+                )}
                 <th scope="col" className="px-4 py-2 text-right font-medium">Stock</th>
               </tr>
             </thead>
@@ -413,9 +431,11 @@ export function TopProductsPanel({
                   <td className="tabular px-4 py-2.5 text-right font-semibold">
                     {formatCurrency(product.revenue, currency)}
                   </td>
-                  <td className="tabular hidden px-4 py-2.5 text-right text-muted-foreground sm:table-cell">
-                    {formatCurrency(product.profit, currency)}
-                  </td>
+                  {showProfit && (
+                    <td className="tabular hidden px-4 py-2.5 text-right text-muted-foreground sm:table-cell">
+                      {formatCurrency(product.profit, currency)}
+                    </td>
+                  )}
                   <td className="px-4 py-2.5 text-right">
                     <span
                       className={cn(

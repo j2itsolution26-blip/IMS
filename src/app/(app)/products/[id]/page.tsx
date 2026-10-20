@@ -3,11 +3,13 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowDownLeft, ArrowUpRight, Package, Pencil } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
+import { FINANCIAL_PERMISSION } from '@/lib/permissions';
+import { formatPieces } from '@/lib/quantity';
 import { ProductImage } from '@/components/product-image';
 import { getProduct, getProductHistory } from '@/features/products/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { toNum } from '@/lib/decimal';
-import { formatCurrency, formatDateTime, formatQuantity, humanizeEnum } from '@/lib/format';
+import { formatCurrency, formatDateTime, humanizeEnum } from '@/lib/format';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +35,12 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   if (!product) notFound();
 
   const history = await getProductHistory(id);
+  // Cost, margin, stock value and takings are the owner's. This is a server
+  // component, so figures left out here never reach the browser.
+  const canViewCost = userCan(user, FINANCIAL_PERMISSION);
+  const priceChanges = canViewCost
+    ? history.priceHistory
+    : history.priceHistory.filter((change) => change.field === 'SELLING');
 
   const onHand = product.inventory.reduce((acc, row) => acc + toNum(row.quantity), 0);
   const reserved = product.inventory.reduce((acc, row) => acc + toNum(row.reserved), 0);
@@ -65,37 +73,60 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Available"
-          value={product.isTrackable ? formatQuantity(available) : 'Not tracked'}
+          value={product.isTrackable ? formatPieces(available) : 'Not tracked'}
           tone={stockTone}
           icon={Package}
           hint={
             product.isTrackable
               ? reserved > 0
-                ? `${formatQuantity(onHand)} on hand · ${formatQuantity(reserved)} reserved`
+                ? `${formatPieces(onHand)} on hand · ${formatPieces(reserved)} reserved`
                 : reorderLevel > 0
-                  ? `Reorder at ${formatQuantity(reorderLevel)}`
+                  ? `Reorder at ${formatPieces(reorderLevel)}`
                   : 'No reorder level set'
               : 'Service or fee item'
           }
         />
-        <StatCard
-          label="Stock value"
-          value={formatCurrency(onHand * costPrice, currency)}
-          hint={`at ${formatCurrency(costPrice, currency)} average cost`}
-        />
-        <StatCard
-          label="Margin"
-          value={sellingPrice > 0 ? `${margin.toFixed(1)}%` : '—'}
-          tone={margin < 0 ? 'destructive' : margin < 10 ? 'warning' : 'success'}
-          hint={`${formatCurrency(sellingPrice - costPrice, currency)} per unit`}
-        />
+        {canViewCost ? (
+          <>
+            <StatCard
+              label="Stock value"
+              value={formatCurrency(onHand * costPrice, currency)}
+              hint={`at ${formatCurrency(costPrice, currency)} average cost`}
+            />
+            <StatCard
+              label="Margin"
+              value={sellingPrice > 0 ? `${margin.toFixed(1)}%` : '—'}
+              tone={margin < 0 ? 'destructive' : margin < 10 ? 'warning' : 'success'}
+              hint={`${formatCurrency(sellingPrice - costPrice, currency)} per piece`}
+            />
+          </>
+        ) : (
+          <>
+            <StatCard
+              label="Selling price"
+              value={formatCurrency(sellingPrice, currency)}
+              hint="per piece"
+            />
+            <StatCard
+              label="Low-stock level"
+              value={product.isTrackable && reorderLevel > 0 ? formatPieces(reorderLevel) : '—'}
+              hint={
+                toNum(product.reorderQty) > 0
+                  ? `Restock ${formatPieces(toNum(product.reorderQty))} at a time`
+                  : 'No reorder quantity set'
+              }
+            />
+          </>
+        )}
         <StatCard
           label={`Sold (${history.performance.windowDays}d)`}
-          value={formatQuantity(history.performance.unitsSold)}
+          value={formatPieces(history.performance.piecesSold)}
           hint={
-            history.performance.unitsSold > 0
-              ? `${formatCurrency(history.performance.revenue, currency)} revenue`
-              : 'No sales in this window'
+            history.performance.piecesSold === 0
+              ? 'No sales in this window'
+              : canViewCost
+                ? `${formatCurrency(history.performance.revenue, currency)} revenue`
+                : `across ${history.performance.orders} sale${history.performance.orders === 1 ? '' : 's'}`
           }
         />
       </div>
@@ -130,10 +161,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   </Badge>
                 </Row>
                 <Row label="Category">{product.category.name}</Row>
-                <Row label="Unit">
-                  {product.unit.name} ({product.unit.abbreviation})
-                </Row>
-                <Row label="Cost price">{formatCurrency(costPrice, currency)}</Row>
+                <Row label="Sold by">Piece (pc)</Row>
+                {canViewCost && <Row label="Cost price">{formatCurrency(costPrice, currency)}</Row>}
                 <Row label="Selling price">{formatCurrency(sellingPrice, currency)}</Row>
               </dl>
 
@@ -143,7 +172,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             </CardContent>
           </Card>
 
-          {history.priceHistory.length > 0 && (
+          {priceChanges.length > 0 && (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Price changes</CardTitle>
@@ -151,7 +180,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2 text-sm">
-                  {history.priceHistory.map((change) => (
+                  {priceChanges.map((change) => (
                     <li key={change.id} className="flex items-center justify-between gap-2">
                       <span className="text-muted-foreground">
                         {change.field === 'COST' ? 'Cost' : 'Selling'}
@@ -228,10 +257,10 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                           )}
                         >
                           {inbound ? '+' : ''}
-                          {formatQuantity(movement.quantity)}
+                          {formatPieces(movement.quantity)}
                         </TableCell>
                         <TableCell className="tabular text-right">
-                          {formatQuantity(movement.balanceAfter)}
+                          {formatPieces(movement.balanceAfter)}
                         </TableCell>
                         <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
                           {movement.userName}

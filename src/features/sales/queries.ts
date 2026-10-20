@@ -17,6 +17,8 @@ export interface SaleListQuery {
   to?: Date;
   page?: number;
   pageSize?: number;
+  /** Profit is the owner's. Without this every profit figure comes back as zero. */
+  includeCost?: boolean;
 }
 
 /** Cashiers who actually have sales, for the sales-history filter. */
@@ -106,7 +108,7 @@ export async function listSales(query: SaleListQuery = {}) {
       total: toNum(row.total),
       paidAmount: toNum(row.paidAmount),
       balance: Math.max(0, toNum(row.total) - toNum(row.paidAmount)),
-      profit: toNum(row.total) - toNum(row.taxAmount) - toNum(row.costOfGoods),
+      profit: query.includeCost ? toNum(row.total) - toNum(row.taxAmount) - toNum(row.costOfGoods) : 0,
       createdAt: row.createdAt,
       cashierName: row.user.name,
       paymentMethod: row.payments.length === 0 ? null : row.payments.length > 1 ? 'Split' : row.payments[0].method,
@@ -125,13 +127,19 @@ export async function listSales(query: SaleListQuery = {}) {
     page,
     pageSize,
     pageCount: Math.max(1, Math.ceil(total / pageSize)),
-    summary: { revenue, profit: revenue - tax - cogs, count: total },
+    summary: { revenue, profit: query.includeCost ? revenue - tax - cogs : 0, count: total },
   };
 }
 
 export type SaleListRow = Awaited<ReturnType<typeof listSales>>['rows'][number];
 
-export async function getSale(id: string) {
+/**
+ * One sale with its lines, payments and returns.
+ *
+ * Cost of goods, line costs and profit are zeroed unless `includeCost` is set,
+ * so a page that hands the sale to a client component cannot leak them.
+ */
+export async function getSale(id: string, { includeCost = false }: { includeCost?: boolean } = {}) {
   const sale = await prisma.sale.findUnique({
     where: { id },
     include: {
@@ -140,7 +148,7 @@ export async function getSale(id: string) {
       items: {
         include: {
           product: {
-            select: { id: true, name: true, sku: true, imageUrl: true, unit: { select: { abbreviation: true } } },
+            select: { id: true, name: true, sku: true, imageUrl: true },
           },
         },
       },
@@ -167,8 +175,8 @@ export async function getSale(id: string) {
     total: toNum(sale.total),
     paidAmount: toNum(sale.paidAmount),
     changeAmount: toNum(sale.changeAmount),
-    costOfGoods: toNum(sale.costOfGoods),
-    profit: toNum(sale.total) - toNum(sale.taxAmount) - toNum(sale.costOfGoods),
+    costOfGoods: includeCost ? toNum(sale.costOfGoods) : 0,
+    profit: includeCost ? toNum(sale.total) - toNum(sale.taxAmount) - toNum(sale.costOfGoods) : 0,
     balance: Math.max(0, toNum(sale.total) - toNum(sale.paidAmount)),
     warehouse: sale.warehouse,
     cashier: sale.user,
@@ -178,12 +186,11 @@ export async function getSale(id: string) {
       name: item.product.name,
       sku: item.product.sku,
       imageUrl: item.product.imageUrl,
-      unit: item.product.unit.abbreviation,
       quantity: toNum(item.quantity),
       returnedQuantity: toNum(item.returnedQuantity),
       returnable: toNum(item.quantity) - toNum(item.returnedQuantity),
       unitPrice: toNum(item.unitPrice),
-      unitCost: toNum(item.unitCost),
+      unitCost: includeCost ? toNum(item.unitCost) : 0,
       discount: toNum(item.discount),
       total: toNum(item.total),
     })),

@@ -3,7 +3,7 @@ import 'server-only';
 import { prisma } from '@/lib/prisma';
 import { D, money, qty as q3, toNum, type Numeric } from '@/lib/decimal';
 import { NotFoundError, ValidationError } from '@/lib/errors';
-import { applyStockMovement } from '@/server/services/inventory-service';
+import { applyStockMovement, wholePieces } from '@/server/services/inventory-service';
 import { nextDocumentNumber } from '@/server/services/numbering-service';
 import { recordAudit } from '@/server/services/audit-service';
 import { getDefaultWarehouseId } from '@/server/services/warehouse-service';
@@ -26,8 +26,8 @@ export interface StockInInput {
  * the "Stock In → Enter Quantity → Save" workflow.
  */
 export async function createStockIn(input: StockInInput) {
-  if (q3(input.quantity).lessThanOrEqualTo(0)) {
-    throw new ValidationError('Enter a quantity greater than zero.');
+  if (wholePieces(input.quantity, 'Pieces received').lessThan(1)) {
+    throw new ValidationError('Enter at least 1 piece received.');
   }
 
   const warehouseId = await getDefaultWarehouseId();
@@ -57,7 +57,7 @@ export async function createStockIn(input: StockInInput) {
         action: 'INVENTORY_CHANGE',
         entity: 'Inventory',
         entityId: reference,
-        summary: `Stock in ${reference}: ${product.name} +${toNum(q3(input.quantity))}`,
+        summary: `Stock in ${reference}: ${product.name} +${toNum(q3(input.quantity))} pcs`,
         userId: input.userId,
       },
       tx,
@@ -112,8 +112,11 @@ export async function createAdjustment(input: CreateAdjustmentInput) {
         });
 
         const onHand = D(current?.quantity ?? 0);
-        const delta =
-          input.mode === 'ABSOLUTE' ? q3(line.quantity).minus(onHand) : q3(line.quantity);
+        const entered = wholePieces(line.quantity, 'An adjustment quantity');
+        if (input.mode === 'ABSOLUTE' && entered.lessThan(0)) {
+          throw new ValidationError('A counted quantity cannot be negative.');
+        }
+        const delta = input.mode === 'ABSOLUTE' ? entered.minus(onHand) : entered;
 
         if (delta.isZero()) continue;
 

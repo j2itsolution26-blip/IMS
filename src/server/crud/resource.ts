@@ -10,8 +10,8 @@ import { diff, recordAudit } from '@/server/services/audit-service';
 import type { PermissionKey } from '@/lib/permissions';
 
 /**
- * A create/update/delete factory for the straightforward reference entities —
- * categories and units.
+ * A create/update/delete factory for straightforward reference entities —
+ * today, product categories.
  *
  * These differ only in their fields, their permissions, and their delete
  * guards; the permission check, validation, audit entry, and cache
@@ -23,7 +23,7 @@ import type { PermissionKey } from '@/lib/permissions';
  */
 
 /** Prisma's generated delegates have no common supertype, so the model is addressed by name. */
-type ModelName = 'category' | 'unit';
+type ModelName = 'category';
 
 export interface ResourceConfig<TCreate extends z.ZodTypeAny, TUpdate extends z.ZodTypeAny> {
   model: ModelName;

@@ -1,8 +1,7 @@
 import 'server-only';
 
 import { prisma } from '@/lib/prisma';
-import { toNum } from '@/lib/decimal';
-import type { CategoryRow, UnitRow } from '@/features/catalogue/managers';
+import type { CategoryRow } from '@/features/catalogue/managers';
 
 /**
  * Reads for the reference-data screens.
@@ -31,31 +30,6 @@ export async function listCategories(): Promise<CategoryRow[]> {
     description: row.description,
     parentId: row.parentId,
     parentName: row.parent?.name ?? null,
-    productCount: row._count.products,
-    isActive: row.isActive,
-  }));
-}
-
-export async function listUnits(): Promise<UnitRow[]> {
-  const rows = await prisma.unit.findMany({
-    orderBy: { name: 'asc' },
-    select: {
-      id: true,
-      name: true,
-      abbreviation: true,
-      factor: true,
-      allowDecimal: true,
-      isActive: true,
-      _count: { select: { products: true } },
-    },
-  });
-
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    abbreviation: row.abbreviation,
-    factor: toNum(row.factor),
-    allowDecimal: row.allowDecimal,
     productCount: row._count.products,
     isActive: row.isActive,
   }));

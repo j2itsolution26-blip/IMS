@@ -56,6 +56,42 @@ export interface SalesOverview {
 const MONTHS_OF_HISTORY = 6;
 
 /**
+ * Zeroes every cost and profit figure in an overview before it is rendered,
+ * so the Sales page shows a cashier the takings without the owner's margins.
+ */
+export function redactSalesOverviewProfit(overview: SalesOverview): SalesOverview {
+  const hide = (summary: ComparedSummary): ComparedSummary => {
+    const clear = (row: ComparedSummary['current']): ComparedSummary['current'] => ({
+      ...row,
+      costOfGoods: 0,
+      returnedCost: 0,
+      netCostOfGoods: 0,
+      grossProfit: 0,
+      marginPercent: 0,
+      netProfit: 0,
+      zeroCostLines: 0,
+    });
+    return {
+      current: clear(summary.current),
+      previous: clear(summary.previous),
+      change: { ...summary.change, netProfit: null },
+    };
+  };
+  const noProfit = <T extends { profit: number }>(rows: T[]): T[] => rows.map((row) => ({ ...row, profit: 0 }));
+
+  return {
+    ...overview,
+    summary: hide(overview.summary),
+    monthComparison: hide(overview.monthComparison),
+    trend: noProfit(overview.trend),
+    daily: noProfit(overview.daily),
+    monthly: noProfit(overview.monthly),
+    categories: noProfit(overview.categories),
+    topProducts: overview.topProducts.map((row) => ({ ...row, profit: 0, marginPercent: 0 })),
+  };
+}
+
+/**
  * Puts the quiet buckets back.
  *
  * The time-series query groups what exists, so a month with no sales simply

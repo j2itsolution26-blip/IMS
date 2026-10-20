@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { FileBarChart } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
-import { getReport } from '@/server/reports/registry';
+import { canOpenReport, getReport, visibleReportResult } from '@/server/reports/registry';
 import { parsePeriod, resolveRange } from '@/server/analytics/date-range';
 import { getCurrency } from '@/server/services/settings-service';
 import { PageHeader } from '@/components/page-header';
@@ -37,12 +37,14 @@ export default async function ReportPage({
   if (!report) notFound();
 
   const user = await requirePermission(report.permission);
+  // Sales and profit reports are the owner's, whatever else the role holds.
+  if (!canOpenReport(user, report)) redirect('/reports');
 
   const period = parsePeriod(query.period, 'last30');
   const range = resolveRange(period);
   const currency = await getCurrency();
 
-  const result = await report.load(range, currency);
+  const result = visibleReportResult(user, report, await report.load(range, currency));
 
   return (
     <>

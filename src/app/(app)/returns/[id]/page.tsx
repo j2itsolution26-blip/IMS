@@ -6,7 +6,8 @@ import { requirePermission } from '@/lib/session';
 import { prisma } from '@/lib/prisma';
 import { toNum } from '@/lib/decimal';
 import { getCurrency } from '@/server/services/settings-service';
-import { formatCurrency, formatDateTime, formatQuantity, humanizeEnum } from '@/lib/format';
+import { formatCurrency, formatDateTime, humanizeEnum } from '@/lib/format';
+import { formatPieces } from '@/lib/quantity';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,7 +39,7 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
         items: {
           include: {
             product: {
-              select: { id: true, name: true, sku: true, unit: { select: { abbreviation: true } } },
+              select: { id: true, name: true, sku: true },
             },
           },
         },
@@ -101,7 +102,7 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
                       <p className="text-xs text-muted-foreground">{item.product.sku}</p>
                     </TableCell>
                     <TableCell className="tabular text-right">
-                      {formatQuantity(toNum(item.quantity))} {item.product.unit.abbreviation}
+                      {formatPieces(toNum(item.quantity))}
                     </TableCell>
                     <TableCell className="tabular text-right">
                       {formatCurrency(toNum(item.unitPrice), currency)}

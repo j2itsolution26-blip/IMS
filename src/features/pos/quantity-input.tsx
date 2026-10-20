@@ -12,13 +12,13 @@ import { cn } from '@/lib/utils';
  * The typed text is kept as a draft, so clearing the box to type "5" doesn't
  * read as zero and drop the item. Only a valid amount above zero is passed
  * on as it's typed; anything else snaps back to the line's quantity when the
- * field is left. Whole-unit products take whole numbers only. Enter leaves
+ * field is left. Everything is sold by the piece, so only whole numbers of
+ * at least 1 are accepted. Enter leaves
  * the field, which is also how a cashier gets back to scanning.
  */
 export function QuantityInput({
   value,
   onChange,
-  allowDecimal,
   label,
   size = 'default',
   onFocusChange,
@@ -26,7 +26,6 @@ export function QuantityInput({
 }: {
   value: number;
   onChange: (quantity: number) => void;
-  allowDecimal: boolean;
   /** Accessible name, e.g. "Quantity for Piattos". */
   label: string;
   size?: 'default' | 'lg';
@@ -59,9 +58,8 @@ export function QuantityInput({
   const parse = (text: string): number | null => {
     if (!text.trim()) return null;
     const n = Number(text);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    if (!allowDecimal && !Number.isInteger(n)) return null;
-    return allowDecimal ? Math.round(n * 1000) / 1000 : n;
+    if (!Number.isSafeInteger(n) || n < 1) return null;
+    return n;
   };
 
   const big = size === 'lg';
@@ -75,21 +73,21 @@ export function QuantityInput({
         size="icon"
         className={cn(button, 'shrink-0')}
         // Stops at one: taking an item off is the remove button's job, never
-        // a stray tap. Amounts under one unit (by weight) are typed.
+        // a stray tap.
         disabled={value <= 1}
-        onClick={() => onChange(Math.round((value - 1) * 1000) / 1000)}
+        onClick={() => onChange(Math.max(1, Math.round(value) - 1))}
         aria-label={`One fewer — ${label}`}
       >
         <Minus />
       </Button>
       <Input
         type="text"
-        inputMode={allowDecimal ? 'decimal' : 'numeric'}
+        inputMode="numeric"
         enterKeyHint="done"
         autoComplete="off"
         value={draft}
         onChange={(event) => {
-          const text = event.target.value.replace(allowDecimal ? /[^0-9.]/g : /[^0-9]/g, '');
+          const text = event.target.value.replace(/[^0-9]/g, '');
           setDraft(text);
           const n = parse(text);
           if (n !== null) onChange(n);
@@ -119,7 +117,7 @@ export function QuantityInput({
         variant="outline"
         size="icon"
         className={cn(button, 'shrink-0')}
-        onClick={() => onChange(Math.round((value + 1) * 1000) / 1000)}
+        onClick={() => onChange(Math.round(value) + 1)}
         aria-label={`One more — ${label}`}
       >
         <Plus />

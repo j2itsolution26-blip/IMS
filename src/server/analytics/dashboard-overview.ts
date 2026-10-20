@@ -59,7 +59,8 @@ export interface DashboardOverview {
 export interface DashboardOptions {
   range: DateRange;
   topLimit: 5 | 10;
-  topSort: Extract<PerformanceSort, 'units' | 'revenue'>;
+  /** Top sellers are ranked by revenue. */
+  topSort?: Extract<PerformanceSort, 'revenue'>;
   canViewProfit: boolean;
   now?: Date;
 }
@@ -185,7 +186,7 @@ const RECENT_SALES_ROWS = 10;
 const MAX_CATEGORIES = 100;
 
 export async function getDashboardOverview(options: DashboardOptions): Promise<DashboardOverview> {
-  const { range, topLimit, topSort, canViewProfit, now = new Date() } = options;
+  const { range, topLimit, topSort = 'revenue', canViewProfit, now = new Date() } = options;
   const { from, to } = range;
   const granularity = granularityForRange(from, to);
 

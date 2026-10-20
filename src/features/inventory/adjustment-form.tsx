@@ -17,7 +17,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/misc';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { formatCurrency, formatQuantity } from '@/lib/format';
+import { formatCurrency } from '@/lib/format';
+import { formatPieces } from '@/lib/quantity';
 import { cn } from '@/lib/utils';
 
 /**
@@ -35,7 +36,6 @@ interface Line {
   productId: string;
   name: string;
   sku: string;
-  unit: string;
   onHand: number;
   costPrice: number;
   value: string;
@@ -44,9 +44,12 @@ interface Line {
 export function AdjustmentForm({
   products,
   currency,
+  canViewCost,
 }: {
   products: StockPickerProduct[];
   currency: string;
+  /** Shows the cost-based value preview. Costs arrive as zero otherwise. */
+  canViewCost: boolean;
 }) {
   const router = useRouter();
 
@@ -55,6 +58,9 @@ export function AdjustmentForm({
   const [reason, setReason] = React.useState('');
   const [lines, setLinesState] = React.useState<Line[]>([]);
   const [submitting, setSubmitting] = React.useState(false);
+  // Guards against a second submit (Enter pressed twice) recording the same
+  // adjustment twice before `submitting` has re-rendered.
+  const inFlight = React.useRef(false);
   const [scanning, setScanning] = React.useState(false);
 
   // Mirrors `lines` synchronously so a scan can report the new count in the
@@ -70,7 +76,6 @@ export function AdjustmentForm({
     productId: product.id,
     name: product.name,
     sku: product.sku,
-    unit: product.unit,
     onHand: product.onHand,
     costPrice: product.costPrice,
     value,
@@ -79,7 +84,7 @@ export function AdjustmentForm({
   const addLine = (product: StockPickerProduct) => setLines((current) => [...current, lineFor(product)]);
 
   /**
-   * One scan during a stock take is one unit on the shelf: it adds the
+   * One scan during a stock take is one piece on the shelf: it adds the
    * product to the list, or counts one more of it. A scan never changes stock
    * by itself — the counts go through "Apply adjustment" like typed ones.
    * In "Change by" mode a scan only puts the product on the list, since a
@@ -104,7 +109,7 @@ export function AdjustmentForm({
         ? current.map((line) => (line.productId === product.id ? { ...line, value: String(counted) } : line))
         : [...current, lineFor(product, '1')],
     );
-    return { tone: 'success', title: product.name, meta: `counted ${formatQuantity(counted)} ${product.unit}` };
+    return { tone: 'success', title: product.name, meta: `counted ${formatPieces(counted)}` };
   };
 
   const removeLine = (productId: string) =>
@@ -113,9 +118,16 @@ export function AdjustmentForm({
   const setValue = (productId: string, value: string) =>
     setLines((current) => current.map((line) => (line.productId === productId ? { ...line, value } : line)));
 
+  /** Whole pieces only: a blank, fractional or negative count is not a valid entry. */
+  const isValidEntry = (line: Line): boolean => {
+    if (line.value === '') return true;
+    const entered = Number(line.value);
+    return Number.isSafeInteger(entered) && (mode === 'RELATIVE' || entered >= 0);
+  };
+
   const deltaFor = (line: Line): number => {
     const entered = Number(line.value);
-    if (!Number.isFinite(entered) || line.value === '') return 0;
+    if (line.value === '' || !isValidEntry(line)) return 0;
     return mode === 'ABSOLUTE' ? entered - line.onHand : entered;
   };
 
@@ -124,13 +136,27 @@ export function AdjustmentForm({
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (inFlight.current) return;
+
+    const invalid = lines.find((line) => !isValidEntry(line));
+    if (invalid) {
+      toast.error(
+        mode === 'ABSOLUTE'
+          ? `${invalid.name}: enter the pieces counted — a whole number, 0 or more.`
+          : `${invalid.name}: enter the change in whole pieces, e.g. -3 or 12.`,
+      );
+      return;
+    }
 
     if (effective.length === 0) {
       toast.error('Nothing to adjust — every line matches the current stock level.');
       return;
     }
 
+    inFlight.current = true;
     setSubmitting(true);
+    // No unit cost is sent: the server values each line at the product's
+    // recorded average cost.
     const result = await createAdjustmentAction({
       mode,
       reason,
@@ -138,10 +164,10 @@ export function AdjustmentForm({
       lines: effective.map((line) => ({
         productId: line.productId,
         quantity: Number(line.value),
-        unitCost: line.costPrice,
       })),
     });
     setSubmitting(false);
+    inFlight.current = false;
 
     if (!result.ok) {
       toast.error(result.error, { duration: 8000 });
@@ -238,13 +264,13 @@ export function AdjustmentForm({
               title={mode === 'ABSOLUTE' ? 'Scan to count' : 'Scan products'}
               description={
                 mode === 'ABSOLUTE'
-                  ? 'Scan each unit on the shelf. Every scan counts one more of that product.'
+                  ? 'Scan each piece on the shelf. Every scan counts one more of that product.'
                   : 'Scan products to add them to the adjustment list.'
               }
               mode="continuous"
               manualEntry
               countLabel={(count) => `${count} scanned`}
-              // Quicker re-arm than the till: counting units of one product
+              // Quicker re-arm than the till: counting pieces of one product
               // is the point here.
               sameCodeCooldownMs={900}
               sameCodeReleaseMs={600}
@@ -265,7 +291,7 @@ export function AdjustmentForm({
                       {mode === 'ABSOLUTE' ? 'Counted' : 'Change by'}
                     </TableHead>
                     <TableHead className="text-right">Difference</TableHead>
-                    <TableHead className="hidden text-right sm:table-cell">Value</TableHead>
+                    {canViewCost && <TableHead className="hidden text-right sm:table-cell">Value</TableHead>}
                     <TableHead className="w-10" />
                   </TableRow>
                 </TableHeader>
@@ -279,13 +305,16 @@ export function AdjustmentForm({
                           <p className="text-xs text-muted-foreground">{line.sku}</p>
                         </TableCell>
                         <TableCell className="tabular text-right text-muted-foreground">
-                          {formatQuantity(line.onHand)} {line.unit}
+                          {formatPieces(line.onHand)}
                         </TableCell>
                         <TableCell className="text-right">
                           <Input
                             type="number"
-                            step="0.001"
+                            step="1"
+                            min={mode === 'ABSOLUTE' ? 0 : undefined}
+                            inputMode="numeric"
                             value={line.value}
+                            aria-invalid={!isValidEntry(line)}
                             onChange={(event) => setValue(line.productId, event.target.value)}
                             className="ml-auto h-8 w-28 text-right"
                             placeholder={mode === 'ABSOLUTE' ? String(line.onHand) : '0'}
@@ -299,11 +328,13 @@ export function AdjustmentForm({
                           )}
                         >
                           {delta > 0 ? '+' : ''}
-                          {formatQuantity(delta)}
+                          {formatPieces(delta)}
                         </TableCell>
-                        <TableCell className="tabular hidden text-right text-sm text-muted-foreground sm:table-cell">
-                          {formatCurrency(delta * line.costPrice, currency)}
-                        </TableCell>
+                        {canViewCost && (
+                          <TableCell className="tabular hidden text-right text-sm text-muted-foreground sm:table-cell">
+                            {formatCurrency(delta * line.costPrice, currency)}
+                          </TableCell>
+                        )}
                         <TableCell>
                           <Button
                             type="button"
@@ -328,13 +359,15 @@ export function AdjustmentForm({
               <span className="text-muted-foreground">
                 {effective.length} line{effective.length === 1 ? '' : 's'} will change
               </span>
-              <span className="tabular font-medium">
-                Stock value impact:{' '}
-                <span className={valueImpact < 0 ? 'text-destructive' : 'text-success'}>
-                  {valueImpact > 0 ? '+' : ''}
-                  {formatCurrency(valueImpact, currency)}
+              {canViewCost && (
+                <span className="tabular font-medium">
+                  Stock value impact:{' '}
+                  <span className={valueImpact < 0 ? 'text-destructive' : 'text-success'}>
+                    {valueImpact > 0 ? '+' : ''}
+                    {formatCurrency(valueImpact, currency)}
+                  </span>
                 </span>
-              </span>
+              )}
             </div>
           )}
         </CardContent>

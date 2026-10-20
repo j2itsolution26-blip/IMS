@@ -17,7 +17,7 @@ export interface MovementQuery {
   pageSize?: number;
 }
 
-export async function listMovements(query: MovementQuery = {}) {
+export async function listMovements(query: MovementQuery = {}, { includeCost = false }: { includeCost?: boolean } = {}) {
   const page = Math.max(1, query.page ?? 1);
   const pageSize = Math.min(200, Math.max(10, query.pageSize ?? 40));
 
@@ -70,8 +70,9 @@ export async function listMovements(query: MovementQuery = {}) {
       quantity: toNum(row.quantity),
       balanceBefore: toNum(row.balanceBefore),
       balanceAfter: toNum(row.balanceAfter),
-      unitCost: toNum(row.unitCost),
-      value: Math.abs(toNum(row.quantity)) * toNum(row.unitCost),
+      // Cost is the owner's; staff see quantities only.
+      unitCost: includeCost ? toNum(row.unitCost) : 0,
+      value: includeCost ? Math.abs(toNum(row.quantity)) * toNum(row.unitCost) : 0,
       note: row.note,
       referenceType: row.referenceType,
       referenceId: row.referenceId,
@@ -88,8 +89,14 @@ export async function listMovements(query: MovementQuery = {}) {
   };
 }
 
-/** Product picker options for the adjustment and stock-in forms. */
-export async function getStockPickerProducts() {
+/**
+ * Product picker options for the adjustment and stock-in forms.
+ *
+ * `costPrice` is zero unless `includeCost` is set: it only feeds the owner's
+ * "stock value impact" preview, and the server values every movement at the
+ * product's recorded cost regardless of what the browser holds.
+ */
+export async function getStockPickerProducts({ includeCost = false }: { includeCost?: boolean } = {}) {
   const products = await prisma.product.findMany({
     where: { status: 'ACTIVE', isTrackable: true },
     orderBy: { name: 'asc' },
@@ -100,7 +107,6 @@ export async function getStockPickerProducts() {
       sku: true,
       barcode: true,
       costPrice: true,
-      unit: { select: { abbreviation: true } },
       inventory: { select: { quantity: true, reserved: true } },
     },
   });
@@ -114,8 +120,7 @@ export async function getStockPickerProducts() {
       name: product.name,
       sku: product.sku,
       barcode: product.barcode,
-      unit: product.unit.abbreviation,
-      costPrice: toNum(product.costPrice),
+      costPrice: includeCost ? toNum(product.costPrice) : 0,
       onHand,
       available: onHand - reserved,
     };
@@ -142,7 +147,10 @@ export type InventoryBarcodeLookup =
  * screen can say *why* one can't be received or counted rather than claiming
  * it doesn't exist — which would invite a duplicate product.
  */
-export async function findInventoryProductByBarcode(barcode: string): Promise<InventoryBarcodeLookup> {
+export async function findInventoryProductByBarcode(
+  barcode: string,
+  { includeCost = false }: { includeCost?: boolean } = {},
+): Promise<InventoryBarcodeLookup> {
   const ref = await findProductRefByBarcode(barcode);
   if (!ref) return { status: 'not-found' };
 
@@ -156,7 +164,6 @@ export async function findInventoryProductByBarcode(barcode: string): Promise<In
       status: true,
       isTrackable: true,
       costPrice: true,
-      unit: { select: { abbreviation: true } },
       inventory: { select: { quantity: true, reserved: true } },
     },
   });
@@ -172,8 +179,7 @@ export async function findInventoryProductByBarcode(barcode: string): Promise<In
       name: product.name,
       sku: product.sku,
       barcode: product.barcode,
-      unit: product.unit.abbreviation,
-      costPrice: toNum(product.costPrice),
+      costPrice: includeCost ? toNum(product.costPrice) : 0,
       onHand,
       available: onHand - reserved,
       productStatus: product.status,

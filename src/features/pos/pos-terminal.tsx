@@ -108,8 +108,6 @@ interface BasketLine {
   discount: number;
   available: number;
   isTrackable: boolean;
-  allowDecimal: boolean;
-  unitAbbreviation: string;
 }
 
 /**
@@ -355,8 +353,6 @@ export function PosTerminal({
           discount: 0,
           available: product.available,
           isTrackable: product.isTrackable,
-          allowDecimal: product.allowDecimal,
-          unitAbbreviation: product.unitAbbreviation,
         },
       ];
     });
@@ -535,7 +531,9 @@ export function PosTerminal({
     setTimeout(() => searchRef.current?.focus(), 0);
   };
 
-  const setQuantity = (productId: string, quantity: number) => {
+  const setQuantity = (productId: string, requested: number) => {
+    // Sold by the piece: a cart quantity is always a whole number.
+    const quantity = Number.isFinite(requested) ? Math.floor(requested) : 0;
     setBasket((current) =>
       current.flatMap((line) => {
         if (line.productId !== productId) return [line];
@@ -594,7 +592,9 @@ export function PosTerminal({
 
   const resumeHeldOrder = () => {
     if (!heldOrder) return;
-    setBasket(heldOrder.lines);
+    // An order parked by an older version could carry a fractional amount;
+    // the till only sells whole pieces now.
+    setBasket(heldOrder.lines.map((line) => ({ ...line, quantity: Math.max(1, Math.round(line.quantity)) })));
     setOrderDiscount(heldOrder.discount);
     setNotes(heldOrder.notes);
     try {
@@ -796,8 +796,6 @@ export function PosTerminal({
               unitPrice: line.unitPrice,
               quantity: line.quantity,
               discount: line.discount,
-              allowDecimal: line.allowDecimal,
-              unitAbbreviation: line.unitAbbreviation,
             }))}
             total={totals.total}
             itemCount={totals.itemCount}
@@ -937,7 +935,7 @@ export function PosTerminal({
                         {line.barcode || line.sku}
                       </p>
                       <p className="tabular text-xs text-muted-foreground">
-                        {formatCurrency(line.unitPrice, currency)} / {line.unitAbbreviation}
+                        {formatCurrency(line.unitPrice, currency)} / pc
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
@@ -955,7 +953,6 @@ export function PosTerminal({
                   <div className="mt-2 flex items-center gap-2">
                     <QuantityInput
                       value={line.quantity}
-                      allowDecimal={line.allowDecimal}
                       onChange={(quantity) => setQuantity(line.productId, quantity)}
                       label={`Quantity for ${line.name}`}
                     />

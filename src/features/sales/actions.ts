@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { authorize } from '@/lib/session';
+import { countQuantity } from '@/lib/quantity';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { voidSale } from '@/server/services/sale-service';
 import { createSaleReturn } from '@/server/services/return-service';
@@ -63,7 +64,8 @@ const returnSchema = z.object({
   restock: z.boolean().default(true),
   refundMethod: z.enum(['CASH', 'GCASH', 'CARD', 'OTHER']).default('CASH'),
   lines: z
-    .array(z.object({ saleItemId: z.string().min(1), quantity: z.number().min(0) }))
+    // Pieces returned per line; 0 means "not returning this line".
+    .array(z.object({ saleItemId: z.string().min(1), quantity: countQuantity }))
     .min(1, 'Select at least one line to return.'),
 });
 

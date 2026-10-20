@@ -38,8 +38,6 @@ export interface ScannerCartLine {
   unitPrice: number;
   quantity: number;
   discount: number;
-  allowDecimal: boolean;
-  unitAbbreviation: string;
 }
 
 function toFeedback(outcome: ScanOutcome): ScanFeedback {
@@ -191,7 +189,6 @@ function ScannerCart({
               <div className="mt-2 flex items-center justify-between gap-2">
                 <QuantityInput
                   value={line.quantity}
-                  allowDecimal={line.allowDecimal}
                   onChange={(quantity) => onSetQuantity(line.productId, quantity)}
                   onFocusChange={onEditing}
                   label={`Quantity for ${line.name}`}
@@ -199,7 +196,7 @@ function ScannerCart({
                 />
                 <div className="min-w-0 text-right">
                   <p className="tabular text-xs text-muted-foreground">
-                    {formatCurrency(line.unitPrice, currency)} / {line.unitAbbreviation}
+                    {formatCurrency(line.unitPrice, currency)} / pc
                   </p>
                   <p className="tabular text-base font-semibold">{formatCurrency(subtotal, currency)}</p>
                 </div>

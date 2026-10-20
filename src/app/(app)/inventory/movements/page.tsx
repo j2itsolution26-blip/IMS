@@ -2,7 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowDownLeft, ArrowUpRight, FileBarChart } from 'lucide-react';
 import type { InventoryTransactionType } from '@prisma/client';
-import { requirePermission } from '@/lib/session';
+import { requirePermission, userCan } from '@/lib/session';
+import { FINANCIAL_PERMISSION } from '@/lib/permissions';
+import { formatPieces } from '@/lib/quantity';
 import { listMovements } from '@/features/inventory/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { resolveRange, parsePeriod } from '@/server/analytics/date-range';
@@ -40,8 +42,10 @@ export default async function MovementsPage({
 }: {
   searchParams: Promise<{ q?: string; type?: string; period?: string; page?: string }>;
 }) {
-  await requirePermission('inventory.view');
+  const user = await requirePermission('inventory.view');
   const params = await searchParams;
+  // The value column is cost-based, so it is the owner's.
+  const canViewCost = userCan(user, FINANCIAL_PERMISSION);
 
   const period = parsePeriod(params.period, 'last30');
   const range = resolveRange(period);
@@ -56,7 +60,7 @@ export default async function MovementsPage({
     from: range.from,
     to: range.to,
     page: Number(params.page) || 1,
-  });
+  }, { includeCost: canViewCost });
 
   return (
     <>
@@ -97,7 +101,7 @@ export default async function MovementsPage({
                   <TableHead>Type</TableHead>
                   <TableHead className="text-right">Change</TableHead>
                   <TableHead className="text-right">Balance</TableHead>
-                  <TableHead className="hidden text-right lg:table-cell">Value</TableHead>
+                  {canViewCost && <TableHead className="hidden text-right lg:table-cell">Value</TableHead>}
                   <TableHead className="hidden lg:table-cell">By</TableHead>
                 </TableRow>
               </TableHeader>
@@ -143,16 +147,18 @@ export default async function MovementsPage({
                         )}
                       >
                         {inbound ? '+' : ''}
-                        {formatQuantity(movement.quantity)}
+                        {formatPieces(movement.quantity)}
                       </TableCell>
                       <TableCell className="tabular text-right">
                         <span className="text-muted-foreground">{formatQuantity(movement.balanceBefore)}</span>
                         <span className="mx-1 text-muted-foreground">→</span>
                         <span className="font-medium">{formatQuantity(movement.balanceAfter)}</span>
                       </TableCell>
-                      <TableCell className="tabular hidden text-right text-sm text-muted-foreground lg:table-cell">
-                        {formatCurrency(movement.value, currency)}
-                      </TableCell>
+                      {canViewCost && (
+                        <TableCell className="tabular hidden text-right text-sm text-muted-foreground lg:table-cell">
+                          {formatCurrency(movement.value, currency)}
+                        </TableCell>
+                      )}
                       <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
                         {movement.userName}
                       </TableCell>

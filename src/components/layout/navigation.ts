@@ -3,6 +3,7 @@ import {
   Boxes,
   FileBarChart,
   LayoutDashboard,
+  Package,
   ScanBarcode,
   ScrollText,
   Settings,
@@ -43,8 +44,11 @@ export const NAVIGATION: NavSection[] = [
   {
     label: 'Store',
     items: [
-      { label: 'POS', href: '/pos', icon: ScanBarcode, permission: 'pos.view' },
+      // The sidebar drops items a role cannot open, so Inventory Staff see
+      // Dashboard → Products → Inventory → Reports, and a cashier Dashboard → POS.
       { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permission: 'dashboard.view' },
+      { label: 'POS', href: '/pos', icon: ScanBarcode, permission: 'pos.view' },
+      { label: 'Products', href: '/products', icon: Package, permission: 'products.view' },
       { label: 'Inventory', href: '/inventory', icon: Boxes, permission: 'inventory.view', badge: 'lowStock', exact: true },
       { label: 'Sales', href: '/sales', icon: ShoppingCart, permission: 'sales.view' },
       { label: 'Reports', href: '/reports', icon: FileBarChart, permission: 'reports.view' },

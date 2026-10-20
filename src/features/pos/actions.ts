@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { authorize } from '@/lib/session';
+import { pieceQuantity } from '@/lib/quantity';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createSale, type CompletedSale } from '@/server/services/sale-service';
@@ -29,7 +30,8 @@ const checkoutSchema = z.object({
     .array(
       z.object({
         productId: z.string().min(1),
-        quantity: z.number().positive('Quantity must be greater than zero.'),
+        // Pieces sold: a whole number, at least 1.
+        quantity: pieceQuantity,
         // Deliberately no `unitPrice`: the till has no price-override
         // permission, so the database price is the only price. Zod strips
         // unknown keys, so a tampered request carrying one is simply ignored.

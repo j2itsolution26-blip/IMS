@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { validateImageUrl } from '@/lib/image-url';
+import { MAX_LINE_QUANTITY } from '@/lib/quantity';
 
 /**
  * Product validation. Shared by the client form and the server action so the
@@ -13,6 +14,14 @@ const decimalField = (label: string, { min = 0, max = 1_000_000_000 } = {}) =>
     .min(min, `${label} cannot be less than ${min}.`)
     .max(max, `${label} is unreasonably large.`)
     .finite();
+
+/** A stock threshold: zero or more whole pieces. "" from an empty input is 0. */
+const pieceField = (label: string) =>
+  z.coerce
+    .number({ invalid_type_error: `${label} must be a number.` })
+    .int(`${label} is counted in whole pieces.`)
+    .min(0, `${label} cannot be less than 0.`)
+    .max(MAX_LINE_QUANTITY, `${label} is unreasonably large.`);
 
 export const productSchema = z
   .object({
@@ -51,15 +60,15 @@ export const productSchema = z
       .nullable(),
 
     categoryId: z.string().trim().min(1, 'Choose a category.'),
-    unitId: z.string().trim().min(1, 'Choose a unit of measure.'),
 
     costPrice: decimalField('Cost price'),
     sellingPrice: decimalField('Selling price'),
 
-    minStock: decimalField('Minimum stock'),
-    maxStock: decimalField('Maximum stock'),
-    reorderLevel: decimalField('Low-stock level'),
-    reorderQty: decimalField('Reorder quantity'),
+    // Stock thresholds are counted in whole pieces, like every quantity.
+    minStock: pieceField('Minimum stock'),
+    maxStock: pieceField('Maximum stock'),
+    reorderLevel: pieceField('Low-stock level'),
+    reorderQty: pieceField('Reorder quantity'),
 
     status: z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']).default('ACTIVE'),
     isTrackable: z.boolean().default(true),

@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Package, Receipt, ShoppingBag, TrendingUp } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
-import { REPORTS } from '@/server/reports/registry';
+import { FINANCIAL_PERMISSION } from '@/lib/permissions';
+import { REPORTS, canOpenReport } from '@/server/reports/registry';
 import { resolveReportWindow } from '@/server/reports/report-window';
 import { getInventorySnapshot, getProductPerformance, getSalesSummary } from '@/server/analytics/dashboard';
 import { getPaymentMethodBreakdown, getSalesTimeSeries, granularityForRange } from '@/server/analytics/sales-analytics';
@@ -61,20 +62,26 @@ export default async function ReportsPage({
 
   const range = resolveReportWindow(query, 'today');
   const canSeeStock = userCan(user, 'inventory.view');
+  // Takings, revenue and profit are the owner's. Staff with report access see
+  // the stock sections and the reports their role may open, and the sales
+  // queries below are not run for them at all.
+  const canSeeSales = userCan(user, FINANCIAL_PERMISSION);
 
   const currency = await getCurrency();
 
   const [summary, points, bestSellers, payments, snapshot, runningOut] = await Promise.all([
-    getSalesSummary(range.from, range.to),
-    getSalesTimeSeries(range.from, range.to, granularityForRange(range.from, range.to)),
-    getProductPerformance({
-      from: range.from,
-      to: range.to,
-      sort: 'units',
-      direction: 'desc',
-      limit: 5,
-    }),
-    getPaymentMethodBreakdown(range.from, range.to),
+    canSeeSales ? getSalesSummary(range.from, range.to) : null,
+    canSeeSales ? getSalesTimeSeries(range.from, range.to, granularityForRange(range.from, range.to)) : [],
+    canSeeSales
+      ? getProductPerformance({
+          from: range.from,
+          to: range.to,
+          sort: 'units',
+          direction: 'desc',
+          limit: 5,
+        })
+      : [],
+    canSeeSales ? getPaymentMethodBreakdown(range.from, range.to) : [],
     canSeeStock ? getInventorySnapshot() : null,
     canSeeStock ? getRunningOut(5) : [],
   ]);
@@ -87,22 +94,24 @@ export default async function ReportsPage({
   const paymentTotal = payments.reduce((acc, row) => acc + row.amount, 0);
 
   // Only reports this role can actually open.
-  const available = REPORTS.filter((report) => userCan(user, report.permission));
+  const available = REPORTS.filter((report) => canOpenReport(user, report));
 
   return (
     <>
       <PageHeader
         title="Reports"
-        description="See how your store is doing."
+        description={canSeeSales ? 'See how your store is doing.' : 'Stock levels and the reports your role can open.'}
         actions={
           <>
+            {canSeeSales && (
             <ReportsPeriodPicker
               period={range.period}
               from={asDateInput(range.from)}
               to={asDateInput(range.to)}
               label={range.label}
             />
-            {userCan(user, 'reports.export') && (
+            )}
+            {canSeeSales && userCan(user, 'reports.export') && (
               <ExportMenu
                 reportId="sales-summary"
                 period={range.period}
@@ -114,68 +123,73 @@ export default async function ReportsPage({
         }
       />
 
-      <section aria-labelledby="totals-heading" className="mb-6">
-        <h2 id="totals-heading" className="sr-only">
-          Headline figures
-        </h2>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard
-            label="Sales"
-            value={formatCurrency(summary.revenue, currency)}
-            icon={Receipt}
-            hint={range.label}
-          />
-          <StatCard
-            label="Transactions"
-            value={formatNumber(summary.transactionCount, 0)}
-            icon={ShoppingBag}
-            href="/sales"
-          />
-          <StatCard label="Items sold" value={formatQuantity(summary.itemsSold)} icon={Package} />
-          <StatCard
-            label="Profit"
-            value={formatCurrency(summary.netProfit, currency)}
-            icon={TrendingUp}
-            tone={summary.netProfit > 0 ? 'success' : summary.netProfit < 0 ? 'destructive' : 'default'}
-            hint={summary.revenue > 0 ? `${formatPercent(summary.marginPercent)} margin` : undefined}
-          />
-        </div>
-      </section>
+      {summary && (
+        <>
+        <section aria-labelledby="totals-heading" className="mb-6">
+          <h2 id="totals-heading" className="sr-only">
+            Headline figures
+          </h2>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatCard
+              label="Sales"
+              value={formatCurrency(summary.revenue, currency)}
+              icon={Receipt}
+              hint={range.label}
+            />
+            <StatCard
+              label="Transactions"
+              value={formatNumber(summary.transactionCount, 0)}
+              icon={ShoppingBag}
+              href="/sales"
+            />
+            <StatCard label="Items sold" value={formatQuantity(summary.itemsSold)} icon={Package} />
+            <StatCard
+              label="Profit"
+              value={formatCurrency(summary.netProfit, currency)}
+              icon={TrendingUp}
+              tone={summary.netProfit > 0 ? 'success' : summary.netProfit < 0 ? 'destructive' : 'default'}
+              hint={summary.revenue > 0 ? `${formatPercent(summary.marginPercent)} margin` : undefined}
+            />
+          </div>
+        </section>
 
-      <Card className="mb-6">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Sales</CardTitle>
-          <CardDescription>{range.label}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ColumnChart
-            data={points.map((point) => ({
-              label: point.label,
-              value: point.revenue,
-              secondary: point.orders,
-            }))}
-            currency={currency}
-            valueLabel="Sales"
-            secondaryLabel="Transactions"
-            height={260}
-          />
+        <Card className="mb-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Sales</CardTitle>
+            <CardDescription>{range.label}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ColumnChart
+              data={points.map((point) => ({
+                label: point.label,
+                value: point.revenue,
+                secondary: point.orders,
+              }))}
+              currency={currency}
+              valueLabel="Sales"
+              secondaryLabel="Transactions"
+              height={260}
+            />
 
-          <dl className="mt-4 grid grid-cols-2 gap-4 border-t pt-4 sm:grid-cols-4">
-            <Figure label="Total sales" value={formatCurrency(summary.revenue, currency)} />
-            <Figure label="Average sale" value={formatCurrency(summary.averageOrderValue, currency)} />
-            <Figure label="Transactions" value={formatNumber(summary.transactionCount, 0)} />
-            <Figure label="Items sold" value={formatQuantity(summary.itemsSold)} />
-          </dl>
-        </CardContent>
-      </Card>
+            <dl className="mt-4 grid grid-cols-2 gap-4 border-t pt-4 sm:grid-cols-4">
+              <Figure label="Total sales" value={formatCurrency(summary.revenue, currency)} />
+              <Figure label="Average sale" value={formatCurrency(summary.averageOrderValue, currency)} />
+              <Figure label="Transactions" value={formatNumber(summary.transactionCount, 0)} />
+              <Figure label="Items sold" value={formatQuantity(summary.itemsSold)} />
+            </dl>
+          </CardContent>
+        </Card>
+        </>
+      )}
 
       {/* Stock sections are hidden from roles without inventory access, so the
           grid only splits in two when there is a second card to show. */}
-      <div className={cn('mb-6 grid gap-4', snapshot && 'lg:grid-cols-2')}>
+      <div className={cn('mb-6 grid gap-4', snapshot && canSeeSales && 'lg:grid-cols-2')}>
+        {canSeeSales && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Best-selling products</CardTitle>
-            <CardDescription>Most units sold in this period.</CardDescription>
+            <CardDescription>Most pieces sold in this period.</CardDescription>
           </CardHeader>
           <CardContent>
             {bestSellers.length === 0 ? (
@@ -220,6 +234,7 @@ export default async function ReportsPage({
             </Button>
           </CardContent>
         </Card>
+        )}
 
         {snapshot && (
           <Card>
@@ -231,7 +246,7 @@ export default async function ReportsPage({
               <ul className="divide-y">
                 <StockRow label="Total products" value={snapshot.distinctProducts} href="/inventory" />
                 <StockRow label="In stock" value={inStockCount} dot="🟢" href="/inventory" />
-                <StockRow label="Low stock" value={lowStockCount} dot="🟡" href="/inventory?status=LOW" />
+                <StockRow label="Low stock" value={lowStockCount} dot="🟡" href="/inventory?status=LOW_ANY" />
                 <StockRow
                   label="Out of stock"
                   value={snapshot.outOfStock}
@@ -244,7 +259,7 @@ export default async function ReportsPage({
         )}
       </div>
 
-      <div className={cn('mb-6 grid gap-4', snapshot && 'lg:grid-cols-2')}>
+      <div className={cn('mb-6 grid gap-4', snapshot && canSeeSales && 'lg:grid-cols-2')}>
         {snapshot && (
           <Card>
             <CardHeader className="pb-3">
@@ -274,7 +289,7 @@ export default async function ReportsPage({
                             isOut ? 'text-destructive' : 'text-warning'
                           }`}
                         >
-                          {formatQuantity(row.onHand)} {row.unitAbbreviation}
+                          {formatQuantity(row.onHand)} pcs
                         </span>
                         <span className="shrink-0 text-sm" aria-hidden="true">
                           {isOut ? '🔴' : '🟡'}
@@ -293,6 +308,7 @@ export default async function ReportsPage({
           </Card>
         )}
 
+        {canSeeSales && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Payment methods</CardTitle>
@@ -335,6 +351,7 @@ export default async function ReportsPage({
             )}
           </CardContent>
         </Card>
+        )}
       </div>
 
       <div className="border-t pt-5">

@@ -131,13 +131,31 @@ async function updateMovingAverageCost(
 }
 
 /**
+ * Every product is counted by the piece, so a stock quantity is always a whole
+ * number. Returns the value as a Decimal, or throws a ValidationError naming
+ * what was wrong. Fractional input is rejected rather than rounded: rounding
+ * 2.5 to 3 would silently record stock that was never counted.
+ */
+export function wholePieces(value: Numeric, what = 'Quantity'): Prisma.Decimal {
+  const quantity = D(value);
+  if (!quantity.isFinite() || !quantity.isInteger()) {
+    throw new ValidationError(`${what} must be a whole number of pieces.`);
+  }
+  return quantity;
+}
+
+/**
  * Applies one stock movement. Must run inside a transaction.
+ *
+ * The movement must be a whole, non-zero number of pieces. This is the one
+ * path every sale, return, receipt and adjustment takes, so the rule holds
+ * whichever screen or action started it (the database also enforces it).
  */
 export async function applyStockMovement(
   tx: TxClient,
   input: StockMovementInput,
 ): Promise<StockMovementResult> {
-  const delta = q3(input.quantity);
+  const delta = wholePieces(input.quantity, 'A stock movement');
   if (delta.isZero()) {
     // A zero movement would write a ledger row that says nothing happened.
     throw new ValidationError('A stock movement must change the quantity by a non-zero amount.');

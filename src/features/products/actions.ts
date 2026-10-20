@@ -71,7 +71,6 @@ export async function createProduct(input: unknown): Promise<ActionResult<{ id: 
         description: values.description,
         imageUrl: values.imageUrl,
         categoryId: values.categoryId,
-        unitId: values.unitId,
         costPrice: money(values.costPrice),
         sellingPrice: money(values.sellingPrice),
         minStock: values.minStock,
@@ -114,7 +113,6 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
         description: values.description,
         imageUrl: values.imageUrl,
         categoryId: values.categoryId,
-        unitId: values.unitId,
         costPrice: money(values.costPrice),
         sellingPrice: money(values.sellingPrice),
         minStock: values.minStock,
@@ -224,7 +222,7 @@ export async function deleteProduct(id: string): Promise<ActionResult<void>> {
     const onHand = product.inventory.reduce((acc, row) => acc + toNum(row.quantity), 0);
     if (onHand !== 0) {
       throw new ConflictError(
-        `This product still holds ${onHand} unit(s) of stock. Adjust it to zero before deleting.`,
+        `This product still holds ${onHand} piece(s) of stock. Adjust it to zero before deleting.`,
       );
     }
 

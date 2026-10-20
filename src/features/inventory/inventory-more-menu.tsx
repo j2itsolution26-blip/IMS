@@ -41,7 +41,7 @@ export function InventoryMoreMenu({
           <>
             <DropdownMenuItem asChild>
               <Link href="/inventory/categories">
-                <Tags /> Categories &amp; units
+                <Tags /> Categories
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>

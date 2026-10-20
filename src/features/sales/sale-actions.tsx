@@ -188,7 +188,8 @@ export function SaleActions({
                     type="number"
                     min={0}
                     max={item.returnable}
-                    step="0.001"
+                    step="1"
+                    inputMode="numeric"
                     value={quantities[item.id] ?? ''}
                     onChange={(event) =>
                       setQuantities((current) => ({ ...current, [item.id]: event.target.value }))

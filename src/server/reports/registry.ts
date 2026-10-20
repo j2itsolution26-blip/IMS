@@ -51,6 +51,17 @@ export interface ReportDefinition {
   name: string;
   description: string;
   permission: PermissionKey;
+  /**
+   * Revenue, takings or profit. Also requires the owner's financial
+   * permission (`FINANCIAL_PERMISSION`), on top of `permission`.
+   */
+  financial?: boolean;
+  /**
+   * Cost- or money-based columns in an otherwise operational report. They are
+   * removed — from the screen and from every export — for viewers without the
+   * financial permission.
+   */
+  costColumns?: string[];
   group: 'Sales' | 'Inventory' | 'Finance';
   /** False for reports that describe current state rather than a window. */
   usesDateRange: boolean;
@@ -87,6 +98,7 @@ export const REPORTS: ReportDefinition[] = [
   // --- Sales ---------------------------------------------------------------
   {
     id: 'sales-summary',
+    financial: true,
     name: 'Sales summary',
     description: 'Revenue, profit, and order counts per day, week, or month for the period — covers daily, weekly, and monthly sales.',
     permission: 'reports.view',
@@ -104,7 +116,7 @@ export const REPORTS: ReportDefinition[] = [
           money('revenue', 'Revenue'),
           money('profit', 'Gross profit'),
           count('orders', 'Orders'),
-          qty('units', 'Units sold'),
+          qty('units', 'Pieces sold'),
         ],
         rows: points.map((point) => ({
           label: point.label,
@@ -124,6 +136,7 @@ export const REPORTS: ReportDefinition[] = [
   },
   {
     id: 'sales-detail',
+    financial: true,
     name: 'Sales detail',
     description: 'Every invoice in the period with its cashier, totals, and profit.',
     permission: 'sales.view',
@@ -179,8 +192,9 @@ export const REPORTS: ReportDefinition[] = [
   },
   {
     id: 'sales-by-category',
+    financial: true,
     name: 'Sales by category',
-    description: 'Revenue, profit, and units split by product category.',
+    description: 'Revenue, profit, and pieces sold split by product category.',
     permission: 'reports.view',
     group: 'Sales',
     usesDateRange: true,
@@ -191,7 +205,7 @@ export const REPORTS: ReportDefinition[] = [
           text('label', 'Category'),
           money('revenue', 'Revenue'),
           money('profit', 'Profit'),
-          qty('units', 'Units'),
+          qty('units', 'Pieces sold'),
           count('orders', 'Orders'),
           { key: 'share', label: 'Share', format: 'percent', numeric: true },
         ],
@@ -201,8 +215,9 @@ export const REPORTS: ReportDefinition[] = [
   },
   {
     id: 'best-selling',
+    financial: true,
     name: 'Best selling products',
-    description: 'Top products by units sold in the period.',
+    description: 'Top products by pieces sold in the period.',
     permission: 'reports.view',
     group: 'Sales',
     usesDateRange: true,
@@ -213,7 +228,7 @@ export const REPORTS: ReportDefinition[] = [
           text('sku', 'SKU'),
           text('name', 'Product'),
           text('categoryName', 'Category'),
-          qty('unitsSold', 'Units sold'),
+          qty('unitsSold', 'Pieces sold'),
           money('revenue', 'Revenue'),
           money('profit', 'Profit'),
           { key: 'marginPercent', label: 'Margin', format: 'percent', numeric: true },
@@ -224,6 +239,7 @@ export const REPORTS: ReportDefinition[] = [
   },
   {
     id: 'sales-by-payment-method',
+    financial: true,
     name: 'Sales by payment method',
     description: 'Takings split by cash, GCash, card, and other payment methods.',
     permission: 'reports.view',
@@ -246,6 +262,7 @@ export const REPORTS: ReportDefinition[] = [
   // --- Inventory -----------------------------------------------------------
   {
     id: 'inventory',
+    costColumns: ['costPrice', 'stockValue'],
     name: 'Stock report',
     description: 'Current stock levels and value for every active product.',
     permission: 'inventory.view',
@@ -325,6 +342,7 @@ export const REPORTS: ReportDefinition[] = [
   },
   {
     id: 'inventory-movement',
+    costColumns: ['value'],
     name: 'Inventory movement',
     description: 'Every stock movement in the period with running balances.',
     permission: 'inventory.view',
@@ -373,6 +391,7 @@ export const REPORTS: ReportDefinition[] = [
   },
   {
     id: 'dead-stock',
+    costColumns: ['stockValue'],
     name: 'Dead stock',
     description: 'Products holding stock that have not sold within the dead-stock threshold.',
     permission: 'reports.view',
@@ -400,8 +419,9 @@ export const REPORTS: ReportDefinition[] = [
   },
   {
     id: 'fast-moving',
+    costColumns: ['stockValue'],
     name: 'Fast moving',
-    description: 'Your quickest sellers by units in the forecast window.',
+    description: 'Your quickest sellers by pieces sold in the forecast window.',
     permission: 'reports.view',
     group: 'Inventory',
     usesDateRange: false,
@@ -411,8 +431,8 @@ export const REPORTS: ReportDefinition[] = [
         columns: [
           text('sku', 'SKU'),
           text('name', 'Product'),
-          qty('unitsSold', 'Units sold'),
-          { key: 'dailyVelocity', label: 'Units per day', format: 'quantity', numeric: true },
+          qty('unitsSold', 'Pieces sold'),
+          { key: 'dailyVelocity', label: 'Pieces per day', format: 'quantity', numeric: true },
           qty('onHand', 'On hand'),
           money('stockValue', 'Stock value'),
         ],
@@ -422,6 +442,7 @@ export const REPORTS: ReportDefinition[] = [
   },
   {
     id: 'slow-moving',
+    costColumns: ['stockValue'],
     name: 'Slow moving',
     description: 'Stocked products that have sold at some point, but not recently.',
     permission: 'reports.view',
@@ -449,6 +470,7 @@ export const REPORTS: ReportDefinition[] = [
   },
   {
     id: 'most-returned',
+    costColumns: ['refundValue'],
     name: 'Most returned products',
     description: 'Return volumes and rates by product.',
     permission: 'reports.view',
@@ -473,6 +495,7 @@ export const REPORTS: ReportDefinition[] = [
   // --- Finance -------------------------------------------------------------
   {
     id: 'profit',
+    financial: true,
     name: 'Profit report',
     description: 'Revenue less cost of goods and returns, per period.',
     permission: 'reports.view',
@@ -513,3 +536,6 @@ export const REPORTS: ReportDefinition[] = [
 export function getReport(id: string): ReportDefinition | undefined {
   return REPORTS.find((report) => report.id === id);
 }
+
+
+export { canOpenReport, visibleReportResult } from '@/server/reports/report-access';

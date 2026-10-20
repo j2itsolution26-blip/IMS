@@ -3,10 +3,11 @@ import Link from 'next/link';
 import { Calculator, PackageCheck, Receipt, ShoppingCart, TrendingUp, Undo2 } from 'lucide-react';
 import type { PaymentMethod, SaleStatus } from '@prisma/client';
 import { requirePermission, userCan } from '@/lib/session';
+import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { listCashiers, listSales } from '@/features/sales/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { inlineLabel, resolveRangeFromParams } from '@/server/analytics/date-range';
-import { getSalesOverview } from '@/server/analytics/sales-overview';
+import { getSalesOverview, redactSalesOverviewProfit } from '@/server/analytics/sales-overview';
 import { formatCurrency, formatNumber, humanizeEnum } from '@/lib/format';
 import { SaleInvoiceRows } from '@/features/sales/sale-invoice-rows';
 import { ExportMenu } from '@/features/sales/export-menu';
@@ -56,9 +57,12 @@ export default async function SalesPage({
 
   const { period, range, custom } = resolveRangeFromParams(params, 'month');
   const currency = await getCurrency();
+  // Profit and cost are the owner's. Staff who may view sales see the takings
+  // only; the figures are zeroed here, before anything is rendered.
+  const canViewProfit = userCan(user, FINANCIAL_PERMISSION);
 
   // One pass for the analytics, one for the paged table beneath it.
-  const [overview, cashiers, result] = await Promise.all([
+  const [rawOverview, cashiers, result] = await Promise.all([
     getSalesOverview(range),
     listCashiers(),
     listSales({
@@ -71,8 +75,10 @@ export default async function SalesPage({
       from: range.from,
       to: range.to,
       page: Number(params.page) || 1,
+      includeCost: canViewProfit,
     }),
   ]);
+  const overview = canViewProfit ? rawOverview : redactSalesOverviewProfit(rawOverview);
 
   const { current, change } = overview.summary;
   const label = inlineLabel(range);
@@ -85,13 +91,15 @@ export default async function SalesPage({
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">Sales</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Track revenue, profit, transactions, and sales history.
+            {canViewProfit
+              ? 'Track revenue, profit, transactions, and sales history.'
+              : 'Track revenue, transactions, and sales history.'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-end gap-2">
           <PeriodPicker current={period} allowCustom customFrom={custom?.from} customTo={custom?.to} />
-          <ExportMenu />
+          {canViewProfit && <ExportMenu />}
           {userCan(user, 'pos.create') && (
             <Button asChild size="lg" className="h-11 rounded-xl">
               <Link href="/pos">
@@ -112,15 +120,17 @@ export default async function SalesPage({
           changeLabel={comparison}
           series={overview.trend.map((point) => point.revenue)}
         />
-        <KpiCard
-          label="Profit"
-          value={formatCurrency(current.netProfit, currency)}
-          icon={TrendingUp}
-          tone={current.netProfit < 0 ? 'destructive' : 'success'}
-          change={change.netProfit}
-          changeLabel={comparison}
-          series={overview.trend.map((point) => point.profit)}
-        />
+        {canViewProfit && (
+          <KpiCard
+            label="Profit"
+            value={formatCurrency(current.netProfit, currency)}
+            icon={TrendingUp}
+            tone={current.netProfit < 0 ? 'destructive' : 'success'}
+            change={change.netProfit}
+            changeLabel={comparison}
+            series={overview.trend.map((point) => point.profit)}
+          />
+        )}
         <KpiCard
           label="Transactions"
           value={formatNumber(current.transactionCount, 0)}
@@ -164,6 +174,7 @@ export default async function SalesPage({
           granularity={overview.granularity}
           currency={currency}
           rangeLabel={range.label}
+          showProfit={canViewProfit}
           className="xl:col-span-3"
         />
         <PaymentMethodsPanel payments={overview.payments} currency={currency} className="xl:col-span-2" />
@@ -171,12 +182,13 @@ export default async function SalesPage({
 
       {/* Daily, monthly and comparison */}
       <div className="mb-4 grid items-start gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-        <DailySalesPanel daily={overview.daily} currency={currency} />
-        <MonthlySalesPanel monthly={overview.monthly} currency={currency} />
+        <DailySalesPanel daily={overview.daily} currency={currency} showProfit={canViewProfit} />
+        <MonthlySalesPanel monthly={overview.monthly} currency={currency} showProfit={canViewProfit} />
         <SalesComparisonPanel
           comparison={overview.monthComparison}
           labels={overview.monthLabels}
           currency={currency}
+          showProfit={canViewProfit}
           className="lg:col-span-2 2xl:col-span-1"
         />
       </div>
@@ -186,6 +198,7 @@ export default async function SalesPage({
         <TopProductsPanel
           products={overview.topProducts}
           currency={currency}
+          showProfit={canViewProfit}
           className="lg:col-span-2 2xl:col-span-1"
         />
         <CategorySalesPanel categories={overview.categories} currency={currency} />
@@ -236,7 +249,7 @@ export default async function SalesPage({
           <EmptyState
             icon={Receipt}
             title="No sales in this period"
-            description="Complete a sale at the POS and it will appear here with its full line detail, payments, and profit."
+            description="Complete a sale at the POS and it will appear here with its full line detail and payments."
             action={
               userCan(user, 'pos.create') && (
                 <Button asChild>

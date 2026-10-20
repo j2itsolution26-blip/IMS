@@ -31,11 +31,14 @@ const STATUS_VARIANT: Record<ProductStatus, 'success' | 'secondary' | 'destructi
 export function ProductTable({
   rows,
   currency,
+  canViewCost,
   canUpdate,
   canDelete,
 }: {
   rows: ProductListRow[];
   currency: string;
+  /** Cost and margin columns are the owner's; the server zeroes them otherwise. */
+  canViewCost: boolean;
   canUpdate: boolean;
   canDelete: boolean;
 }) {
@@ -80,9 +83,9 @@ export function ProductTable({
           <TableRow>
             <TableHead>Product</TableHead>
             <TableHead className="hidden md:table-cell">Category</TableHead>
-            <TableHead className="text-right">Cost</TableHead>
+            {canViewCost && <TableHead className="text-right">Cost</TableHead>}
             <TableHead className="text-right">Price</TableHead>
-            <TableHead className="hidden text-right sm:table-cell">Margin</TableHead>
+            {canViewCost && <TableHead className="hidden text-right sm:table-cell">Margin</TableHead>}
             <TableHead className="text-right">Stock</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="w-10" />
@@ -111,25 +114,29 @@ export function ProductTable({
                   <span className="text-sm text-muted-foreground">{row.categoryName}</span>
                 </TableCell>
 
-                <TableCell className="tabular text-right">{formatCurrency(row.costPrice, currency)}</TableCell>
+                {canViewCost && (
+                  <TableCell className="tabular text-right">{formatCurrency(row.costPrice, currency)}</TableCell>
+                )}
                 <TableCell className="tabular text-right font-medium">
                   {formatCurrency(row.sellingPrice, currency)}
                 </TableCell>
 
-                <TableCell className="hidden text-right sm:table-cell">
-                  <span
-                    className={cn(
-                      'tabular text-sm',
-                      row.marginPercent < 0
-                        ? 'text-destructive'
-                        : row.marginPercent < 10
-                          ? 'text-warning'
-                          : 'text-muted-foreground',
-                    )}
-                  >
-                    {row.marginPercent.toFixed(1)}%
-                  </span>
-                </TableCell>
+                {canViewCost && (
+                  <TableCell className="hidden text-right sm:table-cell">
+                    <span
+                      className={cn(
+                        'tabular text-sm',
+                        row.marginPercent < 0
+                          ? 'text-destructive'
+                          : row.marginPercent < 10
+                            ? 'text-warning'
+                            : 'text-muted-foreground',
+                      )}
+                    >
+                      {row.marginPercent.toFixed(1)}%
+                    </span>
+                  </TableCell>
+                )}
 
                 <TableCell className="text-right">
                   {row.isTrackable ? (
@@ -140,9 +147,7 @@ export function ProductTable({
                       )}
                     >
                       {formatQuantity(row.onHand)}
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">
-                        {row.unitAbbreviation}
-                      </span>
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">pcs</span>
                     </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">not tracked</span>

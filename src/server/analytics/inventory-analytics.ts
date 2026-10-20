@@ -15,9 +15,9 @@ export interface StockLevelRow {
   productId: string;
   name: string;
   sku: string;
+  barcode: string | null;
   imageUrl: string | null;
   categoryName: string;
-  unitAbbreviation: string;
   warehouseName: string | null;
   onHand: number;
   reserved: number;
@@ -25,6 +25,8 @@ export interface StockLevelRow {
   reorderLevel: number;
   minStock: number;
   maxStock: number;
+  /** Pieces to restock at a time, when configured; 0 otherwise. */
+  reorderQty: number;
   costPrice: number;
   sellingPrice: number;
   stockValue: number;
@@ -32,26 +34,30 @@ export interface StockLevelRow {
   updatedAt: Date;
   lastSoldAt: Date | null;
   lastReceivedAt: Date | null;
+  /** The latest ledger entry of any kind for this product. */
+  lastMovementAt: Date | null;
 }
 
 interface StockLevelSqlRow {
   productId: string;
   name: string;
   sku: string;
+  barcode: string | null;
   imageUrl: string | null;
   categoryName: string;
-  unitAbbreviation: string;
   warehouseName: string | null;
   onHand: string;
   reserved: string;
   reorderLevel: string;
   minStock: string;
   maxStock: string;
+  reorderQty: string;
   costPrice: string;
   sellingPrice: string;
   updatedAt: Date;
   lastSoldAt: Date | null;
   lastReceivedAt: Date | null;
+  lastMovementAt: Date | null;
 }
 
 function classify(available: number, threshold: number, maxStock: number, criticalRatio: number): StockStatus {
@@ -73,13 +79,16 @@ function classify(available: number, threshold: number, maxStock: number, critic
 export type StockFilter = StockStatus | 'ALL' | 'IN_STOCK' | 'LOW_ANY';
 
 /** Orderings the register offers. A closed set — never caller-supplied SQL. */
-export type StockSort = 'stock' | 'name' | 'price' | 'value';
+export type StockSort = 'stock' | 'name' | 'price' | 'value' | 'attention';
 
 const SORT_SQL: Record<StockSort, string> = {
   stock: 'available ASC, "name" ASC',
   name: '"name" ASC',
   price: 'selling_price DESC, "name" ASC',
   value: '(on_hand * cost_price) DESC, "name" ASC',
+  // Out of stock first, then low, then everything else; tightest first within each.
+  attention: `CASE WHEN available <= 0 THEN 0 WHEN threshold > 0 AND available <= threshold THEN 1 ELSE 2 END ASC,
+    CASE WHEN threshold > 0 THEN available / threshold ELSE available END ASC, "name" ASC`,
 };
 
 export interface StockLevelQuery {
@@ -154,9 +163,9 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         p.id                                                    AS "productId",
         p.name                                                  AS "name",
         p.sku                                                   AS "sku",
+        p.barcode                                               AS "barcode",
         p."imageUrl"                                            AS "imageUrl",
         c.name                                                  AS "categoryName",
-        MAX(u.abbreviation)                                     AS "unitAbbreviation",
         ${query.warehouseId ? 'MAX(w.name)' : 'NULL::text'}     AS "warehouseName",
         COALESCE(SUM(i.quantity), 0)                            AS on_hand,
         COALESCE(SUM(i.reserved), 0)                            AS reserved,
@@ -165,14 +174,15 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         p."reorderLevel"                                        AS reorder_level,
         p."minStock"                                            AS min_stock,
         p."maxStock"                                            AS max_stock,
+        p."reorderQty"                                          AS reorder_qty,
         p."costPrice"                                           AS cost_price,
         p."sellingPrice"                                        AS selling_price,
         p."updatedAt"                                           AS updated_at,
         MAX(i."lastSoldAt")                                     AS last_sold_at,
-        MAX(i."lastReceivedAt")                                 AS last_received_at
+        MAX(i."lastReceivedAt")                                 AS last_received_at,
+        (SELECT MAX(t."createdAt") FROM inventory_transactions t WHERE t."productId" = p.id) AS last_movement_at
       FROM products p
       JOIN categories c ON c.id = p."categoryId"
-      LEFT JOIN units u ON u.id = p."unitId"
       LEFT JOIN inventory i ON i."productId" = p.id
       LEFT JOIN warehouses w ON w.id = i."warehouseId"
       WHERE ${conditions.join(' AND ')}
@@ -190,17 +200,19 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
   const rows = await prisma.$queryRawUnsafe<StockLevelSqlRow[]>(
     `
     SELECT
-      "productId", "name", "sku", "imageUrl", "categoryName", "unitAbbreviation", "warehouseName",
+      "productId", "name", "sku", "barcode", "imageUrl", "categoryName", "warehouseName",
       on_hand::text          AS "onHand",
       reserved::text         AS "reserved",
       reorder_level::text    AS "reorderLevel",
       min_stock::text        AS "minStock",
       max_stock::text        AS "maxStock",
+      reorder_qty::text      AS "reorderQty",
       cost_price::text       AS "costPrice",
       selling_price::text    AS "sellingPrice",
       updated_at             AS "updatedAt",
       last_sold_at           AS "lastSoldAt",
-      last_received_at       AS "lastReceivedAt"
+      last_received_at       AS "lastReceivedAt",
+      last_movement_at       AS "lastMovementAt"
     FROM (${base}) AS filtered
     ORDER BY ${SORT_SQL[query.sort ?? 'stock']}
     LIMIT ${pageSize} OFFSET ${offset}
@@ -225,9 +237,9 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         productId: r.productId,
         name: r.name,
         sku: r.sku,
+        barcode: r.barcode,
         imageUrl: r.imageUrl,
         categoryName: r.categoryName,
-        unitAbbreviation: r.unitAbbreviation || 'pcs',
         warehouseName: r.warehouseName,
         onHand,
         reserved,
@@ -235,6 +247,7 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         reorderLevel,
         minStock,
         maxStock,
+        reorderQty: Number(r.reorderQty),
         costPrice,
         sellingPrice: Number(r.sellingPrice),
         stockValue: Number((onHand * costPrice).toFixed(2)),
@@ -242,6 +255,7 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         updatedAt: r.updatedAt,
         lastSoldAt: r.lastSoldAt,
         lastReceivedAt: r.lastReceivedAt,
+        lastMovementAt: r.lastMovementAt,
       };
     }),
     total,

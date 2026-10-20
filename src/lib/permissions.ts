@@ -9,7 +9,6 @@ export const RESOURCES = [
   'dashboard',
   'products',
   'categories',
-  'units',
   'inventory',
   'sales',
   'pos',
@@ -34,7 +33,6 @@ const CATALOGUE: Record<Resource, ResourceSpec> = {
   dashboard: { actions: ['view'], description: 'Business overview and KPIs' },
   products: { actions: ['view', 'create', 'update', 'delete', 'export'], description: 'Product catalogue' },
   categories: { actions: ['view', 'create', 'update', 'delete'], description: 'Product categories' },
-  units: { actions: ['view', 'create', 'update', 'delete'], description: 'Units of measure' },
   inventory: { actions: ['view', 'create', 'update', 'export'], description: 'Stock levels, stock-in, adjustments' },
   sales: { actions: ['view', 'create', 'update', 'delete', 'export'], description: 'Sales and receipts' },
   pos: { actions: ['view', 'create'], description: 'Point of sale terminal' },
@@ -138,7 +136,6 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       'products.export',
       'categories.view',
       'categories.create',
-      'units.view',
       'inventory.view',
       'inventory.create',
       'inventory.update',
@@ -162,6 +159,16 @@ export const PRIVILEGED_ROLE_SLUGS: string[] = [OWNER_ROLE_SLUG, SYSTEM_ADMIN_RO
 export function resolveRolePermissions(role: RoleDefinition): PermissionKey[] {
   return role.permissions === 'ALL' ? STORE_PERMISSION_KEYS : role.permissions;
 }
+
+/**
+ * The gate for cost, profit, margin and stock value.
+ *
+ * `reports.export` is held by the Owner and by no default staff role, so it
+ * already separates the owner's money figures from staff work. Every page,
+ * query and export that would reveal cost or profit checks this key on the
+ * server and strips those figures before anything reaches the browser.
+ */
+export const FINANCIAL_PERMISSION: PermissionKey = 'reports.export';
 
 /** Route -> permission required to open it. Consumed by the sidebar and middleware. */
 export const ROUTE_PERMISSIONS: { prefix: string; permission: PermissionKey }[] = [

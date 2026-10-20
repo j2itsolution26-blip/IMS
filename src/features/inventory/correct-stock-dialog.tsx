@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { formatQuantity } from '@/lib/format';
+import { formatPieces } from '@/lib/quantity';
 
 /**
  * A single-product stock count correction — "there are actually 47 on the
@@ -22,47 +22,50 @@ export function CorrectStockDialog({
   productId,
   productName,
   currentStock,
-  unit,
-  costPrice,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   productId: string;
   productName: string;
   currentStock: number;
-  unit: string;
-  costPrice: number;
 }) {
   const router = useRouter();
   const [value, setValue] = React.useState('');
   const [saving, setSaving] = React.useState(false);
+  // Blocks a repeated Enter from recording the same correction twice.
+  const inFlight = React.useRef(false);
 
   React.useEffect(() => {
     if (open) setValue(String(currentStock));
   }, [open, currentStock]);
 
   const onSave = async () => {
+    if (inFlight.current) return;
     const counted = Number(value);
-    if (!Number.isFinite(counted) || counted < 0) {
-      toast.error('Enter the actual quantity on the shelf.');
+    if (!Number.isSafeInteger(counted) || counted < 0) {
+      toast.error('Enter the number of pieces on the shelf — a whole number.');
       return;
     }
 
+    inFlight.current = true;
     setSaving(true);
+    // No unit cost is sent: the server values the correction at the
+    // product's recorded average cost.
     const result = await createAdjustmentAction({
       mode: 'ABSOLUTE',
       reason: 'Stock count correction',
       isOpeningBalance: false,
-      lines: [{ productId, quantity: counted, unitCost: costPrice }],
+      lines: [{ productId, quantity: counted }],
     });
     setSaving(false);
+    inFlight.current = false;
 
     if (!result.ok) {
       toast.error(result.error, { duration: 8000 });
       return;
     }
 
-    toast.success(`${productName} stock corrected to ${formatQuantity(counted)} ${unit}.`);
+    toast.success(`${productName} stock corrected to ${formatPieces(counted)}.`);
     onOpenChange(false);
     router.refresh();
   };
@@ -72,24 +75,22 @@ export function CorrectStockDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Correct stock — {productName}</DialogTitle>
-          <DialogDescription>Enter what&apos;s actually on the shelf right now.</DialogDescription>
+          <DialogDescription>Enter how many pieces are actually on the shelf right now.</DialogDescription>
         </DialogHeader>
         <div className="space-y-1.5">
-          <Label htmlFor="correct-stock-qty">Actual count ({unit})</Label>
+          <Label htmlFor="correct-stock-qty">Actual count (pcs)</Label>
           <Input
             id="correct-stock-qty"
             type="number"
-            step="0.001"
+            step="1"
             min="0"
-            inputMode="decimal"
+            inputMode="numeric"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             autoFocus
             onKeyDown={(e) => e.key === 'Enter' && onSave()}
           />
-          <p className="text-xs text-muted-foreground">
-            Currently recorded: {formatQuantity(currentStock)} {unit}
-          </p>
+          <p className="text-xs text-muted-foreground">Currently recorded: {formatPieces(currentStock)}</p>
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

@@ -9,7 +9,7 @@ import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { productSchema, PRODUCT_STATUS_OPTIONS, type ProductInput } from '@/features/products/schema';
 import { createProduct, updateProduct } from '@/features/products/actions';
-import { createCategory, createUnit } from '@/features/catalogue/actions';
+import { createCategory } from '@/features/catalogue/actions';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -25,7 +25,6 @@ import { BarcodeDuplicateNotice } from '@/features/inventory/barcode-duplicate-n
 
 export interface ProductFormOptions {
   categories: { id: string; name: string }[];
-  units: { id: string; name: string; abbreviation: string }[];
 }
 
 export interface ProductFormProps {
@@ -33,6 +32,8 @@ export interface ProductFormProps {
   currency: string;
   storageEnabled: boolean;
   backgroundRemovalEnabled?: boolean;
+  /** Shows the live profit and margin line. Only for users who may see cost and profit. */
+  canViewProfit?: boolean;
   /** Present when editing. */
   productId?: string;
   defaultValues?: Partial<ProductInput>;
@@ -45,7 +46,6 @@ const EMPTY: ProductInput = {
   description: '',
   imageUrl: '',
   categoryId: '',
-  unitId: '',
   costPrice: 0,
   sellingPrice: 0,
   minStock: 0,
@@ -56,43 +56,21 @@ const EMPTY: ProductInput = {
   isTrackable: true,
 };
 
-/** Quick-add for a category or a unit, without leaving the product form. */
-function QuickAddDialog({
-  kind,
-  onCreated,
-}: {
-  kind: 'category' | 'unit';
-  onCreated: (option: { id: string; name: string; abbreviation?: string }) => void;
-}) {
+/** Quick-add for a category, without leaving the product form. */
+function QuickAddCategoryDialog({ onCreated }: { onCreated: (option: { id: string; name: string }) => void }) {
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState('');
-  const [abbreviation, setAbbreviation] = React.useState('');
   const [saving, setSaving] = React.useState(false);
-
-  const label = kind === 'category' ? 'Category' : 'Unit';
 
   const onSave = async () => {
     const trimmedName = name.trim();
     if (trimmedName.length < 2) {
-      toast.error(`${label} name must be at least 2 characters.`);
-      return;
-    }
-    if (kind === 'unit' && abbreviation.trim().length < 1) {
-      toast.error('Abbreviation is required.');
+      toast.error('Category name must be at least 2 characters.');
       return;
     }
 
     setSaving(true);
-    const result =
-      kind === 'category'
-        ? await createCategory({ name: trimmedName, description: '', parentId: 'none', isActive: true })
-        : await createUnit({
-            name: trimmedName,
-            abbreviation: abbreviation.trim(),
-            factor: 1,
-            allowDecimal: false,
-            isActive: true,
-          });
+    const result = await createCategory({ name: trimmedName, description: '', parentId: 'none', isActive: true });
     setSaving(false);
 
     if (!result.ok) {
@@ -100,44 +78,30 @@ function QuickAddDialog({
       return;
     }
 
-    onCreated({ id: result.data.id, name: trimmedName, abbreviation: abbreviation.trim() });
-    toast.success(`${label} added.`);
+    onCreated({ id: result.data.id, name: trimmedName });
+    toast.success('Category added.');
     setName('');
-    setAbbreviation('');
     setOpen(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button type="button" variant="outline" size="icon" onClick={() => setOpen(true)} aria-label={`Add ${label.toLowerCase()}`}>
+      <Button type="button" variant="outline" size="icon" onClick={() => setOpen(true)} aria-label="Add category">
         <Plus className="h-4 w-4" />
       </Button>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add {label.toLowerCase()}</DialogTitle>
+          <DialogTitle>Add category</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor={`quick-${kind}-name`}>Name</Label>
-            <Input
-              id={`quick-${kind}-name`}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-              placeholder={kind === 'category' ? 'Snacks' : 'Sachet'}
-            />
-          </div>
-          {kind === 'unit' && (
-            <div className="space-y-1.5">
-              <Label htmlFor="quick-unit-abbr">Abbreviation</Label>
-              <Input
-                id="quick-unit-abbr"
-                value={abbreviation}
-                onChange={(e) => setAbbreviation(e.target.value)}
-                placeholder="sct"
-              />
-            </div>
-          )}
+        <div className="space-y-1.5">
+          <Label htmlFor="quick-category-name">Name</Label>
+          <Input
+            id="quick-category-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+            placeholder="Snacks"
+          />
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => setOpen(false)}>
@@ -157,6 +121,7 @@ export function ProductForm({
   currency,
   storageEnabled,
   backgroundRemovalEnabled = false,
+  canViewProfit = false,
   productId,
   defaultValues,
 }: ProductFormProps) {
@@ -165,7 +130,6 @@ export function ProductForm({
   const [formError, setFormError] = React.useState<string | null>(null);
   const [photoStatus, setPhotoStatus] = React.useState<PhotoUploadStatus>('idle');
   const [categoryOptions, setCategoryOptions] = React.useState(options.categories);
-  const [unitOptions, setUnitOptions] = React.useState(options.units);
 
   const {
     register,
@@ -188,7 +152,7 @@ export function ProductForm({
 
   // Live margin so the user sees the consequence of a price before saving.
   const margin = sellingPrice > 0 ? ((sellingPrice - costPrice) / sellingPrice) * 100 : 0;
-  const profitPerUnit = sellingPrice - costPrice;
+  const profitPerPiece = sellingPrice - costPrice;
 
   // 'reviewing' means a new photo is waiting for Save Image or Use Original —
   // saving the product then would silently drop it.
@@ -285,7 +249,7 @@ export function ProductForm({
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Pricing</CardTitle>
               <CardDescription>
-                Cost is re-averaged automatically each time you stock in at a different price.
+                Prices are per piece. Cost is re-averaged automatically each time you stock in at a different price.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -315,27 +279,32 @@ export function ProductForm({
                 </FormField>
               </div>
 
-              <div className="flex flex-wrap items-center gap-4 rounded-md bg-muted/60 px-3 py-2 text-sm">
-                <span className="text-muted-foreground">Profit per unit</span>
-                <span className={`tabular font-medium ${profitPerUnit < 0 ? 'text-destructive' : ''}`}>
-                  {formatCurrency(profitPerUnit, currency)}
-                </span>
-                <span className="text-muted-foreground">Margin</span>
-                <span
-                  className={`tabular font-medium ${
-                    margin < 0 ? 'text-destructive' : margin < 10 ? 'text-warning' : 'text-success'
-                  }`}
-                >
-                  {sellingPrice > 0 ? `${margin.toFixed(1)}%` : '—'}
-                </span>
-              </div>
+              {canViewProfit && (
+                <div className="flex flex-wrap items-center gap-4 rounded-md bg-muted/60 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">Profit per piece</span>
+                  <span className={`tabular font-medium ${profitPerPiece < 0 ? 'text-destructive' : ''}`}>
+                    {formatCurrency(profitPerPiece, currency)}
+                  </span>
+                  <span className="text-muted-foreground">Margin</span>
+                  <span
+                    className={`tabular font-medium ${
+                      margin < 0 ? 'text-destructive' : margin < 10 ? 'text-warning' : 'text-success'
+                    }`}
+                  >
+                    {sellingPrice > 0 ? `${margin.toFixed(1)}%` : '—'}
+                  </span>
+                </div>
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Stock control</CardTitle>
-              <CardDescription>These thresholds drive the low-stock badge and dashboard alerts.</CardDescription>
+              <CardDescription>
+                Counted in pieces. The low-stock level drives the low-stock badge and dashboard alerts; the
+                reorder quantity (or the maximum) is used to suggest how many to restock.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-start justify-between gap-4 rounded-md border p-3">
@@ -358,20 +327,20 @@ export function ProductForm({
                 <div className="grid gap-4 sm:grid-cols-2">
                   <FormField
                     id="reorderLevel"
-                    label="Low-stock level"
+                    label="Low-stock level (pcs)"
                     error={errors.reorderLevel}
                     description="Flagged orange at or below this quantity."
                   >
-                    <Input id="reorderLevel" type="number" step="0.001" min="0" {...register('reorderLevel')} />
+                    <Input id="reorderLevel" type="number" step="1" min="0" inputMode="numeric" {...register('reorderLevel')} />
                   </FormField>
-                  <FormField id="reorderQty" label="Reorder quantity" error={errors.reorderQty}>
-                    <Input id="reorderQty" type="number" step="0.001" min="0" {...register('reorderQty')} />
+                  <FormField id="reorderQty" label="Reorder quantity (pcs)" error={errors.reorderQty}>
+                    <Input id="reorderQty" type="number" step="1" min="0" inputMode="numeric" {...register('reorderQty')} />
                   </FormField>
-                  <FormField id="minStock" label="Minimum" error={errors.minStock}>
-                    <Input id="minStock" type="number" step="0.001" min="0" {...register('minStock')} />
+                  <FormField id="minStock" label="Minimum (pcs)" error={errors.minStock}>
+                    <Input id="minStock" type="number" step="1" min="0" inputMode="numeric" {...register('minStock')} />
                   </FormField>
-                  <FormField id="maxStock" label="Maximum" error={errors.maxStock}>
-                    <Input id="maxStock" type="number" step="0.001" min="0" {...register('maxStock')} />
+                  <FormField id="maxStock" label="Maximum (pcs)" error={errors.maxStock}>
+                    <Input id="maxStock" type="number" step="1" min="0" inputMode="numeric" {...register('maxStock')} />
                   </FormField>
                 </div>
               )}
@@ -409,48 +378,10 @@ export function ProductForm({
                       </Select>
                     )}
                   />
-                  <QuickAddDialog
-                    kind="category"
+                  <QuickAddCategoryDialog
                     onCreated={(created) => {
                       setCategoryOptions((prev) => [...prev, { id: created.id, name: created.name }]);
                       setValue('categoryId', created.id, { shouldDirty: true, shouldValidate: true });
-                    }}
-                  />
-                </div>
-              </FormField>
-
-              <FormField id="unitId" label="Unit of measure" error={errors.unitId} required>
-                <div className="flex gap-2">
-                  <Controller
-                    name="unitId"
-                    control={control}
-                    render={({ field }) => (
-                      <Select value={field.value || ''} onValueChange={field.onChange}>
-                        <SelectTrigger id="unitId" aria-invalid={Boolean(errors.unitId)}>
-                          <SelectValue placeholder="Choose a unit" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {unitOptions.length === 0 ? (
-                            <div className="px-2 py-3 text-xs text-muted-foreground">No units yet.</div>
-                          ) : (
-                            unitOptions.map((unit) => (
-                              <SelectItem key={unit.id} value={unit.id}>
-                                {unit.name} ({unit.abbreviation})
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  <QuickAddDialog
-                    kind="unit"
-                    onCreated={(created) => {
-                      setUnitOptions((prev) => [
-                        ...prev,
-                        { id: created.id, name: created.name, abbreviation: created.abbreviation ?? '' },
-                      ]);
-                      setValue('unitId', created.id, { shouldDirty: true, shouldValidate: true });
                     }}
                   />
                 </div>

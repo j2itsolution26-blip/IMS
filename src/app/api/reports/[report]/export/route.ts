@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/session';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { RateLimitError } from '@/lib/errors';
 import { resolveReportWindow, toDateRange } from '@/server/reports/report-window';
-import { getReport } from '@/server/reports/registry';
+import { canOpenReport, getReport, visibleReportResult } from '@/server/reports/registry';
 import {
   CONTENT_TYPES,
   toCsv,
@@ -39,7 +39,7 @@ export async function GET(
   const report = getReport(reportId);
   if (!report) return NextResponse.json({ error: 'Unknown report' }, { status: 404 });
 
-  if (!user.permissions.has(report.permission) || !user.permissions.has('reports.export')) {
+  if (!canOpenReport(user, report) || !user.permissions.has('reports.export')) {
     return NextResponse.json({ error: 'You do not have permission to export this report.' }, { status: 403 });
   }
 
@@ -70,7 +70,7 @@ export async function GET(
 
   try {
     const company = await getCompanyProfile();
-    const result = await report.load(range, company.currency);
+    const result = visibleReportResult(user, report, await report.load(range, company.currency));
 
     const context = {
       reportName: report.name,

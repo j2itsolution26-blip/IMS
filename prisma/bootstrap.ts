@@ -81,26 +81,6 @@ async function installWarehouse(): Promise<void> {
   console.log('  warehouse: Main Store ready');
 }
 
-const DEFAULT_UNITS: { name: string; abbreviation: string; allowDecimal: boolean }[] = [
-  { name: 'Piece', abbreviation: 'pc', allowDecimal: false },
-  { name: 'Pack', abbreviation: 'pack', allowDecimal: false },
-  { name: 'Bottle', abbreviation: 'btl', allowDecimal: false },
-  { name: 'Can', abbreviation: 'can', allowDecimal: false },
-  { name: 'Sachet', abbreviation: 'sct', allowDecimal: false },
-  { name: 'Box', abbreviation: 'box', allowDecimal: false },
-];
-
-async function installUnits(): Promise<void> {
-  for (const unit of DEFAULT_UNITS) {
-    await prisma.unit.upsert({
-      where: { name: unit.name },
-      create: { ...unit, factor: 1 },
-      update: {},
-    });
-  }
-  console.log(`  units: ${DEFAULT_UNITS.length} ready`);
-}
-
 async function installSettings(): Promise<void> {
   let created = 0;
 
@@ -135,7 +115,6 @@ async function main() {
   const permissionIds = await installPermissions();
   await installRoles(permissionIds);
   await installWarehouse();
-  await installUnits();
   await installSettings();
 
   const [users, products] = await Promise.all([prisma.user.count(), prisma.product.count()]);

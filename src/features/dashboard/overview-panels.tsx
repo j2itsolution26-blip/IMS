@@ -190,7 +190,6 @@ export function TopProductsPanel({
   currency,
   showProfit,
   limitOptions,
-  sortOptions,
   className,
 }: {
   products: DashboardOverview['topProducts'];
@@ -198,19 +197,17 @@ export function TopProductsPanel({
   /** Only when the viewer may see profit and every sold line carries a cost. */
   showProfit: boolean;
   limitOptions: { label: string; href: string; active: boolean }[];
-  sortOptions: { label: string; href: string; active: boolean }[];
   className?: string;
 }) {
   return (
     <Panel
       title="Top-Selling Products"
-      description="Ranked over the selected period."
+      description="Ranked by revenue over the selected period."
       action={<MoreLink href="/reports/best-selling">Report</MoreLink>}
       className={className}
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
         <SegmentLinks label="Number of products" options={limitOptions} />
-        <SegmentLinks label="Sort by" options={sortOptions} />
       </div>
 
       {products.length === 0 ? (
@@ -239,7 +236,7 @@ export function TopProductsPanel({
                   {product.name}
                 </Link>
                 <p className="tabular text-xs text-muted-foreground">
-                  {formatQuantity(product.unitsSold)} sold
+                  {formatQuantity(product.unitsSold)} pcs sold
                   {showProfit && <> · {formatCurrency(product.profit, currency)} profit</>}
                 </p>
               </div>
@@ -279,7 +276,7 @@ export function LowStockPanel({
       description={
         total > rows.length
           ? `Showing ${rows.length} of ${formatNumber(total, 0)} products at or below their low-stock level.`
-          : 'Products at or below their low-stock level. Quantities are units on hand.'
+          : 'Products at or below their low-stock level. Quantities are pieces on hand.'
       }
       action={<MoreLink href="/inventory?status=LOW_ANY">View all</MoreLink>}
       className={className}
@@ -311,7 +308,7 @@ export function LowStockPanel({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{row.name}</p>
                     <p className="tabular text-xs text-muted-foreground">
-                      {formatQuantity(row.available)} {row.unitAbbreviation} on hand · low at{' '}
+                      {formatQuantity(row.available)} pcs on hand · low at{' '}
                       {formatQuantity(threshold)}
                     </p>
                   </div>

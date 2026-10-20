@@ -2,9 +2,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePermission, userCan } from '@/lib/session';
+import { FINANCIAL_PERMISSION } from '@/lib/permissions';
+import { formatPieces } from '@/lib/quantity';
 import { getSale, getReceiptData } from '@/features/sales/queries';
 import { getCompanyProfile, getCurrency } from '@/server/services/settings-service';
-import { formatCurrency, formatDateTime, formatQuantity, humanizeEnum } from '@/lib/format';
+import { formatCurrency, formatDateTime, humanizeEnum } from '@/lib/format';
 import { SALE_STATUS_LABEL, SALE_STATUS_BADGE } from '@/lib/sale-status';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -25,8 +27,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 export default async function SaleDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission('sales.view');
   const { id } = await params;
+  // Cost of goods and profit are the owner's; getSale zeroes them otherwise.
+  const canViewCost = userCan(user, FINANCIAL_PERMISSION);
 
-  const [sale, currency, company] = await Promise.all([getSale(id), getCurrency(), getCompanyProfile()]);
+  const [sale, currency, company] = await Promise.all([
+    getSale(id, { includeCost: canViewCost }),
+    getCurrency(),
+    getCompanyProfile(),
+  ]);
   if (!sale) notFound();
   const receiptData = await getReceiptData(id);
 
@@ -107,7 +115,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                             {item.sku}
                             {item.returnedQuantity > 0 && (
                               <span className="ml-1 text-warning">
-                                · {formatQuantity(item.returnedQuantity)} returned
+                                · {formatPieces(item.returnedQuantity)} returned
                               </span>
                             )}
                           </p>
@@ -115,7 +123,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                       </div>
                     </TableCell>
                     <TableCell className="tabular text-right">
-                      {formatQuantity(item.quantity)} {item.unit}
+                      {formatPieces(item.quantity)}
                     </TableCell>
                     <TableCell className="tabular text-right">
                       {formatCurrency(item.unitPrice, currency)}
@@ -184,7 +192,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                 </Row>
               )}
 
-              {userCan(user, 'reports.view') && (
+              {canViewCost && (
                 <>
                   <div className="border-t pt-2" />
                   <Row label="Cost of goods">{formatCurrency(sale.costOfGoods, currency)}</Row>

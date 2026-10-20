@@ -22,8 +22,6 @@ export function ProductRowActions({
   productName,
   sku,
   onHand,
-  unit,
-  costPrice,
   canAdjustStock,
   canEditProduct,
   needsRestock = false,
@@ -32,8 +30,6 @@ export function ProductRowActions({
   productName: string;
   sku: string;
   onHand: number;
-  unit: string;
-  costPrice: number;
   canAdjustStock: boolean;
   canEditProduct: boolean;
   /** Low or out of stock — the row's action becomes the thing to do about it. */
@@ -106,7 +102,6 @@ export function ProductRowActions({
             productId={productId}
             productName={productName}
             currentStock={onHand}
-            unit={unit}
           />
           <CorrectStockDialog
             open={activeDialog === 'correct-stock'}
@@ -114,8 +109,6 @@ export function ProductRowActions({
             productId={productId}
             productName={productName}
             currentStock={onHand}
-            unit={unit}
-            costPrice={costPrice}
           />
         </>
       )}

@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { formatQuantity } from '@/lib/format';
+import { formatPieces } from '@/lib/quantity';
 import { cn } from '@/lib/utils';
 
 /**
@@ -37,7 +37,6 @@ interface Line {
   productId: string;
   name: string;
   sku: string;
-  unit: string;
   onHand: number;
   quantity: string;
   saving: boolean;
@@ -47,7 +46,6 @@ interface Line {
 interface Received {
   productId: string;
   name: string;
-  unit: string;
   quantity: number;
   reference: string;
 }
@@ -111,7 +109,6 @@ export function ScanReceiveDialog() {
             productId: product.id,
             name: product.name,
             sku: product.sku,
-            unit: product.unit,
             onHand: product.onHand,
             quantity: '1',
             saving: false,
@@ -126,7 +123,7 @@ export function ScanReceiveDialog() {
     });
     setConfirmDiscard(false);
 
-    return { tone: 'success', title: product.name, meta: `receiving ${formatQuantity(quantity)} ${product.unit}` };
+    return { tone: 'success', title: product.name, meta: `receiving ${formatPieces(quantity)}` };
   };
 
   const setQuantity = (productId: string, quantity: string) =>
@@ -157,11 +154,13 @@ export function ScanReceiveDialog() {
     // at once, so a retry after a partial failure can never post it twice.
     for (const line of [...linesRef.current]) {
       const quantity = Number(line.quantity);
-      if (!Number.isFinite(quantity) || quantity <= 0) {
+      if (!Number.isSafeInteger(quantity) || quantity < 1) {
         failedCount += 1;
         setLines((current) =>
           current.map((l) =>
-            l.productId === line.productId ? { ...l, error: 'Enter a quantity greater than zero.' } : l,
+            l.productId === line.productId
+              ? { ...l, error: 'Enter the pieces received — a whole number, at least 1.' }
+              : l,
           ),
         );
         continue;
@@ -176,7 +175,7 @@ export function ScanReceiveDialog() {
         savedCount += 1;
         setLines((current) => current.filter((l) => l.productId !== line.productId));
         setReceived((current) => [
-          { productId: line.productId, name: line.name, unit: line.unit, quantity, reference: result.data.reference },
+          { productId: line.productId, name: line.name, quantity, reference: result.data.reference },
           ...current,
         ]);
         // The cached on-hand figure is now out of date.
@@ -201,7 +200,7 @@ export function ScanReceiveDialog() {
     }
   };
 
-  const pendingUnits = lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
+  const pendingPieces = lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
 
   return (
     <>
@@ -224,7 +223,7 @@ export function ScanReceiveDialog() {
               mode="continuous"
               manualEntry
               countLabel={(count) => `${count} scanned`}
-              // Quicker re-arm than the till: counting units of one product
+              // Quicker re-arm than the till: counting pieces of one product
               // is the point here.
               sameCodeCooldownMs={900}
               sameCodeReleaseMs={600}
@@ -236,7 +235,7 @@ export function ScanReceiveDialog() {
                 <h3 className="text-sm font-semibold">To receive</h3>
                 {lines.length > 0 && (
                   <span className="tabular text-xs text-muted-foreground">
-                    {lines.length} product{lines.length === 1 ? '' : 's'} · {formatQuantity(pendingUnits)} units
+                    {lines.length} product{lines.length === 1 ? '' : 's'} · {formatPieces(pendingPieces)}
                   </span>
                 )}
               </div>
@@ -254,7 +253,7 @@ export function ScanReceiveDialog() {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{line.name}</p>
                           <p className="truncate text-xs text-muted-foreground">
-                            {line.sku} · on hand {formatQuantity(line.onHand)} {line.unit}
+                            {line.sku} · on hand {formatPieces(line.onHand)}
                           </p>
                         </div>
                         <Button
@@ -283,9 +282,9 @@ export function ScanReceiveDialog() {
                         </Button>
                         <Input
                           type="number"
-                          inputMode="decimal"
-                          min="0"
-                          step="any"
+                          inputMode="numeric"
+                          min="1"
+                          step="1"
                           value={line.quantity}
                           disabled={saving}
                           onChange={(event) => setQuantity(line.productId, event.target.value)}
@@ -304,7 +303,7 @@ export function ScanReceiveDialog() {
                           <Plus />
                         </Button>
                         <span className="ml-auto text-xs text-muted-foreground">
-                          {line.saving ? 'Saving…' : line.unit}
+                          {line.saving ? 'Saving…' : 'pcs'}
                         </span>
                       </div>
                       {line.error && <p className="text-xs text-destructive">{line.error}</p>}
@@ -323,7 +322,7 @@ export function ScanReceiveDialog() {
                       <li key={item.reference} className="flex justify-between gap-2 text-xs">
                         <span className="truncate">{item.name}</span>
                         <span className="tabular shrink-0 text-muted-foreground">
-                          +{formatQuantity(item.quantity)} {item.unit} · {item.reference}
+                          +{formatPieces(item.quantity)} · {item.reference}
                         </span>
                       </li>
                     ))}

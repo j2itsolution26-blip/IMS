@@ -4,7 +4,7 @@ import * as React from 'react';
 import { Plus, Search, X } from 'lucide-react';
 import type { StockPickerProduct } from '@/features/inventory/queries';
 import { Input } from '@/components/ui/input';
-import { formatQuantity } from '@/lib/format';
+import { formatPieces } from '@/lib/quantity';
 import { cn } from '@/lib/utils';
 
 /**
@@ -117,7 +117,7 @@ export function ProductPicker({
                   <span className="block truncate text-xs text-muted-foreground">{product.sku}</span>
                 </span>
                 <span className="tabular shrink-0 text-xs text-muted-foreground">
-                  {formatQuantity(product.onHand)} {product.unit}
+                  {formatPieces(product.onHand)}
                 </span>
               </button>
             ))

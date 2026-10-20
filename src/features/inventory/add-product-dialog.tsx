@@ -26,7 +26,10 @@ const quickAddSchema = z.object({
     .number({ invalid_type_error: 'Enter a price.' })
     .positive('Enter a price greater than zero.'),
   costPrice: z.coerce.number({ invalid_type_error: 'Enter a number.' }).min(0, 'Cannot be negative.'),
-  stock: z.coerce.number({ invalid_type_error: 'Enter a number.' }).min(0, 'Cannot be negative.'),
+  stock: z.coerce
+    .number({ invalid_type_error: 'Enter a number.' })
+    .int('Opening stock is counted in whole pieces.')
+    .min(0, 'Cannot be negative.'),
   categoryId: z.string().trim().min(1, 'Choose a category.'),
   barcode: z.string().trim().max(64),
 });
@@ -56,14 +59,12 @@ function generateSku(name: string): string {
 
 export function AddProductDialog({
   categories,
-  defaultUnitId,
   defaultReorderLevel,
   currency,
   storageEnabled,
   backgroundRemovalEnabled = false,
 }: {
   categories: { id: string; name: string }[];
-  defaultUnitId: string;
   defaultReorderLevel: number;
   currency: string;
   storageEnabled: boolean;
@@ -146,11 +147,6 @@ export function AddProductDialog({
       return;
     }
 
-    if (!defaultUnitId) {
-      setFormError('Add a unit of measure first — see More → Categories & units.');
-      return;
-    }
-
     const payload: ProductInput = {
       name: values.name,
       sku: generateSku(values.name),
@@ -158,7 +154,6 @@ export function AddProductDialog({
       description: '',
       imageUrl: photoUrl,
       categoryId: values.categoryId,
-      unitId: defaultUnitId,
       costPrice: values.costPrice || 0,
       sellingPrice: values.sellingPrice,
       minStock: 0,
@@ -262,13 +257,13 @@ export function AddProductDialog({
               </FormField>
             </div>
 
-            <FormField id="stock" label="Stock" error={errors.stock} required>
+            <FormField id="stock" label="Stock (pcs)" error={errors.stock} required>
               <Input
                 id="stock"
                 type="number"
-                step="0.001"
+                step="1"
                 min="0"
-                inputMode="decimal"
+                inputMode="numeric"
                 {...register('stock')}
                 aria-invalid={Boolean(errors.stock)}
               />

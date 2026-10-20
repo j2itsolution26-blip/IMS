@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Boxes, Package, PackageX, PhilippinePeso, TriangleAlert } from 'lucide-react';
+import { Boxes, Package, PackageCheck, PackageX, PhilippinePeso, TriangleAlert } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
+import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { getStockLevels, type StockFilter, type StockSort } from '@/server/analytics/inventory-analytics';
 import { getInventorySnapshot } from '@/server/analytics/dashboard';
 import { getProductFormOptions } from '@/features/products/queries';
@@ -40,9 +41,13 @@ export default async function InventoryPage({
   const status: StockFilter = (STATUS_FILTERS as readonly string[]).includes(params.status ?? '')
     ? (params.status as StockFilter)
     : 'ALL';
-  const sort: StockSort = (SORTS as readonly string[]).includes(params.sort ?? '')
+  // Cost, margin and stock value are the owner's. Staff get the register
+  // without them, and cannot sort by a value they are not allowed to see.
+  const canViewCost = userCan(user, FINANCIAL_PERMISSION);
+  const requestedSort: StockSort = (SORTS as readonly string[]).includes(params.sort ?? '')
     ? (params.sort as StockSort)
     : 'stock';
+  const sort: StockSort = requestedSort === 'value' && !canViewCost ? 'stock' : requestedSort;
 
   const [options, currency, settings, snapshot] = await Promise.all([
     getProductFormOptions(),
@@ -65,7 +70,6 @@ export default async function InventoryPage({
   const canCreateProduct = userCan(user, 'products.create');
   const canExport = userCan(user, 'reports.export');
 
-  const defaultUnitId = options.units.find((u) => u.name.toLowerCase() === 'piece')?.id ?? options.units[0]?.id ?? '';
   const defaultReorderLevel = readNumber(settings, 'inventory.defaultLowStockLevel');
   const storageEnabled = isStorageConfigured();
 
@@ -85,9 +89,8 @@ export default async function InventoryPage({
     sku: row.sku,
     imageUrl: row.imageUrl,
     categoryName: row.categoryName,
-    unit: row.unitAbbreviation,
     sellingPrice: row.sellingPrice,
-    costPrice: row.costPrice,
+    costPrice: canViewCost ? row.costPrice : 0,
     onHand: row.onHand,
     reorderLevel: row.reorderLevel,
     status: row.status,
@@ -100,7 +103,6 @@ export default async function InventoryPage({
   const addProduct = (
     <AddProductDialog
       categories={options.categories}
-      defaultUnitId={defaultUnitId}
       defaultReorderLevel={defaultReorderLevel}
       currency={currency}
       storageEnabled={storageEnabled}
@@ -158,13 +160,24 @@ export default async function InventoryPage({
           value={formatNumber(snapshot.distinctProducts, 0)}
           foot={`${formatNumber(options.categories.length, 0)} categor${options.categories.length === 1 ? 'y' : 'ies'}`}
         />
-        <Kpi
-          icon={<PhilippinePeso className="h-4 w-4" />}
-          iconClass="bg-success/10 text-success"
-          label="Stock value (retail)"
-          value={formatCompactCurrency(snapshot.retailValue, currency)}
-          foot={`Cost ${formatCurrency(snapshot.costValue, currency)} · ${formatNumber(margin, 0)}% margin`}
-        />
+        {canViewCost ? (
+          <Kpi
+            icon={<PhilippinePeso className="h-4 w-4" />}
+            iconClass="bg-success/10 text-success"
+            label="Stock value (retail)"
+            value={formatCompactCurrency(snapshot.retailValue, currency)}
+            foot={`Cost ${formatCurrency(snapshot.costValue, currency)} · ${formatNumber(margin, 0)}% margin`}
+          />
+        ) : (
+          <Kpi
+            icon={<PackageCheck className="h-4 w-4" />}
+            iconClass="bg-success/10 text-success"
+            label="In stock"
+            value={formatNumber(inStock, 0)}
+            foot="Above their low-stock level"
+            action={inStock > 0 ? { href: '/inventory?status=IN_STOCK', label: 'View' } : undefined}
+          />
+        )}
         <Kpi
           icon={<TriangleAlert className="h-4 w-4" />}
           iconClass="bg-warning/15 text-warning"
@@ -196,6 +209,7 @@ export default async function InventoryPage({
             { value: 'OUT_OF_STOCK', label: 'Out', count: snapshot.outOfStock },
           ]}
           categories={options.categories}
+          showValueSort={canViewCost}
         />
 
         {rows.length === 0 ? (
@@ -224,6 +238,7 @@ export default async function InventoryPage({
               currency={currency}
               canAdjustStock={canAdjustStock}
               canEditProduct={canEditProduct}
+              canViewCost={canViewCost}
             />
             <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2.5">
               <p className="text-xs text-muted-foreground">

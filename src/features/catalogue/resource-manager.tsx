@@ -35,10 +35,8 @@ import type { ActionResult } from '@/lib/action';
 import type { ColumnDef } from '@tanstack/react-table';
 
 /**
- * One implementation for both reference entities.
- *
- * Categories and units are the same screen with different fields: a table, a
- * create/edit dialog, and a guarded delete. Describing the fields as data
+ * A generic reference-list screen: a table, a create/edit dialog, and a
+ * guarded delete. Product categories use it. Describing the fields as data
  * means adding an entity is a config object rather than another 150 lines of
  * near-identical JSX.
  *

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Package, Plus } from 'lucide-react';
 import type { ProductStatus } from '@prisma/client';
 import { requirePermission, userCan } from '@/lib/session';
+import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { listProducts, getProductFormOptions } from '@/features/products/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { PageHeader } from '@/components/page-header';
@@ -33,6 +34,7 @@ export default async function ProductsPage({
   const params = await searchParams;
 
   const [options, currency] = await Promise.all([getProductFormOptions(), getCurrency()]);
+  const canViewCost = userCan(user, FINANCIAL_PERMISSION);
 
   const result = await listProducts({
     search: params.q,
@@ -40,6 +42,7 @@ export default async function ProductsPage({
     status: STATUS_VALUES.has(params.status ?? '') ? (params.status as ProductStatus) : 'ALL',
     page: Number(params.page) || 1,
     pageSize: 20,
+    includeCost: canViewCost,
   });
 
   const hasFilters = Boolean(params.q || params.category || params.status);
@@ -109,6 +112,7 @@ export default async function ProductsPage({
             <ProductTable
               rows={result.rows}
               currency={currency}
+              canViewCost={canViewCost}
               canUpdate={userCan(user, 'products.update')}
               canDelete={userCan(user, 'products.delete')}
             />

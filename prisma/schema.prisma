@@ -1,8 +1,10 @@
 // Simple POS + Inventory — data model for a small sari-sari/convenience store.
 //
 // Design notes:
-//  * Money is Decimal(18,4) everywhere. Never Float. Quantities are Decimal(18,3)
-//    so fractional units (kg, litre) work without a second code path.
+//  * Money is Decimal(18,4) everywhere. Never Float.
+//  * Every product is counted and sold by the piece. There are no units of
+//    measure. Quantity columns keep their Decimal(18,3) storage type, but CHECK
+//    constraints (migration 20261019090000) hold them to whole numbers.
 //  * `Inventory` is the single source of truth for on-hand stock and is only ever
 //    mutated inside a transaction that also writes an `InventoryTransaction` row.
 //    The ledger and the balance can therefore never drift.
@@ -177,23 +179,6 @@ model Category {
   @@map("categories")
 }
 
-model Unit {
-  id           String  @id @default(cuid())
-  name         String  @unique
-  abbreviation String  @unique
-  // 1 for base units; a "Case of 24" would be 24.
-  factor       Decimal @default(1) @db.Decimal(18, 4)
-  allowDecimal Boolean @default(false)
-  isActive     Boolean @default(true)
-
-  products Product[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("units")
-}
-
 model Product {
   id          String  @id @default(cuid())
   sku         String  @unique
@@ -203,10 +188,7 @@ model Product {
   imageUrl    String?
 
   categoryId String
-  unitId     String
-
-  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  unit     Unit     @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   // costPrice is the moving-average cost, recalculated on every stock-in.
   costPrice    Decimal @default(0) @db.Decimal(18, 4)
