@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Archive, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Archive, Eye, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ProductStatus } from '@prisma/client';
 import type { ProductListRow } from '@/features/products/queries';
@@ -105,7 +105,10 @@ export function ProductTable({
                       <Link href={`/products/${row.id}`} className="block truncate font-medium hover:underline">
                         {row.name}
                       </Link>
-                      <p className="truncate text-xs text-muted-foreground">{row.sku}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {row.sku}
+                        {row.barcode && row.barcode !== row.sku && ` · ${row.barcode}`}
+                      </p>
                     </div>
                   </div>
                 </TableCell>
@@ -140,15 +143,25 @@ export function ProductTable({
 
                 <TableCell className="text-right">
                   {row.isTrackable ? (
-                    <span
-                      className={cn(
-                        'tabular font-medium',
-                        row.onHand <= 0 ? 'text-destructive' : belowReorder ? 'text-warning' : '',
-                      )}
-                    >
-                      {formatQuantity(row.onHand)}
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">pcs</span>
-                    </span>
+                    <>
+                      <span
+                        className={cn(
+                          'tabular font-medium',
+                          row.onHand <= 0 ? 'text-destructive' : belowReorder ? 'text-warning' : '',
+                        )}
+                      >
+                        {formatQuantity(row.onHand)}
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">pcs</span>
+                      </span>
+                      <span
+                        className={cn(
+                          'block text-xs',
+                          row.onHand <= 0 ? 'text-destructive' : belowReorder ? 'text-warning' : 'text-success',
+                        )}
+                      >
+                        {row.onHand <= 0 ? 'Out of stock' : belowReorder ? 'Low stock' : 'In stock'}
+                      </span>
+                    </>
                   ) : (
                     <span className="text-xs text-muted-foreground">not tracked</span>
                   )}
@@ -161,34 +174,37 @@ export function ProductTable({
                 </TableCell>
 
                 <TableCell>
-                  {(canUpdate || canDelete) && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" aria-label={`Actions for ${row.name}`}>
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {canUpdate && (
-                          <DropdownMenuItem asChild>
-                            <Link href={`/products/${row.id}/edit`}>
-                              <Pencil /> Edit
-                            </Link>
-                          </DropdownMenuItem>
-                        )}
-                        {canUpdate && row.status !== 'ARCHIVED' && (
-                          <DropdownMenuItem onSelect={() => onArchive(row)}>
-                            <Archive /> Archive
-                          </DropdownMenuItem>
-                        )}
-                        {canDelete && (
-                          <DropdownMenuItem destructive onSelect={() => setTarget(row)}>
-                            <Trash2 /> Delete
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" aria-label={`Actions for ${row.name}`}>
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link href={`/products/${row.id}`}>
+                          <Eye /> View details
+                        </Link>
+                      </DropdownMenuItem>
+                      {canUpdate && (
+                        <DropdownMenuItem asChild>
+                          <Link href={`/products/${row.id}/edit`}>
+                            <Pencil /> Edit
+                          </Link>
+                        </DropdownMenuItem>
+                      )}
+                      {canUpdate && row.status !== 'ARCHIVED' && (
+                        <DropdownMenuItem onSelect={() => onArchive(row)}>
+                          <Archive /> Archive
+                        </DropdownMenuItem>
+                      )}
+                      {canDelete && (
+                        <DropdownMenuItem destructive onSelect={() => setTarget(row)}>
+                          <Trash2 /> Delete
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             );

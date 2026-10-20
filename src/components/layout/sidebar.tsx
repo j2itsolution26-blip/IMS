@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
@@ -20,11 +21,24 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/misc';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { NAVIGATION } from '@/components/layout/navigation';
+import {
+  NAVIGATION,
+  isNavGroup,
+  isNavLinkActive,
+  visibleNavigation,
+  type NavGroup,
+  type NavLink,
+} from '@/components/layout/navigation';
 import { authClient } from '@/lib/auth-client';
-import type { PermissionKey } from '@/lib/permissions';
 
 export interface UserInfo {
   name: string;
@@ -70,18 +84,8 @@ export function Sidebar({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open, onClose]);
 
-  // Filter sections by user permissions (empty sections are completely omitted)
-  const sections = React.useMemo(
-    () =>
-      NAVIGATION.map((section) => ({
-        ...section,
-        items: section.items.filter((item) => granted.has(item.permission as PermissionKey)),
-      })).filter((section) => section.items.length > 0),
-    [granted],
-  );
-
-  const isActive = (href: string, exact?: boolean) =>
-    exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
+  // Filter sections by user permissions (empty groups and sections are completely omitted)
+  const sections = React.useMemo(() => visibleNavigation(NAVIGATION, granted), [granted]);
 
   const handleSignOut = async () => {
     setSigningOut(true);
@@ -187,83 +191,27 @@ export function Sidebar({
               )}
 
               <ul className="space-y-1">
-                {section.items.map((item) => {
-                  const active = isActive(item.href, item.exact);
-                  const count = item.badge === 'lowStock' ? lowStockCount : 0;
-
-                  const linkContent = (
-                    <Link
-                      href={item.href}
-                      onClick={onClose}
-                      aria-current={active ? 'page' : undefined}
-                      className={cn(
-                        'relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                        collapsed ? 'lg:justify-center lg:px-2' : 'justify-start',
-                        active
-                          ? 'bg-primary/15 text-primary font-semibold shadow-xs'
-                          : 'text-sidebar-muted-foreground hover:bg-white/5 hover:text-sidebar-foreground',
-                      )}
-                    >
-                      {/* Active indicator bar */}
-                      {active && (
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-primary" />
-                      )}
-
-                      <item.icon
-                        className={cn(
-                          'h-4 w-4 shrink-0 transition-colors',
-                          active ? 'text-primary' : 'text-sidebar-muted-foreground group-hover:text-sidebar-foreground',
-                        )}
-                        aria-hidden="true"
-                      />
-
-                      <span
-                        className={cn(
-                          'flex-1 truncate transition-opacity duration-200',
-                          collapsed ? 'lg:hidden' : 'inline',
-                        )}
-                      >
-                        {item.label}
-                      </span>
-
-                      {/* Badge indicator */}
-                      {count > 0 && (
-                        <Badge
-                          variant="warning"
-                          className={cn(
-                            'px-1.5 py-0 text-[10px] font-bold shadow-xs',
-                            collapsed ? 'lg:absolute lg:-top-1 lg:-right-1 lg:h-4 lg:min-w-4 lg:p-0 lg:flex lg:items-center lg:justify-center' : '',
-                          )}
-                        >
-                          {count > 99 ? '99+' : count}
-                        </Badge>
-                      )}
-                    </Link>
-                  );
-
-                  if (collapsed) {
-                    return (
-                      <li key={item.href}>
-                        <div className="hidden lg:block">
-                          <Tooltip>
-                            <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
-                            <TooltipContent side="right" className="flex items-center gap-2 font-medium">
-                              <span>{item.label}</span>
-                              {count > 0 && (
-                                <Badge variant="warning" className="px-1.5 py-0 text-[10px]">
-                                  {count}
-                                </Badge>
-                              )}
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <div className="block lg:hidden">{linkContent}</div>
-                      </li>
-                    );
-                  }
-
-                  return <li key={item.href}>{linkContent}</li>;
-                })}
+                {section.items.map((item) =>
+                  isNavGroup(item) ? (
+                    <NavGroupItem
+                      key={item.label}
+                      group={item}
+                      pathname={pathname}
+                      collapsed={collapsed}
+                      lowStockCount={lowStockCount}
+                      onNavigate={onClose}
+                    />
+                  ) : (
+                    <NavLinkItem
+                      key={item.href}
+                      link={item}
+                      active={isNavLinkActive(item, pathname)}
+                      collapsed={collapsed}
+                      count={item.badge === 'lowStock' ? lowStockCount : 0}
+                      onNavigate={onClose}
+                    />
+                  ),
+                )}
               </ul>
             </div>
           ))}
@@ -384,5 +332,217 @@ export function Sidebar({
         </div>
       </aside>
     </TooltipProvider>
+  );
+}
+
+const ROW = 'relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+const ROW_IDLE = 'text-sidebar-muted-foreground hover:bg-white/5 hover:text-sidebar-foreground';
+const ROW_ACTIVE = 'bg-primary/15 text-primary font-semibold shadow-xs';
+
+function CountBadge({ count, collapsed }: { count: number; collapsed?: boolean }) {
+  if (count <= 0) return null;
+  return (
+    <Badge
+      variant="warning"
+      className={cn(
+        'px-1.5 py-0 text-[10px] font-bold shadow-xs',
+        collapsed ? 'lg:absolute lg:-top-1 lg:-right-1 lg:h-4 lg:min-w-4 lg:p-0 lg:flex lg:items-center lg:justify-center' : '',
+      )}
+    >
+      {count > 99 ? '99+' : count}
+    </Badge>
+  );
+}
+
+/** One top-level link, or — with `nested` — a child inside an open group. */
+function NavLinkItem({
+  link,
+  active,
+  collapsed,
+  count,
+  onNavigate,
+  nested = false,
+}: {
+  link: NavLink;
+  active: boolean;
+  collapsed: boolean;
+  count: number;
+  onNavigate: () => void;
+  nested?: boolean;
+}) {
+  // A nested child only renders in the expanded layout, so the rail rules skip it.
+  const rail = collapsed && !nested;
+
+  const linkContent = (
+    <Link
+      href={link.href}
+      onClick={onNavigate}
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        ROW,
+        nested && 'py-1.5 text-[13px]',
+        rail ? 'lg:justify-center lg:px-2' : 'justify-start',
+        active ? ROW_ACTIVE : ROW_IDLE,
+      )}
+    >
+      {/* Active indicator bar */}
+      {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-primary" />}
+
+      <link.icon
+        className={cn('h-4 w-4 shrink-0 transition-colors', active ? 'text-primary' : 'text-sidebar-muted-foreground')}
+        aria-hidden="true"
+      />
+
+      <span className={cn('flex-1 truncate transition-opacity duration-200', rail ? 'lg:hidden' : 'inline')}>
+        {link.label}
+      </span>
+
+      <CountBadge count={count} collapsed={rail} />
+    </Link>
+  );
+
+  if (rail) {
+    return (
+      <li>
+        <div className="hidden lg:block">
+          <Tooltip>
+            <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
+            <TooltipContent side="right" className="flex items-center gap-2 font-medium">
+              <span>{link.label}</span>
+              {count > 0 && (
+                <Badge variant="warning" className="px-1.5 py-0 text-[10px]">
+                  {count}
+                </Badge>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        <div className="block lg:hidden">{linkContent}</div>
+      </li>
+    );
+  }
+
+  return <li>{linkContent}</li>;
+}
+
+/**
+ * An expandable parent such as Products. It opens by itself whenever one of
+ * its pages is showing, and the reader can fold it away again. On the
+ * collapsed desktop rail there is no room for a nested list, so the icon
+ * opens the children as a flyout menu instead.
+ */
+function NavGroupItem({
+  group,
+  pathname,
+  collapsed,
+  lowStockCount,
+  onNavigate,
+}: {
+  group: NavGroup;
+  pathname: string;
+  collapsed: boolean;
+  lowStockCount: number;
+  onNavigate: () => void;
+}) {
+  const listId = React.useId();
+  const childActive = group.children.some((child) => isNavLinkActive(child, pathname));
+  const [expanded, setExpanded] = React.useState(childActive);
+
+  // Arriving on a child page (by link, search or back button) opens the group.
+  React.useEffect(() => {
+    if (childActive) setExpanded(true);
+  }, [childActive]);
+
+  const countFor = (link: NavLink) => (link.badge === 'lowStock' ? lowStockCount : 0);
+  const groupCount = group.children.reduce((sum, child) => sum + countFor(child), 0);
+
+  const expandable = (
+    <>
+      <button
+        type="button"
+        onClick={() => setExpanded((open) => !open)}
+        aria-expanded={expanded}
+        aria-controls={listId}
+        className={cn(ROW, 'justify-start', childActive ? 'text-primary font-semibold' : ROW_IDLE)}
+      >
+        <group.icon
+          className={cn('h-4 w-4 shrink-0', childActive ? 'text-primary' : 'text-sidebar-muted-foreground')}
+          aria-hidden="true"
+        />
+        <span className="flex-1 truncate text-left">{group.label}</span>
+        {/* Once open, the count sits on the child it belongs to. */}
+        {!expanded && <CountBadge count={groupCount} />}
+        <ChevronDown
+          className={cn('h-3.5 w-3.5 shrink-0 transition-transform duration-150', expanded && 'rotate-180')}
+          aria-hidden="true"
+        />
+      </button>
+
+      {expanded && (
+        <ul id={listId} className="mt-1 ml-[1.15rem] space-y-0.5 border-l border-sidebar-border pl-2">
+          {group.children.map((child) => (
+            <NavLinkItem
+              key={child.href}
+              link={child}
+              active={isNavLinkActive(child, pathname)}
+              collapsed={collapsed}
+              count={countFor(child)}
+              onNavigate={onNavigate}
+              nested
+            />
+          ))}
+        </ul>
+      )}
+    </>
+  );
+
+  if (!collapsed) return <li>{expandable}</li>;
+
+  return (
+    <li>
+      <div className="hidden lg:block">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={group.label}
+              className={cn(ROW, 'justify-center px-2', childActive ? ROW_ACTIVE : ROW_IDLE)}
+            >
+              {childActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-primary" />}
+              <group.icon
+                className={cn('h-4 w-4 shrink-0', childActive ? 'text-primary' : 'text-sidebar-muted-foreground')}
+                aria-hidden="true"
+              />
+              <CountBadge count={groupCount} collapsed />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="right" align="start" className="w-52">
+            <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {group.children.map((child) => {
+              const active = isNavLinkActive(child, pathname);
+              const count = countFor(child);
+              return (
+                <DropdownMenuItem key={child.href} asChild>
+                  <Link
+                    href={child.href}
+                    aria-current={active ? 'page' : undefined}
+                    className={cn(active && 'font-semibold text-primary')}
+                  >
+                    <child.icon /> <span className="flex-1">{child.label}</span>
+                    {count > 0 && (
+                      <Badge variant="warning" className="px-1.5 py-0 text-[10px]">
+                        {count > 99 ? '99+' : count}
+                      </Badge>
+                    )}
+                  </Link>
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className="block lg:hidden">{expandable}</div>
+    </li>
   );
 }

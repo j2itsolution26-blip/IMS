@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowDownLeft, ArrowUpRight, FileBarChart } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, ClipboardEdit, FileBarChart } from 'lucide-react';
 import type { InventoryTransactionType } from '@prisma/client';
 import { requirePermission, userCan } from '@/lib/session';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
@@ -10,13 +10,14 @@ import { getCurrency } from '@/server/services/settings-service';
 import { resolveRange, parsePeriod } from '@/server/analytics/date-range';
 import { formatCurrency, formatDateTime, formatQuantity, humanizeEnum } from '@/lib/format';
 import { PageHeader } from '@/components/page-header';
+import { Button } from '@/components/ui/button';
 import { PeriodPicker } from '@/components/period-picker';
 import { FilterBar, PaginationBar } from '@/components/filter-bar';
 import { EmptyState } from '@/components/empty-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 
-export const metadata: Metadata = { title: 'Stock movements' };
+export const metadata: Metadata = { title: 'Inventory' };
 export const dynamic = 'force-dynamic';
 
 const TYPES: InventoryTransactionType[] = [
@@ -46,6 +47,8 @@ export default async function MovementsPage({
   const params = await searchParams;
   // The value column is cost-based, so it is the owner's.
   const canViewCost = userCan(user, FINANCIAL_PERMISSION);
+  // The same gate the adjustment action enforces on the server.
+  const canAdjust = userCan(user, 'inventory.create');
 
   const period = parsePeriod(params.period, 'last30');
   const range = resolveRange(period);
@@ -65,10 +68,20 @@ export default async function MovementsPage({
   return (
     <>
       <PageHeader
-        title="Stock movements"
-        description="The complete stock ledger. Every sale, receipt, adjustment, and transfer, with the running balance."
-        breadcrumbs={[{ label: 'Stock levels', href: '/inventory' }, { label: 'Movements' }]}
-        actions={<PeriodPicker current={period} />}
+        title="Inventory"
+        description="The complete stock ledger. Every sale, receipt, return and adjustment, with who made it and the running balance."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <PeriodPicker current={period} />
+            {canAdjust && (
+              <Button asChild>
+                <Link href="/inventory/adjustments">
+                  <ClipboardEdit /> Adjust stock
+                </Link>
+              </Button>
+            )}
+          </div>
+        }
       />
 
       <FilterBar
@@ -89,7 +102,7 @@ export default async function MovementsPage({
           <EmptyState
             icon={FileBarChart}
             title="No movements in this period"
-            description="Receiving stock, selling at the POS, adjusting, and transferring all write entries to this ledger."
+            description="Receiving stock, selling at the POS, returns and adjustments all write entries to this ledger."
           />
         ) : (
           <>

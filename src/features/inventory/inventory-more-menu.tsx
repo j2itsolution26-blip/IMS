@@ -40,7 +40,7 @@ export function InventoryMoreMenu({
         {showStockTools && (
           <>
             <DropdownMenuItem asChild>
-              <Link href="/inventory/categories">
+              <Link href="/products/categories">
                 <Tags /> Categories
               </Link>
             </DropdownMenuItem>

@@ -51,7 +51,7 @@ export default async function ProductsPage({
   return (
     <>
       <PageHeader
-        title="Products"
+        title="All Products"
         description="Your catalogue and live stock on hand."
         actions={
           canCreate && (

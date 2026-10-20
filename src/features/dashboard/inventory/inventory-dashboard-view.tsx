@@ -187,7 +187,7 @@ export function InventoryDashboardView({
         <Panel
           title="Products by category"
           description="Active products in each category. Select a bar to open it."
-          action={<MoreLink href="/inventory/categories">Categories</MoreLink>}
+          action={<MoreLink href="/products/categories">Categories</MoreLink>}
         >
           <CategoryBarChart data={data.categories} />
         </Panel>

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { StockStatus } from '@/server/analytics/inventory-analytics';
-import { formatCurrency, formatNumber, formatQuantity, formatRelative } from '@/lib/format';
+import { formatCurrency, formatDateTime, formatNumber, formatQuantity, formatRelative } from '@/lib/format';
 import { formatPieces } from '@/lib/quantity';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ProductImage } from '@/components/product-image';
@@ -19,7 +19,8 @@ export interface InventoryListRow {
   onHand: number;
   reorderLevel: number;
   status: StockStatus;
-  updatedAt: Date;
+  /** The latest stock-ledger entry of any kind; null when stock never moved. */
+  lastMovementAt: Date | null;
 }
 
 /**
@@ -98,6 +99,18 @@ function StockBar({ row }: { row: InventoryListRow }) {
   );
 }
 
+/** When stock last moved — a sale, receipt, return or adjustment. */
+function LastMovement({ at }: { at: Date | null }) {
+  if (!at) return <span>No movements yet</span>;
+  // Raw SQL hands back a Date, but never trust a driver with a time zone.
+  const when = new Date(at);
+  return (
+    <time dateTime={when.toISOString()} title={formatDateTime(when)}>
+      Moved {formatRelative(when)}
+    </time>
+  );
+}
+
 function StatusPill({ status }: { status: StockStatus }) {
   const meta = STATUS_META[status];
   return (
@@ -149,6 +162,10 @@ export function InventoryProductList({
                 <StatusPill status={row.status} />
               </div>
               <StockBar row={row} />
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {row.reorderLevel > 0 ? `Low at ${formatPieces(row.reorderLevel)} · ` : ''}
+                <LastMovement at={row.lastMovementAt} />
+              </p>
             </div>
             <ProductRowActions
               productId={row.productId}
@@ -165,15 +182,16 @@ export function InventoryProductList({
       {/* Desktop: the full register, scrolling sideways rather than dropping
           columns, so nothing an owner needs disappears on a laptop. */}
       <div className="hidden sm:block">
-        <Table className="min-w-[1060px]">
+        <Table className="min-w-[1140px]">
           <TableHeader className="bg-muted/40">
             <TableRow className="hover:bg-transparent">
               <TableHead className={HEAD}>Product</TableHead>
               <TableHead className={HEAD}>Category</TableHead>
               <TableHead className={HEAD}>Price</TableHead>
               <TableHead className={HEAD}>Stock</TableHead>
+              <TableHead className={HEAD}>Low at</TableHead>
               <TableHead className={HEAD}>Status</TableHead>
-              <TableHead className={HEAD}>Updated</TableHead>
+              <TableHead className={HEAD}>Last movement</TableHead>
               <TableHead className={cn(HEAD, 'text-right')}>Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -235,13 +253,12 @@ export function InventoryProductList({
                         {formatQuantity(row.onHand)}
                       </span>
                       <span className="text-xs text-muted-foreground">pcs</span>
-                      {row.reorderLevel > 0 && (
-                        <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">
-                          Reorder at {formatPieces(row.reorderLevel)}
-                        </span>
-                      )}
                     </div>
                     <StockBar row={row} />
+                  </TableCell>
+
+                  <TableCell className={cn(CELL, 'tabular whitespace-nowrap text-sm text-muted-foreground')}>
+                    {row.reorderLevel > 0 ? formatPieces(row.reorderLevel) : 'Not set'}
                   </TableCell>
 
                   <TableCell className={CELL}>
@@ -249,7 +266,7 @@ export function InventoryProductList({
                   </TableCell>
 
                   <TableCell className={cn(CELL, 'whitespace-nowrap text-sm text-muted-foreground')}>
-                    {formatRelative(row.updatedAt)}
+                    <LastMovement at={row.lastMovementAt} />
                   </TableCell>
 
                   <TableCell className={cn(CELL, 'text-right')}>

@@ -21,7 +21,7 @@ import { InventoryProductList } from '@/features/inventory/inventory-product-lis
 import { ScanReceiveDialog } from '@/features/inventory/scan-receive-dialog';
 import { cn } from '@/lib/utils';
 
-export const metadata: Metadata = { title: 'Inventory' };
+export const metadata: Metadata = { title: 'Stock management' };
 export const dynamic = 'force-dynamic';
 
 const STATUS_FILTERS = ['ALL', 'IN_STOCK', 'LOW_ANY', 'OUT_OF_STOCK'] as const;
@@ -94,7 +94,7 @@ export default async function InventoryPage({
     onHand: row.onHand,
     reorderLevel: row.reorderLevel,
     status: row.status,
-    updatedAt: row.updatedAt,
+    lastMovementAt: row.lastMovementAt,
   }));
 
   const firstRow = result.total === 0 ? 0 : (result.page - 1) * PAGE_SIZE + 1;
@@ -113,8 +113,8 @@ export default async function InventoryPage({
   return (
     <>
       <PageHeader
-        title="Inventory"
-        description="Manage your products and stock levels"
+        title="Stock management"
+        description="Current quantities, low-stock thresholds and stock availability"
         actions={
           // Phones: Add Product full width on top, then Receive stock beside a
           // More menu that also carries Export. From `sm` up the original

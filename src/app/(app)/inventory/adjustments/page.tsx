@@ -23,7 +23,7 @@ export default async function AdjustmentsPage() {
       <PageHeader
         title="Stock adjustment"
         description="Correct stock after a count, write off damage, or load opening balances."
-        breadcrumbs={[{ label: 'Inventory', href: '/inventory' }, { label: 'Adjustments' }]}
+        breadcrumbs={[{ label: 'Inventory', href: '/inventory/movements' }, { label: 'Adjustment' }]}
       />
       <AdjustmentForm products={products} currency={currency} canViewCost={canViewCost} />
     </>
