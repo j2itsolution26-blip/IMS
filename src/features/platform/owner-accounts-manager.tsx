@@ -31,7 +31,14 @@ type Dialogs = { kind: 'create' } | { kind: 'reset' | 'toggle'; account: Platfor
  * Every button here calls a server action that re-checks `platform.manage`;
  * what this component decides is only what to show.
  */
-export function OwnerAccountsManager({ accounts }: { accounts: PlatformAccount[] }) {
+export function OwnerAccountsManager({
+  accounts,
+  storesAwaitingOwner,
+}: {
+  accounts: PlatformAccount[];
+  /** Stores with no owner yet; the new owner goes to the oldest of them. */
+  storesAwaitingOwner: number;
+}) {
   const router = useRouter();
   const [dialog, setDialog] = React.useState<Dialogs>(null);
   const [busy, setBusy] = React.useState(false);
@@ -95,7 +102,7 @@ export function OwnerAccountsManager({ accounts }: { accounts: PlatformAccount[]
             ? 'No owner account yet.'
             : `${accounts.length} owner account${accounts.length === 1 ? '' : 's'}.`}
         </p>
-        {accounts.length === 0 && (
+        {storesAwaitingOwner > 0 && accounts.length > 0 && (
           <Button onClick={() => setDialog({ kind: 'create' })}>
             <UserPlus /> Create owner
           </Button>

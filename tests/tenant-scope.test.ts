@@ -111,6 +111,15 @@ test('upserts are confined on both branches', () => {
   assert.equal((out.create as { storeId: string }).storeId, A);
 });
 
+test('a per-store unique key naming another store is refused', () => {
+  refuses(
+    () => scope('Setting', 'upsert', { where: { storeId_key: { storeId: B, key: 'k' } }, create: { key: 'k' }, update: {} }, A),
+    /storeId_key names a different store/,
+  );
+  refuses(() => scope('Product', 'findUnique', { where: { storeId_sku: { storeId: B, sku: 'x' } } }, A), /names a different store/);
+  assert.equal(scope('Product', 'findUnique', { where: { storeId_sku: { storeId: A, sku: 'x' } } }, A).where?.storeId, A);
+});
+
 test('platform-only and reference models', () => {
   refuses(() => scope('Verification', 'findMany', {}, A), /not available to a store/);
   assert.deepEqual(scope('Permission', 'findMany', { where: { key: 'pos.view' } }, A).where, { key: 'pos.view' });

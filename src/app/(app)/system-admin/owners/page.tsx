@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { requirePermission } from '@/lib/session';
-import { listOwnerAccounts } from '@/features/platform/queries';
+import { countStoresAwaitingOwner, listOwnerAccounts } from '@/features/platform/queries';
 import { OwnerAccountsManager } from '@/features/platform/owner-accounts-manager';
 
 export const metadata: Metadata = { title: 'Owner accounts' };
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function OwnerAccountsPage() {
   await requirePermission('platform.view');
-  const accounts = await listOwnerAccounts();
+  const [accounts, storesAwaitingOwner] = await Promise.all([listOwnerAccounts(), countStoresAwaitingOwner()]);
 
   return (
     <>
@@ -20,7 +20,7 @@ export default async function OwnerAccountsPage() {
         </p>
       </div>
 
-      <OwnerAccountsManager accounts={accounts} />
+      <OwnerAccountsManager accounts={accounts} storesAwaitingOwner={storesAwaitingOwner} />
     </>
   );
 }

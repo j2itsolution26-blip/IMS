@@ -137,6 +137,13 @@ function scopeWhere(model: string, where: unknown, storeId: string): Args {
 
   if (isTagged(scope)) {
     assertOwnStore(base.storeId, storeId, `${model} filter`);
+    // Per-store unique keys (`storeId_sku`, `storeId_key`, …) carry the store
+    // too; one naming another store must be refused, not quietly overridden.
+    for (const [field, value] of Object.entries(base)) {
+      if (field.startsWith('storeId_') && isObject(value)) {
+        assertOwnStore(value.storeId, storeId, `${model} ${field}`);
+      }
+    }
     return { ...base, storeId };
   }
   if (scope.kind === 'self') {

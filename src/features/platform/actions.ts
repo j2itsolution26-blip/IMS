@@ -10,7 +10,7 @@ import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { runAsProvisioning } from '@/lib/provisioning-context';
 import { recordPlatformAudit } from '@/server/services/audit-service';
-import { OWNER_ROLE_SLUG, SYSTEM_ADMIN_ROLE_SLUG } from '@/lib/permissions';
+import { OWNER_ROLE_SLUG } from '@/lib/permissions';
 import { normalizeUsername, usernameProblem } from '@/lib/username';
 
 /**
@@ -231,4 +231,3 @@ export async function assertPlatformAdmin() {
   return authorize('platform.view');
 }
 
-export { SYSTEM_ADMIN_ROLE_SLUG };

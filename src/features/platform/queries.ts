@@ -61,6 +61,11 @@ const toAccount = (row: AccountRow): PlatformAccount => ({
   lastLoginAt: row.lastLoginAt,
 });
 
+/** How many stores have no owner yet — each can be given one from the owners screen. */
+export async function countStoresAwaitingOwner(): Promise<number> {
+  return platformPrisma.store.count({ where: { ownerId: null } });
+}
+
 /** Owner accounts, newest first, optionally narrowed by a search term. */
 export async function listOwnerAccounts(search?: string): Promise<PlatformAccount[]> {
   const term = search?.trim();
