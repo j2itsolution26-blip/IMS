@@ -11,6 +11,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { GlobalSearch } from '@/components/layout/global-search';
 import { LockScreenButton, ScreenLockProvider } from '@/features/auth/screen-lock';
 import { NotificationBell } from '@/features/shifts/notification-bell';
+import { OfflineBanner } from '@/features/pwa/offline-banner';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 
@@ -100,8 +101,10 @@ export function AppShell({
           mounted && collapsed ? 'lg:pl-[4.25rem]' : 'lg:pl-64',
         )}
       >
-        {/* Header / Top bar */}
-        <header className="no-print sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-2xs sm:gap-3 sm:px-4">
+        {/* Header / Top bar, with the connection notice pinned beneath it.
+            Safe-area padding keeps it clear of notches in the installed app. */}
+        <div className="sticky top-0 z-30">
+        <header className="no-print flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center gap-2 border-b bg-background/95 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-2xs sm:gap-3 sm:pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(1rem,env(safe-area-inset-right))]">
           <Button
             variant="ghost"
             size="icon"
@@ -130,9 +133,14 @@ export function AppShell({
             {userSlot}
           </div>
         </header>
+        <OfflineBanner />
+        </div>
 
         {/* Main Content Area */}
-        <main id="main-content" className="flex-1 p-4 sm:p-6 transition-all duration-200">
+        <main
+          id="main-content"
+          className="flex-1 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] transition-all duration-200 sm:p-6 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))]"
+        >
           {children}
         </main>
       </div>

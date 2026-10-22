@@ -117,6 +117,8 @@ export function Sidebar({
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
           collapsed ? 'lg:w-[4.25rem]' : 'lg:w-64',
           'w-64', // Mobile drawer width is always 256px
+          // Clear of the notch, landscape side insets and the home indicator.
+          'pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pt-[env(safe-area-inset-top)]',
         )}
         aria-label="Main navigation"
       >

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { Lock } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
 import { SignInForm } from '@/features/auth/sign-in-form';
+import { InstallAppLink } from '@/features/pwa/install-app-link';
 import { passkeyConfig } from '@/lib/auth';
 import { passkeysAvailableAt } from '@/lib/passkey-config';
 import { requestOrigin } from '@/lib/request-origin';
@@ -81,6 +82,7 @@ export default async function SignInPage({
           <Lock className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
           Secure access &bull; Only authorized staff can sign in
         </p>
+        <InstallAppLink />
       </div>
     </div>
   );

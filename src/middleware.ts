@@ -54,8 +54,10 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // The manifest is fetched without cookies, so it must never redirect to sign-in.
+  // The manifest is fetched without cookies, and the service worker and its
+  // offline page are installed before sign-in, so none may redirect to it.
+  // All three are static and carry no user data.
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|offline.html|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico)$).*)',
   ],
 };

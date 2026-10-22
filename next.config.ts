@@ -79,6 +79,19 @@ const nextConfig: NextConfig = {
           { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=()' },
         ],
       },
+      {
+        // Browsers must always re-check the worker so updates arrive on the
+        // next visit; a cached copy would pin users to an old version.
+        source: '/sw.js',
+        headers: [
+          { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+        ],
+      },
+      {
+        source: '/offline.html',
+        headers: [{ key: 'Cache-Control', value: 'no-cache' }],
+      },
     ];
   },
 };

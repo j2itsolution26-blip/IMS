@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Poppins } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/toaster';
+import { ServiceWorkerRegistrar } from '@/features/pwa/service-worker-registrar';
 import { APP_DESCRIPTION, APP_NAME, APP_SHORT_NAME } from '@/lib/brand';
 import './globals.css';
 
@@ -23,6 +24,8 @@ export const metadata: Metadata = {
   description: APP_DESCRIPTION,
   robots: { index: false, follow: false },
   appleWebApp: { capable: true, title: APP_SHORT_NAME, statusBarStyle: 'default' },
+  // iOS would otherwise turn prices, receipt and phone-like numbers into call links.
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
@@ -43,6 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
           <Toaster />
+          <ServiceWorkerRegistrar />
         </ThemeProvider>
       </body>
     </html>

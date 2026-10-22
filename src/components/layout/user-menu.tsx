@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Lock, LogOut, Settings, User as UserIcon, Users } from 'lucide-react';
+import { Download, Lock, LogOut, Settings, User as UserIcon, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage, Separator } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,8 @@ import {
 import { authClient } from '@/lib/auth-client';
 import { initials } from '@/lib/utils';
 import { useScreenLock } from '@/features/auth/screen-lock';
+import { InstallAppDialog } from '@/features/pwa/install-app-dialog';
+import { useInstallState } from '@/features/pwa/install-state';
 
 interface UserMenuProps {
   name: string;
@@ -28,6 +30,8 @@ interface UserMenuProps {
 export function UserMenu({ name, email, image, roleName, canManageSettings, canManageStaff }: UserMenuProps) {
   const [signingOut, setSigningOut] = React.useState(false);
   const screenLock = useScreenLock();
+  const install = useInstallState();
+  const [installOpen, setInstallOpen] = React.useState(false);
 
   const onSignOut = async () => {
     setSigningOut(true);
@@ -43,6 +47,7 @@ export function UserMenu({ name, email, image, roleName, canManageSettings, canM
   };
 
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="rounded-full" aria-label={`Account menu for ${name}`}>
@@ -91,6 +96,12 @@ export function UserMenu({ name, email, image, roleName, canManageSettings, canM
           </DropdownMenuItem>
         )}
 
+        {install && !install.installed && (
+          <DropdownMenuItem onSelect={() => setInstallOpen(true)}>
+            <Download /> Install app
+          </DropdownMenuItem>
+        )}
+
         <Separator className="my-1" />
         <DropdownMenuItem
           destructive
@@ -104,5 +115,7 @@ export function UserMenu({ name, email, image, roleName, canManageSettings, canM
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    <InstallAppDialog open={installOpen} onOpenChange={setInstallOpen} />
+    </>
   );
 }

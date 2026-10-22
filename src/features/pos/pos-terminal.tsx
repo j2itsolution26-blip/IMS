@@ -52,6 +52,7 @@ import { Separator } from '@/components/ui/misc';
 import { Receipt, type ReceiptData } from '@/features/pos/receipt';
 import { PosCameraScanner, type ScanOutcome } from '@/features/pos/pos-camera-scanner';
 import { QuantityInput } from '@/features/pos/quantity-input';
+import { useOnlineStatus } from '@/features/pwa/use-online-status';
 import { formatCurrency, formatQuantity } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -201,6 +202,8 @@ export function PosTerminal({
   const [gcashReference, setGcashReference] = React.useState('');
   const [copiedGcash, setCopiedGcash] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  // A sale needs the server; charging offline would only end in an error.
+  const online = useOnlineStatus();
 
   const [receipt, setReceipt] = React.useState<ReceiptData | null>(null);
 
@@ -602,6 +605,10 @@ export function PosTerminal({
       toast.error('The payment does not cover the amount due.');
       return;
     }
+    if (!navigator.onLine) {
+      toast.error('You are offline. Reconnect to complete this sale; nothing has been charged.');
+      return;
+    }
 
     setSubmitting(true);
 
@@ -925,11 +932,14 @@ export function PosTerminal({
 
           <Button
             className="h-12 w-full rounded-xl bg-[#F5B70A] text-base font-semibold text-[#20160A] hover:bg-[#E0A609]"
-            disabled={basket.length === 0}
+            disabled={basket.length === 0 || !online}
             onClick={openPayment}
           >
             Charge {formatCurrency(totals.total, currency)}
           </Button>
+          {!online && basket.length > 0 && (
+            <p className="text-center text-xs text-warning">Offline. Reconnect to charge this sale.</p>
+          )}
 
           {basket.length > 0 ? (
             <Button variant="outline" className="h-11 w-full rounded-xl" onClick={holdOrder}>
@@ -1147,7 +1157,7 @@ export function PosTerminal({
             <Button variant="outline" onClick={() => setPayOpen(false)} disabled={submitting}>
               Cancel
             </Button>
-            <Button onClick={onCheckout} loading={submitting} disabled={!canComplete}>
+            <Button onClick={onCheckout} loading={submitting} disabled={!canComplete || !online}>
               Complete Sale
             </Button>
           </DialogFooter>
