@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/session';
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
 import { allowedUnlockMethods } from '@/lib/pos-pin';
 import { isSafeReturnPath } from '@/lib/safe-path';
 import { LockedView } from '@/features/auth/locked-view';
@@ -21,7 +21,7 @@ export default async function LockedPage({ searchParams }: { searchParams: Promi
   if (!user) redirect('/api/session/reset');
   if (!user.isLocked) redirect(destination);
 
-  const session = await prisma.session.findUnique({
+  const session = await platformPrisma.session.findUnique({
     where: { id: user.sessionId },
     select: { unlockFailures: true },
   });

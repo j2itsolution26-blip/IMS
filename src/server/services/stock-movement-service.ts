@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { D, money, qty as q3, toNum, type Numeric } from '@/lib/decimal';
 import { NotFoundError, ValidationError } from '@/lib/errors';
 import { applyStockMovement, wholePieces } from '@/server/services/inventory-service';
@@ -26,13 +26,14 @@ export interface StockInInput {
  * the "Stock In → Enter Quantity → Save" workflow.
  */
 export async function createStockIn(input: StockInInput) {
+  const db = await storeDb();
   if (wholePieces(input.quantity, 'Pieces received').lessThan(1)) {
     throw new ValidationError('Enter at least 1 piece received.');
   }
 
   const warehouseId = await getDefaultWarehouseId();
 
-  return prisma.$transaction(async (tx) => {
+  return db.$transaction(async (tx) => {
     const reference = await nextDocumentNumber('ADJUSTMENT', tx);
     const product = await tx.product.findUnique({
       where: { id: input.productId },
@@ -92,6 +93,7 @@ export interface CreateAdjustmentInput {
  * ("write off 3 broken units").
  */
 export async function createAdjustment(input: CreateAdjustmentInput) {
+  const db = await storeDb();
   if (!input.reason.trim()) {
     throw new ValidationError('A reason is required for every stock adjustment.', {
       reason: ['Explain why stock is being adjusted.'],
@@ -100,7 +102,7 @@ export async function createAdjustment(input: CreateAdjustmentInput) {
 
   const warehouseId = await getDefaultWarehouseId();
 
-  const result = await prisma.$transaction(
+  const result = await db.$transaction(
     async (tx) => {
       const reference = await nextDocumentNumber('ADJUSTMENT', tx);
       const applied: { productId: string; delta: number; name: string }[] = [];

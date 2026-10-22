@@ -3,10 +3,10 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { authenticate } from '@/lib/session';
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { NotFoundError } from '@/lib/errors';
-import { recordAudit } from '@/server/services/audit-service';
+import { recordAuditFor } from '@/server/services/audit-service';
 
 /**
  * Managing your own passkeys. Every query is scoped to the signed-in user's
@@ -27,7 +27,7 @@ export async function renamePasskey(input: unknown): Promise<ActionResult<void>>
     const user = await authenticate();
     const values = parseInput(renameSchema, input);
 
-    const { count } = await prisma.passkey.updateMany({
+    const { count } = await platformPrisma.passkey.updateMany({
       where: { id: values.id, userId: user.id },
       data: { name: values.name },
     });
@@ -42,14 +42,14 @@ export async function removePasskey(id: unknown): Promise<ActionResult<void>> {
     const user = await authenticate();
     const passkeyId = parseInput(z.string().min(1), id);
 
-    const removed = await prisma.passkey.findFirst({
+    const removed = await platformPrisma.passkey.findFirst({
       where: { id: passkeyId, userId: user.id },
       select: { name: true },
     });
-    const { count } = await prisma.passkey.deleteMany({ where: { id: passkeyId, userId: user.id } });
+    const { count } = await platformPrisma.passkey.deleteMany({ where: { id: passkeyId, userId: user.id } });
     if (count === 0) throw new NotFoundError('Passkey');
 
-    await recordAudit({
+    await recordAuditFor(user, {
       action: 'UPDATE',
       entity: 'User',
       entityId: user.id,

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { LOCKED_MESSAGE, getCurrentUser } from '@/lib/session';
 import { toNum } from '@/lib/decimal';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
@@ -47,6 +47,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ results: [] });
   }
 
+  // Store data only ever comes through the signed-in user's own store.
+  if (!user.store) {
+    return NextResponse.json({ results: [] });
+  }
+  const db = await storeDb();
+
   const contains = { contains: term, mode: 'insensitive' as const };
   const results: SearchHit[] = [];
 
@@ -54,7 +60,7 @@ export async function GET(request: NextRequest) {
 
   if (user.permissions.has('products.view')) {
     tasks.push(
-      prisma.product
+      db.product
         .findMany({
           where: {
             OR: [{ name: contains }, { sku: contains }, { barcode: contains }],
@@ -81,7 +87,7 @@ export async function GET(request: NextRequest) {
   if (user.permissions.has('sales.view')) {
     const salesScope = salesScopeUserId(user);
     tasks.push(
-      prisma.sale
+      db.sale
         .findMany({
           // A cashier finds only the sales they rang up — see `salesScopeUserId`.
           where: { invoiceNumber: contains, ...(salesScope ? { userId: salesScope } : {}) },

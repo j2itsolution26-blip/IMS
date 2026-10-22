@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { prisma } from '@/lib/prisma';
+import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { percentChange, toNum } from '@/lib/decimal';
 import type { DateRange } from '@/server/analytics/date-range';
 import {
@@ -29,11 +29,13 @@ export type { SalesSummary };
 async function salesAggregate(from: Date, to: Date): Promise<SalesAggregateRow> {
   // Sale-level money and line-level figures are summed separately: joining
   // the lines in directly would multiply each sale total by its line count.
-  const rows = await prisma.$queryRaw<SalesAggregateRow[]>`
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<SalesAggregateRow[]>`
     WITH qualifying AS (
       SELECT s.id, s.total, s."taxAmount", s.discount, s."costOfGoods"
       FROM sales s
-      WHERE s.status <> 'VOIDED'
+      WHERE s."storeId" = ${storeId}
+        AND s.status <> 'VOIDED'
         AND s."createdAt" >= ${from}
         AND s."createdAt" <= ${to}
     ),
@@ -76,7 +78,8 @@ async function salesAggregate(from: Date, to: Date): Promise<SalesAggregateRow> 
 
 /** Refunds given in the window, and the cost of the goods that went back on the shelf. */
 async function returnsAggregate(from: Date, to: Date): Promise<ReturnsAggregateRow> {
-  const rows = await prisma.$queryRaw<ReturnsAggregateRow[]>`
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<ReturnsAggregateRow[]>`
     SELECT
       COALESCE(SUM(r.total), 0)::text AS "total",
       COUNT(*)::int                   AS "count",
@@ -84,13 +87,15 @@ async function returnsAggregate(from: Date, to: Date): Promise<ReturnsAggregateR
         SELECT SUM(ri."unitCost" * ri.quantity)
         FROM return_items ri
         JOIN returns r2 ON r2.id = ri."returnId"
-        WHERE r2.status = 'COMPLETED'
+        WHERE r2."storeId" = ${storeId}
+          AND r2.status = 'COMPLETED'
           AND r2.restock = true
           AND r2."createdAt" >= ${from}
           AND r2."createdAt" <= ${to}
       ), 0)::text                     AS "restockedCost"
     FROM returns r
-    WHERE r.status = 'COMPLETED'
+    WHERE r."storeId" = ${storeId}
+      AND r.status = 'COMPLETED'
       AND r."createdAt" >= ${from}
       AND r."createdAt" <= ${to}
   `;
@@ -98,10 +103,11 @@ async function returnsAggregate(from: Date, to: Date): Promise<ReturnsAggregateR
 }
 
 export async function getSalesSummary(from: Date, to: Date): Promise<SalesSummary> {
+  const { db } = await getStoreContext();
   const [aggregate, returns, cash] = await Promise.all([
     salesAggregate(from, to),
     returnsAggregate(from, to),
-    prisma.payment.aggregate({
+    db.payment.aggregate({
       where: { method: 'CASH', direction: 'INBOUND', createdAt: { gte: from, lte: to } },
       _sum: { amount: true },
     }),
@@ -184,9 +190,10 @@ export async function getInventorySnapshot(): Promise<InventorySnapshot> {
   const settings = await getSettings();
   const criticalRatio = readNumber(settings, 'inventory.criticalStockRatio') || 0.5;
   const deadStockDays = readNumber(settings, 'inventory.deadStockDays') || 30;
+  const { db, storeId } = await getStoreContext();
 
   const [valueRows, statusRows, deadStock] = await Promise.all([
-    prisma.$queryRaw<StockValueRow[]>`
+    db.$queryRaw<StockValueRow[]>`
       SELECT
         COALESCE(SUM(i.quantity * p."costPrice"), 0)::text    AS "costValue",
         COALESCE(SUM(i.quantity * p."sellingPrice"), 0)::text AS "retailValue",
@@ -196,9 +203,9 @@ export async function getInventorySnapshot(): Promise<InventorySnapshot> {
         COUNT(DISTINCT p.id) FILTER (WHERE i.quantity > 0)::int AS "stockedProducts"
       FROM products p
       LEFT JOIN inventory i ON i."productId" = p.id
-      WHERE p.status = 'ACTIVE' AND p."isTrackable" = true
+      WHERE p."storeId" = ${storeId} AND p.status = 'ACTIVE' AND p."isTrackable" = true
     `,
-    prisma.$queryRaw<StockStatusRow[]>`
+    db.$queryRaw<StockStatusRow[]>`
       WITH stock AS (
         SELECT
           p.id,
@@ -208,7 +215,7 @@ export async function getInventorySnapshot(): Promise<InventorySnapshot> {
           p."maxStock" AS max_stock
         FROM products p
         LEFT JOIN inventory i ON i."productId" = p.id
-        WHERE p.status = 'ACTIVE' AND p."isTrackable" = true
+        WHERE p."storeId" = ${storeId} AND p.status = 'ACTIVE' AND p."isTrackable" = true
         GROUP BY p.id, p."reorderLevel", p."minStock", p."maxStock"
       ),
       classified AS (
@@ -257,13 +264,14 @@ export async function getInventorySnapshot(): Promise<InventorySnapshot> {
 
 /** Products holding stock that have not sold a single unit in the threshold window. */
 async function countDeadStock(days: number): Promise<number> {
-  const rows = await prisma.$queryRaw<{ count: number }[]>`
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM (
       SELECT p.id
       FROM products p
       JOIN inventory i ON i."productId" = p.id
-      WHERE p.status = 'ACTIVE' AND p."isTrackable" = true
+      WHERE p."storeId" = ${storeId} AND p.status = 'ACTIVE' AND p."isTrackable" = true
       GROUP BY p.id
       HAVING SUM(i.quantity) > 0
          AND NOT EXISTS (
@@ -360,7 +368,8 @@ export async function getProductPerformance(options: {
 
   // Raw SQL keeps the join, the aggregation, and the ordering in one pass —
   // doing this in JS would mean pulling every sale line into memory.
-  const rows = await prisma.$queryRawUnsafe<PerformanceRow[]>(
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRawUnsafe<PerformanceRow[]>(
     `
     WITH sold AS (
       SELECT
@@ -370,11 +379,11 @@ export async function getProductPerformance(options: {
         SUM(si.total - si."unitCost" * si.quantity)                  AS profit
       FROM sale_items si
       JOIN sales s ON s.id = si."saleId"
-      WHERE s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
+      WHERE s."storeId" = $4 AND s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
       GROUP BY si."productId"
     ),
     stock AS (
-      SELECT "productId", SUM(quantity) AS qty FROM inventory GROUP BY "productId"
+      SELECT "productId", SUM(quantity) AS qty FROM inventory WHERE "storeId" = $4 GROUP BY "productId"
     )
     SELECT
       p.id                                    AS "productId",
@@ -390,13 +399,14 @@ export async function getProductPerformance(options: {
     JOIN categories c ON c.id = p."categoryId"
     ${includeUnsold ? 'LEFT JOIN' : 'JOIN'} sold ON sold."productId" = p.id
     LEFT JOIN stock ON stock."productId" = p.id
-    WHERE p.status = 'ACTIVE'
+    WHERE p."storeId" = $4 AND p.status = 'ACTIVE'
     ORDER BY COALESCE(sold.${sortColumn}, 0) ${orderDirection}, p.name ASC
     LIMIT $3
     `,
     from,
     to,
     limit,
+    storeId,
   );
 
   return mapPerformance(rows);
@@ -407,7 +417,8 @@ export async function getProductPerformance(options: {
 // ---------------------------------------------------------------------------
 
 export async function getRecentSales(limit = 6) {
-  const sales = await prisma.sale.findMany({
+  const db = await storeDb();
+  const sales = await db.sale.findMany({
     where: { status: { not: 'VOIDED' } },
     orderBy: { createdAt: 'desc' },
     take: limit,
@@ -434,7 +445,8 @@ export async function getRecentSales(limit = 6) {
 }
 
 export async function getRecentInventoryActivity(limit = 8) {
-  const movements = await prisma.inventoryTransaction.findMany({
+  const db = await storeDb();
+  const movements = await db.inventoryTransaction.findMany({
     orderBy: { createdAt: 'desc' },
     take: limit,
     select: {

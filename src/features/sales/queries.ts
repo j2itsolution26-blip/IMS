@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { PaymentMethod, Prisma, SaleStatus } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { toNum } from '@/lib/decimal';
 
 /** Sales reads. Listing pages in the database; detail loads the full document. */
@@ -23,7 +23,8 @@ export interface SaleListQuery {
 
 /** Cashiers who actually have sales, for the sales-history filter. */
 export async function listCashiers(): Promise<{ id: string; name: string }[]> {
-  return prisma.user.findMany({
+  const db = await storeDb();
+  return db.user.findMany({
     where: { sales: { some: {} } },
     select: { id: true, name: true },
     orderBy: { name: 'asc' },
@@ -31,6 +32,7 @@ export async function listCashiers(): Promise<{ id: string; name: string }[]> {
 }
 
 export async function listSales(query: SaleListQuery = {}) {
+  const db = await storeDb();
   const page = Math.max(1, query.page ?? 1);
   const pageSize = Math.min(100, Math.max(10, query.pageSize ?? 25));
 
@@ -51,7 +53,7 @@ export async function listSales(query: SaleListQuery = {}) {
   };
 
   const [rows, total, aggregate] = await Promise.all([
-    prisma.sale.findMany({
+    db.sale.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
@@ -83,9 +85,9 @@ export async function listSales(query: SaleListQuery = {}) {
         },
       },
     }),
-    prisma.sale.count({ where }),
+    db.sale.count({ where }),
     // Totals for the whole filtered set, not just the visible page.
-    prisma.sale.aggregate({
+    db.sale.aggregate({
       where: { ...where, status: { not: 'VOIDED' } },
       _sum: { total: true, taxAmount: true, costOfGoods: true },
     }),
@@ -140,7 +142,8 @@ export type SaleListRow = Awaited<ReturnType<typeof listSales>>['rows'][number];
  * so a page that hands the sale to a client component cannot leak them.
  */
 export async function getSale(id: string, { includeCost = false }: { includeCost?: boolean } = {}) {
-  const sale = await prisma.sale.findUnique({
+  const db = await storeDb();
+  const sale = await db.sale.findUnique({
     where: { id },
     include: {
       warehouse: { select: { id: true, name: true } },

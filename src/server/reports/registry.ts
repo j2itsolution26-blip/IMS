@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { toNum } from '@/lib/decimal';
 import type { PermissionKey } from '@/lib/permissions';
 import type { DateRange } from '@/server/analytics/date-range';
@@ -143,7 +143,8 @@ export const REPORTS: ReportDefinition[] = [
     group: 'Sales',
     usesDateRange: true,
     async load(range) {
-      const sales = await prisma.sale.findMany({
+      const db = await storeDb();
+      const sales = await db.sale.findMany({
         where: { createdAt: { gte: range.from, lte: range.to } },
         orderBy: { createdAt: 'desc' },
         take: 5000,
@@ -349,7 +350,8 @@ export const REPORTS: ReportDefinition[] = [
     group: 'Inventory',
     usesDateRange: true,
     async load(range) {
-      const movements = await prisma.inventoryTransaction.findMany({
+      const db = await storeDb();
+      const movements = await db.inventoryTransaction.findMany({
         where: { createdAt: { gte: range.from, lte: range.to } },
         orderBy: { createdAt: 'desc' },
         take: 10000,

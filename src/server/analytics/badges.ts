@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { prisma } from '@/lib/prisma';
+import { getStoreContext } from '@/lib/tenant/context';
 
 /**
  * Cheap counts for the navigation badges. Kept separate from the full
@@ -8,13 +8,14 @@ import { prisma } from '@/lib/prisma';
  * should not pay for a stock valuation it does not display.
  */
 export async function countActionableStock(): Promise<number> {
-  const rows = await prisma.$queryRaw<{ count: number }[]>`
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM (
       SELECT p.id
       FROM products p
       LEFT JOIN inventory i ON i."productId" = p.id
-      WHERE p.status = 'ACTIVE' AND p."isTrackable" = true
+      WHERE p."storeId" = ${storeId} AND p.status = 'ACTIVE' AND p."isTrackable" = true
       GROUP BY p.id, p."reorderLevel", p."minStock"
       HAVING COALESCE(NULLIF(p."reorderLevel", 0), p."minStock") > 0
          AND COALESCE(SUM(i.quantity), 0) - COALESCE(SUM(i.reserved), 0)

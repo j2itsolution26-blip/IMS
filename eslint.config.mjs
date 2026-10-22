@@ -26,6 +26,56 @@ const config = [
       'react/no-unescaped-entities': 'error',
     },
   },
+  {
+    // Store isolation: the unscoped client sees every store. Store data goes
+    // through `storeDb()` / `getStoreContext()` from `@/lib/tenant/context`,
+    // whose client is confined to the signed-in user's store.
+    files: ['src/**/*.ts', 'src/**/*.tsx'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@/lib/prisma',
+              importNames: ['platformPrisma'],
+              message: 'Use storeDb() from @/lib/tenant/context for store data. The platform client is only for sign-in, platform administration and the tenant layer.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['**/lib/prisma'],
+              importNames: ['platformPrisma'],
+              message: 'Use storeDb() from @/lib/tenant/context for store data.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The few places that legitimately work across stores or outside any:
+    // authentication and account security (platform administrators have no
+    // store), platform administration, the tenant layer itself, and checks of
+    // platform-wide unique values (usernames, emails). Adding a file here
+    // needs a reason in that file.
+    files: [
+      'src/lib/prisma.ts',
+      'src/lib/tenant/**',
+      'src/lib/session.ts',
+      'src/lib/auth.ts',
+      'src/lib/passkey-plugin.ts',
+      'src/features/auth/**',
+      'src/features/platform/**',
+      'src/features/admin/actions.ts',
+      'src/server/services/audit-service.ts',
+      'src/app/(auth)/**',
+      'src/app/locked/**',
+      'src/app/api/health/**',
+      'src/app/(app)/settings/profile/**',
+    ],
+    rules: { 'no-restricted-imports': 'off' },
+  },
 ];
 
 export default config;

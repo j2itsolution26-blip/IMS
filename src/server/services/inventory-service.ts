@@ -5,7 +5,8 @@ import {
   type InventoryTransactionType,
   type ReferenceType,
 } from '@prisma/client';
-import { prisma, type DbClient, type TxClient } from '@/lib/prisma';
+import type { DbClient, TxClient } from '@/lib/prisma';
+import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { D, qty as q3, money, toNum, type Numeric } from '@/lib/decimal';
 import { InsufficientStockError, NotFoundError, ValidationError } from '@/lib/errors';
 import { getSettings, readBoolean } from '@/server/services/settings-service';
@@ -71,16 +72,19 @@ async function lockInventoryRow(
   productId: string,
   warehouseId: string,
 ): Promise<LockedRow> {
+  // The store's guard trigger refuses the insert if the product or warehouse
+  // belongs to another store.
+  const { storeId } = await getStoreContext();
   await tx.$executeRaw`
-    INSERT INTO inventory (id, "productId", "warehouseId", quantity, reserved, "createdAt", "updatedAt")
-    VALUES (gen_random_uuid()::text, ${productId}, ${warehouseId}, 0, 0, now(), now())
+    INSERT INTO inventory (id, "storeId", "productId", "warehouseId", quantity, reserved, "createdAt", "updatedAt")
+    VALUES (gen_random_uuid()::text, ${storeId}, ${productId}, ${warehouseId}, 0, 0, now(), now())
     ON CONFLICT ("productId", "warehouseId") DO NOTHING
   `;
 
   const rows = await tx.$queryRaw<LockedRow[]>`
     SELECT id, quantity, reserved
     FROM inventory
-    WHERE "productId" = ${productId} AND "warehouseId" = ${warehouseId}
+    WHERE "productId" = ${productId} AND "warehouseId" = ${warehouseId} AND "storeId" = ${storeId}
     FOR UPDATE
   `;
 
@@ -283,8 +287,9 @@ export async function adjustReservation(
 export async function getAvailableQuantity(
   productId: string,
   warehouseId: string,
-  db: DbClient = prisma,
+  db?: DbClient,
 ): Promise<number> {
+  db ??= await storeDb();
   const row = await db.inventory.findUnique({
     where: { productId_warehouseId: { productId, warehouseId } },
     select: { quantity: true, reserved: true },

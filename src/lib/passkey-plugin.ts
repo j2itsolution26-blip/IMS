@@ -12,7 +12,7 @@ import {
 } from '@simplewebauthn/server';
 import { isoBase64URL, isoUint8Array } from '@simplewebauthn/server/helpers';
 import { z } from 'zod';
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
 import { APP_NAME } from '@/lib/brand';
 import { passkeyLabelFromUserAgent } from '@/lib/passkey-label';
 import type { PasskeyConfig } from '@/lib/passkey-config';
@@ -99,9 +99,9 @@ export function passkeyPlugin(config: PasskeyConfig): BetterAuthPlugin {
           // A locked POS screen must not let whoever is at the till attach
           // their own authenticator to the signed-in account.
           const [account, sessionRow, existing] = await Promise.all([
-            prisma.user.findUnique({ where: { id: user.id }, select: { isActive: true, username: true, name: true } }),
-            prisma.session.findUnique({ where: { id: session.id }, select: { lockedAt: true } }),
-            prisma.passkey.findMany({ where: { userId: user.id }, select: { credentialId: true, transports: true } }),
+            platformPrisma.user.findUnique({ where: { id: user.id }, select: { isActive: true, username: true, name: true } }),
+            platformPrisma.session.findUnique({ where: { id: session.id }, select: { lockedAt: true } }),
+            platformPrisma.passkey.findMany({ where: { userId: user.id }, select: { credentialId: true, transports: true } }),
           ]);
           if (!account?.isActive || !sessionRow || sessionRow.lockedAt) {
             fail('FORBIDDEN', PASSKEY_ERROR.REGISTRATION_FAILED, 'Unlock the screen and sign in again to add a passkey.');
@@ -150,7 +150,7 @@ export function passkeyPlugin(config: PasskeyConfig): BetterAuthPlugin {
             fail('BAD_REQUEST', PASSKEY_ERROR.REGISTRATION_FAILED, 'That passkey request expired. Try again.');
           }
 
-          const sessionRow = await prisma.session.findUnique({ where: { id: session.id }, select: { lockedAt: true } });
+          const sessionRow = await platformPrisma.session.findUnique({ where: { id: session.id }, select: { lockedAt: true } });
           if (!sessionRow || sessionRow.lockedAt) {
             fail('FORBIDDEN', PASSKEY_ERROR.REGISTRATION_FAILED, 'Unlock the screen and sign in again to add a passkey.');
           }
@@ -173,7 +173,7 @@ export function passkeyPlugin(config: PasskeyConfig): BetterAuthPlugin {
 
           const userAgent = headerOf(ctx.request, ctx.headers, 'user-agent');
           try {
-            const created = await prisma.$transaction(async (tx) => {
+            const created = await platformPrisma.$transaction(async (tx) => {
               const passkey = await tx.passkey.create({
                 data: {
                   userId: user.id,
@@ -188,8 +188,10 @@ export function passkeyPlugin(config: PasskeyConfig): BetterAuthPlugin {
                 },
                 select: { id: true, name: true },
               });
+              const owner = await tx.user.findUnique({ where: { id: user.id }, select: { storeId: true } });
               await tx.auditLog.create({
                 data: {
+                  storeId: owner?.storeId ?? null,
                   action: 'UPDATE',
                   entity: 'User',
                   entityId: user.id,
@@ -243,7 +245,7 @@ export function passkeyPlugin(config: PasskeyConfig): BetterAuthPlugin {
           if (ceremony?.type !== 'authentication') fail('UNAUTHORIZED', PASSKEY_ERROR.FAILED, PASSKEY_SIGN_IN_FAILED);
 
           const passkey = typeof response.id === 'string'
-            ? await prisma.passkey.findUnique({ where: { credentialId: response.id } })
+            ? await platformPrisma.passkey.findUnique({ where: { credentialId: response.id } })
             : null;
           if (!passkey) {
             // The device still holds a passkey this server no longer knows —
@@ -292,7 +294,7 @@ export function passkeyPlugin(config: PasskeyConfig): BetterAuthPlugin {
           const user = created ? await ctx.context.internalAdapter.findUserById(passkey.userId) : null;
           if (!created || !user) fail('UNAUTHORIZED', PASSKEY_ERROR.FAILED, PASSKEY_SIGN_IN_FAILED);
 
-          await prisma.passkey.update({
+          await platformPrisma.passkey.update({
             where: { id: passkey.id },
             data: { counter: newCounter, lastUsedAt: new Date() },
           });
@@ -304,7 +306,7 @@ export function passkeyPlugin(config: PasskeyConfig): BetterAuthPlugin {
 
       /** How many passkeys the signed-in user has — drives the post-sign-in prompt. */
       passkeyStatus: createAuthEndpoint('/passkey/status', { method: 'GET', use: [sessionMiddleware] }, async (ctx) => {
-        const count = await prisma.passkey.count({ where: { userId: ctx.context.session.user.id } });
+        const count = await platformPrisma.passkey.count({ where: { userId: ctx.context.session.user.id } });
         return ctx.json({ count });
       }),
     },

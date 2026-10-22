@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
 import { SignUpForm } from '@/features/auth/sign-up-form';
 
 export const metadata: Metadata = { title: 'Create owner account' };
@@ -33,7 +33,7 @@ function BackToSignIn() {
 export default async function SignUpPage() {
   let userCount: number;
   try {
-    userCount = await prisma.user.count();
+    userCount = await platformPrisma.user.count();
   } catch {
     return (
       <div className="space-y-6">
@@ -94,7 +94,7 @@ export default async function SignUpPage() {
     );
   }
 
-  const roleCount = await prisma.role.count();
+  const roleCount = await platformPrisma.role.count();
   if (roleCount === 0) {
     return (
       <div className="space-y-6">

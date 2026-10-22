@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { InventoryTransactionType } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { toNum } from '@/lib/decimal';
 import { STORE_TIME_ZONE, addStoreDays, eachStoreBucket, startOfStoreDay } from '@/lib/store-time';
 import { suggestedRestock } from '@/lib/stock-status';
@@ -23,6 +23,7 @@ import { formatBucketLabel } from '@/server/analytics/sales-analytics';
  * where threshold = reorder level, or the minimum stock when no level is set.
  */
 
+/** Per-product stock for one store. The store id is always bound as `$1`. */
 const STOCK_CTE = `
   WITH stock AS (
     SELECT
@@ -39,7 +40,7 @@ const STOCK_CTE = `
       COALESCE(SUM(i.quantity), 0) - COALESCE(SUM(i.reserved), 0) AS available
     FROM products p
     LEFT JOIN inventory i ON i."productId" = p.id
-    WHERE p.status = 'ACTIVE' AND p."isTrackable" = true
+    WHERE p."storeId" = $1 AND p.status = 'ACTIVE' AND p."isTrackable" = true
     GROUP BY p.id
   )
 `;
@@ -132,9 +133,10 @@ export async function getInventoryKpis({ includeValue = false, now = new Date() 
 
 async function getKpis(now: Date, includeValue: boolean): Promise<InventoryKpis> {
   const todayStart = startOfStoreDay(now);
+  const { db, storeId } = await getStoreContext();
 
   const [bands, restockRows, untracked, categories, today] = await Promise.all([
-    prisma.$queryRawUnsafe<KpiRow[]>(`
+    db.$queryRawUnsafe<KpiRow[]>(`
       ${STOCK_CTE}
       SELECT
         COUNT(*)::int                                                              AS total,
@@ -143,22 +145,23 @@ async function getKpis(now: Date, includeValue: boolean): Promise<InventoryKpis>
         COUNT(*) FILTER (WHERE available > 0 AND (threshold <= 0 OR available > threshold))::int AS instock,
         ${includeValue ? 'COALESCE(SUM(on_hand * cost_price), 0)::text' : `'0'`} AS value
       FROM stock
-    `),
+    `, storeId),
     // Only the products that need restocking, and only what the suggestion needs.
-    prisma.$queryRawUnsafe<{ available: string; reorder_qty: string; max_stock: string }[]>(`
+    db.$queryRawUnsafe<{ available: string; reorder_qty: string; max_stock: string }[]>(`
       ${STOCK_CTE}
       SELECT available::text, reorder_qty::text, max_stock::text
       FROM stock
       WHERE available <= 0 OR (threshold > 0 AND available <= threshold)
-    `),
-    prisma.product.count({ where: { status: 'ACTIVE', isTrackable: false } }),
-    prisma.category.count({ where: { isActive: true } }),
-    prisma.$queryRaw<{ movements: number; received: string }[]>`
+    `, storeId),
+    db.product.count({ where: { status: 'ACTIVE', isTrackable: false } }),
+    db.category.count({ where: { isActive: true } }),
+    db.$queryRaw<{ movements: number; received: string }[]>`
       SELECT
         COUNT(DISTINCT COALESCE(t."referenceId", t.id))::int AS movements,
         COALESCE(SUM(t.quantity) FILTER (WHERE t.type = 'STOCK_IN'), 0)::text AS received
       FROM inventory_transactions t
-      WHERE t."createdAt" >= ${todayStart}
+      WHERE t."storeId" = ${storeId}
+        AND t."createdAt" >= ${todayStart}
         AND t.type IN ('STOCK_IN', 'OPENING_BALANCE', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT')
     `,
   ]);
@@ -196,12 +199,13 @@ async function getKpis(now: Date, includeValue: boolean): Promise<InventoryKpis>
 
 /** Active, tracked products per active category — every category, including empty ones. */
 async function getCategoryCounts(): Promise<CategoryCount[]> {
-  const rows = await prisma.$queryRaw<{ categoryId: string; name: string; products: number }[]>`
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<{ categoryId: string; name: string; products: number }[]>`
     SELECT c.id AS "categoryId", c.name, COUNT(p.id)::int AS products
     FROM categories c
     LEFT JOIN products p
       ON p."categoryId" = c.id AND p.status = 'ACTIVE' AND p."isTrackable" = true
-    WHERE c."isActive" = true
+    WHERE c."storeId" = ${storeId} AND c."isActive" = true
     GROUP BY c.id, c.name
     ORDER BY products DESC, c.name ASC
   `;
@@ -216,20 +220,22 @@ async function getMovementTrend(now: Date): Promise<{ days: MovementDay[]; hasHi
   const from = startOfStoreDay(addStoreDays(now, -(TREND_DAYS - 1)));
   const local = `(t."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE '${STORE_TIME_ZONE}')`;
 
-  const rows = await prisma.$queryRawUnsafe<{ bucket: Date; received: string; adjusted: string }[]>(
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRawUnsafe<{ bucket: Date; received: string; adjusted: string }[]>(
     `
     SELECT
       date_trunc('day', ${local}) AT TIME ZONE '${STORE_TIME_ZONE}' AS bucket,
       COALESCE(SUM(t.quantity) FILTER (WHERE t.type = 'STOCK_IN'), 0)::text AS received,
       COALESCE(SUM(t.quantity) FILTER (WHERE t.type IN ('ADJUSTMENT_IN', 'ADJUSTMENT_OUT', 'OPENING_BALANCE')), 0)::text AS adjusted
     FROM inventory_transactions t
-    WHERE t."createdAt" >= $1 AND t."createdAt" <= $2
+    WHERE t."storeId" = $3 AND t."createdAt" >= $1 AND t."createdAt" <= $2
       AND t.type IN ('STOCK_IN', 'OPENING_BALANCE', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT')
     GROUP BY 1
     ORDER BY 1 ASC
     `,
     from,
     to,
+    storeId,
   );
 
   const byBucket = new Map(rows.map((row) => [row.bucket.getTime(), row]));
@@ -254,7 +260,8 @@ const REORDER_ROWS = 8;
  * appear, since "closest to the threshold" needs one.
  */
 async function getReorderCandidates(): Promise<ReorderCandidate[]> {
-  const rows = await prisma.$queryRawUnsafe<
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRawUnsafe<
     {
       id: string;
       name: string;
@@ -272,7 +279,7 @@ async function getReorderCandidates(): Promise<ReorderCandidate[]> {
     WHERE threshold > 0 AND available <= threshold
     ORDER BY (available / threshold) ASC, name ASC
     LIMIT ${REORDER_ROWS}
-  `);
+  `, storeId);
 
   return rows.map((row) => {
     const available = Number(row.available);
@@ -296,7 +303,8 @@ const ACTIVITY_ROWS = 10;
 
 /** The latest stock movements of every kind, with before and after balances. */
 export async function getRecentStockActivity(limit = ACTIVITY_ROWS): Promise<StockActivity[]> {
-  const rows = await prisma.inventoryTransaction.findMany({
+  const db = await storeDb();
+  const rows = await db.inventoryTransaction.findMany({
     orderBy: { createdAt: 'desc' },
     take: limit,
     select: {

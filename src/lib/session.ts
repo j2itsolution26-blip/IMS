@@ -5,7 +5,8 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { APIError } from 'better-auth/api';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
+import type { StoreStatus } from '@prisma/client';
+import { platformPrisma } from '@/lib/prisma';
 import type { PermissionKey } from '@/lib/permissions';
 import { ForbiddenError, UnauthorizedError } from '@/lib/errors';
 import { isSafeReturnPath } from '@/lib/safe-path';
@@ -18,6 +19,8 @@ export interface CurrentUser {
   image: string | null;
   isActive: boolean;
   role: { id: string; name: string; slug: string };
+  /** The store this account works in; `null` for platform administrators. */
+  store: { id: string; name: string; status: StoreStatus } | null;
   permissions: Set<PermissionKey>;
   /** The Better Auth session this request is running under. */
   sessionId: string;
@@ -67,7 +70,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   if (!session?.user?.id) return null;
 
   const [user, sessionRow] = await Promise.all([
-    prisma.user.findUnique({
+    platformPrisma.user.findUnique({
     where: { id: session.user.id },
     select: {
       id: true,
@@ -77,6 +80,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       image: true,
       isActive: true,
       posPinHash: true,
+      store: { select: { id: true, name: true, status: true } },
       role: {
         select: {
           id: true,
@@ -87,7 +91,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       },
     },
     }),
-    prisma.session.findUnique({
+    platformPrisma.session.findUnique({
       where: { id: session.session.id },
       select: { lockedAt: true },
     }),
@@ -105,6 +109,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     image: user.image,
     isActive: user.isActive,
     role: { id: user.role.id, name: user.role.name, slug: user.role.slug },
+    store: user.store,
     permissions: new Set(user.role.permissions.map((rp) => rp.permission.key as PermissionKey)),
     sessionId: session.session.id,
     isLocked: sessionRow.lockedAt !== null,

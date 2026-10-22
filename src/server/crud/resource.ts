@@ -2,7 +2,7 @@ import 'server-only';
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { authorize } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, NotFoundError } from '@/lib/errors';
@@ -64,7 +64,9 @@ export function createResourceActions<TCreate extends z.ZodTypeAny, TUpdate exte
 
   // The delegate is resolved by name; the shapes are guaranteed by the Zod
   // schemas the caller supplies, which is where the real type safety lives.
-  const delegate = () => prisma[config.model] as unknown as {
+  // Always the signed-in user's store client, so a resource can only ever be
+  // created in, or found and changed within, that store.
+  const delegate = async () => (await storeDb())[config.model] as unknown as {
     create: (args: { data: Record<string, unknown>; select: { id: true } }) => Promise<{ id: string }>;
     update: (args: {
       where: { id: string };
@@ -86,7 +88,7 @@ export function createResourceActions<TCreate extends z.ZodTypeAny, TUpdate exte
         const parsed = parseInput(config.createSchema, input) as Record<string, unknown>;
         const data = config.transform ? config.transform(parsed) : parsed;
 
-        const record = await delegate().create({ data, select: { id: true } });
+        const record = await (await delegate()).create({ data, select: { id: true } });
 
         await recordAudit({
           action: 'CREATE',
@@ -108,10 +110,10 @@ export function createResourceActions<TCreate extends z.ZodTypeAny, TUpdate exte
         const parsed = parseInput(config.updateSchema, input) as Record<string, unknown>;
         const data = config.transform ? config.transform(parsed) : parsed;
 
-        const before = await delegate().findUnique({ where: { id } });
+        const before = await (await delegate()).findUnique({ where: { id } });
         if (!before) throw new NotFoundError(config.label);
 
-        const record = await delegate().update({ where: { id }, data, select: { id: true } });
+        const record = await (await delegate()).update({ where: { id }, data, select: { id: true } });
 
         await recordAudit({
           action: 'UPDATE',
@@ -131,7 +133,7 @@ export function createResourceActions<TCreate extends z.ZodTypeAny, TUpdate exte
       return runAction(async () => {
         const user = await authorize(config.permissions.delete);
 
-        const before = await delegate().findUnique({ where: { id } });
+        const before = await (await delegate()).findUnique({ where: { id } });
         if (!before) throw new NotFoundError(config.label);
 
         // Deleting something still referenced by stock or history would either
@@ -142,7 +144,7 @@ export function createResourceActions<TCreate extends z.ZodTypeAny, TUpdate exte
           if (blocker) throw new ConflictError(blocker);
         }
 
-        await delegate().delete({ where: { id } });
+        await (await delegate()).delete({ where: { id } });
 
         await recordAudit({
           action: 'DELETE',

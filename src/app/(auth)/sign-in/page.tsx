@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { Lock } from 'lucide-react';
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
 import { SignInForm } from '@/features/auth/sign-in-form';
 import { InstallAppLink } from '@/features/pwa/install-app-link';
 import { passkeyConfig } from '@/lib/auth';
@@ -22,7 +22,7 @@ export const dynamic = 'force-dynamic';
  */
 async function countUsers(): Promise<number | null> {
   try {
-    return await prisma.user.count();
+    return await platformPrisma.user.count();
   } catch {
     return null;
   }

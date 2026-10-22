@@ -3,14 +3,15 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
+import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { auth } from '@/lib/auth';
 import { APIError } from 'better-auth/api';
 import { authenticate, authorize, type CurrentUser } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { runAsProvisioning } from '@/lib/provisioning-context';
-import { recordAudit } from '@/server/services/audit-service';
+import { recordAudit, recordAuditFor } from '@/server/services/audit-service';
 import { PRIVILEGED_ROLE_SLUGS, STORE_PERMISSION_KEYS } from '@/lib/permissions';
 import {
   accountTier,
@@ -29,6 +30,11 @@ import { normalizeUsername, usernameProblem } from '@/lib/username';
  *
  * These are the highest-privilege actions in the system, so each one re-checks
  * the caller's permission and writes an audit entry.
+ *
+ * Everything goes through the caller's store client, so an id from another
+ * store is simply "not found". The exceptions use the platform client and are
+ * marked: usernames and emails are unique across the whole platform, and a
+ * user editing their own profile may be a platform administrator.
  */
 
 // --- Settings ---------------------------------------------------------------
@@ -43,6 +49,7 @@ export async function updateSettings(input: unknown): Promise<ActionResult<numbe
     const values = parseInput(settingsSchema, input);
 
     const changed: string[] = [];
+    const { db, storeId } = await getStoreContext();
 
     for (const [key, rawValue] of Object.entries(values)) {
       const definition = DEFINITION_BY_KEY.get(key);
@@ -59,11 +66,11 @@ export async function updateSettings(input: unknown): Promise<ActionResult<numbe
         throw new ValidationError(`${definition.label} must be true or false.`);
       }
 
-      const existing = await prisma.setting.findUnique({ where: { key } });
+      const existing = await db.setting.findFirst({ where: { key } });
       if (existing?.value === value) continue;
 
-      await prisma.setting.upsert({
-        where: { key },
+      await db.setting.upsert({
+        where: { storeId_key: { storeId, key } },
         create: { ...definition, value },
         update: { value },
       });
@@ -114,7 +121,8 @@ const toPolicyRole = (role: { slug: string; permissions: { permission: { key: st
 
 /** Loads an account and checks `actor` may perform every listed operation on it. */
 async function loadManagedAccount(actor: CurrentUser, id: string, operations: AccountOperation[]) {
-  const target = await prisma.user.findUnique({
+  const db = await storeDb();
+  const target = await db.user.findUnique({
     where: { id },
     select: {
       id: true,
@@ -138,7 +146,8 @@ async function loadManagedAccount(actor: CurrentUser, id: string, operations: Ac
 
 /** Loads a role and checks `actor` may assign it to an account. */
 async function loadAssignableRole(actor: CurrentUser, roleId: string) {
-  const role = await prisma.role.findUnique({ where: { id: roleId }, select: ROLE_POLICY_SELECT });
+  const db = await storeDb();
+  const role = await db.role.findUnique({ where: { id: roleId }, select: ROLE_POLICY_SELECT });
   if (!role) {
     throw new ValidationError('That role no longer exists.', { roleId: ['Pick a role from the list.'] });
   }
@@ -174,9 +183,13 @@ const USERNAME_TAKEN = new ValidationError('That username is already taken.', {
   username: ['This username is already in use.'],
 });
 
-/** Refuses a username another account holds. Case-insensitive because both sides are normalised. */
+/**
+ * Refuses a username another account holds. Case-insensitive because both
+ * sides are normalised. Usernames are unique across every store (sign-in has
+ * no store picker), so this asks the platform client, for an id only.
+ */
 async function assertUsernameFree(username: string, exceptUserId?: string): Promise<void> {
-  const holder = await prisma.user.findUnique({ where: { username }, select: { id: true } });
+  const holder = await platformPrisma.user.findUnique({ where: { username }, select: { id: true } });
   if (holder && holder.id !== exceptUserId) throw USERNAME_TAKEN;
 }
 
@@ -212,10 +225,12 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     // hold. Enforced on the server, not just by filtering the dropdown, so a
     // crafted payload cannot mint a privileged account.
     const role = await loadAssignableRole(admin, values.roleId);
+    const { db, storeId } = await getStoreContext();
 
     // Checked up front so a duplicate reports against the email field rather
-    // than surfacing as a generic failure from inside Better Auth.
-    const existing = await prisma.user.findUnique({
+    // than surfacing as a generic failure from inside Better Auth. Emails are
+    // unique across every store, so this asks the platform client.
+    const existing = await platformPrisma.user.findUnique({
       where: { email: values.email },
       select: { id: true },
     });
@@ -229,14 +244,14 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     // Better Auth owns password hashing, so the account is created through it
     // rather than by writing to the table directly. `runAsProvisioning` is what
     // tells the sign-up hook this is an authorised admin creation, not a public
-    // registration.
+    // registration, and which store and role the new account gets.
     //
     // This creates no session: `emailAndPassword.autoSignIn` is off precisely
     // so that calling this from a Server Action cannot overwrite the
     // administrator's own session cookie with one for the new account.
     let created: Awaited<ReturnType<typeof auth.api.signUpEmail>>;
     try {
-      created = await runAsProvisioning(async () =>
+      created = await runAsProvisioning({ storeId, roleId: role.id }, async () =>
         auth.api.signUpEmail({
           body: {
             name: values.name,
@@ -279,7 +294,7 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     //
     // Confirming the row is really there closes that race against the database
     // rather than against a read that has already gone stale.
-    const persisted = await prisma.user.findUnique({
+    const persisted = await db.user.findUnique({
       where: { id: userId },
       select: { id: true },
     });
@@ -294,12 +309,12 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     // the new user is removed rather than left in that state. Better Auth owns
     // the insert, so this compensating delete is the equivalent of a rollback.
     try {
-      await prisma.user.update({
+      await db.user.update({
         where: { id: userId },
         data: { roleId: values.roleId, phone: values.phone || null, isActive: values.isActive },
       });
     } catch (error) {
-      await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
+      await db.user.delete({ where: { id: userId } }).catch(() => undefined);
       throw error;
     }
 
@@ -332,6 +347,7 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
     const values = parseInput(updateUserSchema, input);
 
     const target = await loadManagedAccount(admin, id, ['edit']);
+    const db = await storeDb();
 
     // Only the operations this request actually performs are checked, so the
     // owner can still rename themselves while a status or role change on their
@@ -356,7 +372,7 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
 
     // The system must always retain at least one active owner.
     if (target.role.slug === 'owner' && (newRole.slug !== 'owner' || !values.isActive)) {
-      const otherOwners = await prisma.user.count({
+      const otherOwners = await db.user.count({
         where: { id: { not: id }, isActive: true, role: { slug: 'owner' } },
       });
       if (otherOwners === 0) {
@@ -369,7 +385,7 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
     const usernameChanged = values.username !== target.username;
     if (usernameChanged) await assertUsernameFree(values.username, id);
 
-    await prisma.user
+    await db.user
       .update({
         where: { id },
         data: {
@@ -384,7 +400,7 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
 
     // Revoking access should take effect immediately, not when the cookie expires.
     if (!values.isActive) {
-      await prisma.session.deleteMany({ where: { userId: id } });
+      await db.session.deleteMany({ where: { userId: id } });
     }
 
     await recordAudit({
@@ -428,7 +444,7 @@ export async function resetUserPassword(id: string, input: unknown): Promise<Act
     // The old password is gone, so any session opened with it should be too —
     // this is the same reasoning as `revokeOtherSessions` on a self-service
     // change, and it forces the staff member to sign in with the new one.
-    await prisma.session.deleteMany({ where: { userId: id } });
+    await (await storeDb()).session.deleteMany({ where: { userId: id } });
 
     await recordAudit({
       action: 'UPDATE',
@@ -454,9 +470,10 @@ export async function revokeUserPasskeys(id: string): Promise<ActionResult<{ rem
     // Same hierarchy as a password reset: both control how the account signs in.
     const target = await loadManagedAccount(admin, id, ['resetPassword']);
 
-    const [{ count }] = await prisma.$transaction([
-      prisma.passkey.deleteMany({ where: { userId: id } }),
-      prisma.session.deleteMany({ where: { userId: id } }),
+    const db = await storeDb();
+    const [{ count }] = await db.$transaction([
+      db.passkey.deleteMany({ where: { userId: id } }),
+      db.session.deleteMany({ where: { userId: id } }),
     ]);
 
     await recordAudit({
@@ -479,6 +496,7 @@ export async function deleteUser(id: string): Promise<ActionResult<void>> {
     if (admin.id === id) throw new ConflictError('You cannot delete your own account.');
 
     const target = await loadManagedAccount(admin, id, ['delete']);
+    const db = await storeDb();
 
     const activity = target._count.sales;
     if (activity > 0) {
@@ -488,13 +506,13 @@ export async function deleteUser(id: string): Promise<ActionResult<void>> {
     }
 
     if (target.role.slug === 'owner') {
-      const otherOwners = await prisma.user.count({
+      const otherOwners = await db.user.count({
         where: { id: { not: id }, isActive: true, role: { slug: 'owner' } },
       });
       if (otherOwners === 0) throw new ConflictError('You cannot delete the last Owner account.');
     }
 
-    await prisma.user.delete({ where: { id } });
+    await db.user.delete({ where: { id } });
 
     await recordAudit({
       action: 'DELETE',
@@ -537,12 +555,13 @@ export async function createRole(input: unknown): Promise<ActionResult<{ id: str
       'Role',
     );
 
-    const permissions = await prisma.permission.findMany({
+    const db = await storeDb();
+    const permissions = await db.permission.findMany({
       where: { key: { in: valid } },
       select: { id: true },
     });
 
-    const role = await prisma.role.create({
+    const role = await db.role.create({
       data: {
         name: values.name,
         slug: slugify(values.name),
@@ -573,7 +592,8 @@ export async function updateRolePermissions(
   return runAction(async () => {
     const admin = await authorize('roles.update');
 
-    const role = await prisma.role.findUnique({ where: { id: roleId }, select: ROLE_POLICY_SELECT });
+    const db = await storeDb();
+    const role = await db.role.findUnique({ where: { id: roleId }, select: ROLE_POLICY_SELECT });
     if (!role) throw new NotFoundError('Role');
 
     const valid = permissionKeys.filter((key) => STORE_PERMISSION_KEYS.includes(key as never));
@@ -587,14 +607,14 @@ export async function updateRolePermissions(
       'Role',
     );
 
-    const permissions = await prisma.permission.findMany({
+    const permissions = await db.permission.findMany({
       where: { key: { in: valid } },
       select: { id: true },
     });
 
-    await prisma.$transaction([
-      prisma.rolePermission.deleteMany({ where: { roleId } }),
-      prisma.rolePermission.createMany({
+    await db.$transaction([
+      db.rolePermission.deleteMany({ where: { roleId } }),
+      db.rolePermission.createMany({
         data: permissions.map((p) => ({ roleId, permissionId: p.id })),
         skipDuplicates: true,
       }),
@@ -617,7 +637,8 @@ export async function deleteRole(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
     const admin = await authorize('roles.delete');
 
-    const role = await prisma.role.findUnique({
+    const db = await storeDb();
+    const role = await db.role.findUnique({
       where: { id },
       select: { ...ROLE_POLICY_SELECT, isSystem: true, _count: { select: { users: true } } },
     });
@@ -631,7 +652,7 @@ export async function deleteRole(id: string): Promise<ActionResult<void>> {
       );
     }
 
-    await prisma.role.delete({ where: { id } });
+    await db.role.delete({ where: { id } });
 
     await recordAudit({
       action: 'DELETE',
@@ -659,12 +680,14 @@ export async function updateOwnProfile(input: unknown): Promise<ActionResult<voi
 
     const values = parseInput(profileSchema, input);
 
-    await prisma.user.update({
+    // Platform administrators have a profile too but no store, so this writes
+    // through the platform client, limited to the caller's own row.
+    await platformPrisma.user.update({
       where: { id: user.id },
       data: { name: values.name, phone: values.phone || null },
     });
 
-    await recordAudit({
+    await recordAuditFor(user, {
       action: 'UPDATE',
       entity: 'User',
       entityId: user.id,

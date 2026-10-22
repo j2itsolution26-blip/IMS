@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
 import {
   getAppUrl,
   getDatabaseProjectRef,
@@ -42,7 +42,7 @@ export async function GET() {
   };
 
   try {
-    const [users, roles] = await Promise.all([prisma.user.count(), prisma.role.count()]);
+    const [users, roles] = await Promise.all([platformPrisma.user.count(), platformPrisma.role.count()]);
     database = { reachable: true, users, roles };
   } catch (error) {
     database = {

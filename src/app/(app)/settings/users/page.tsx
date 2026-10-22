@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { requirePermission, userCan } from '@/lib/session';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { OWNER_ROLE_SLUG } from '@/lib/permissions';
 import { STORE_ACCOUNT_WHERE, canAssignRole, canManageAccount } from '@/server/services/account-policy';
 import { PageHeader } from '@/components/page-header';
@@ -23,11 +23,12 @@ const toPolicyRole = (role: { slug: string; permissions: { permission: { key: st
 
 export default async function StaffAccountsPage() {
   const currentUser = await requirePermission('users.view');
+  const db = await storeDb();
 
   // Scoped in the query, not filtered afterwards: platform accounts never
   // leave the database for a store screen.
   const [users, roles] = await Promise.all([
-    prisma.user.findMany({
+    db.user.findMany({
       where: STORE_ACCOUNT_WHERE,
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
       select: {
@@ -40,7 +41,7 @@ export default async function StaffAccountsPage() {
         role: { select: ROLE_SELECT },
       },
     }),
-    prisma.role.findMany({ orderBy: { name: 'asc' }, select: ROLE_SELECT }),
+    db.role.findMany({ orderBy: { name: 'asc' }, select: ROLE_SELECT }),
   ]);
 
   const actor = {

@@ -1,7 +1,8 @@
 import 'server-only';
 
 import { Prisma, type PaymentMethod, type SaleChannel } from '@prisma/client';
-import { prisma, type TxClient } from '@/lib/prisma';
+import { type TxClient } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { D, money, sum, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { applyStockMovement, assertStockAvailable, wholePieces } from '@/server/services/inventory-service';
@@ -136,7 +137,8 @@ function totalsFor(lines: PricedLine[], orderDiscount: Prisma.Decimal, taxRatePe
 
 /** Pure pricing pass used by the POS to preview totals without writing anything. */
 export async function quoteSale(items: SaleLineInput[], discount: Numeric = 0) {
-  const [lines, settings] = await Promise.all([priceBasket(prisma, items), getSettings()]);
+  const db = await storeDb();
+  const [lines, settings] = await Promise.all([priceBasket(db, items), getSettings()]);
   const taxRate = D(readNumber(settings, 'sales.defaultTaxRate'));
   const totals = totalsFor(lines, money(discount), taxRate);
   return {
@@ -165,6 +167,7 @@ export interface CompletedSale {
 }
 
 export async function createSale(input: CreateSaleInput): Promise<CompletedSale> {
+  const db = await storeDb();
   const orderDiscount = money(input.discount ?? 0);
   const [warehouseId, shift, settings] = await Promise.all([
     getDefaultWarehouseId(),
@@ -173,7 +176,7 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
   ]);
   const taxRate = D(readNumber(settings, 'sales.defaultTaxRate'));
 
-  const result = await prisma.$transaction(
+  const result = await db.$transaction(
     async (tx) => {
       // Holds the shift open until this sale commits; a close that started
       // first wins and this sale is refused rather than landing on it.
@@ -308,7 +311,8 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
  * reversals would double-count. Void the return first.
  */
 export async function voidSale(saleId: string, userId: string, reason: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+  const db = await storeDb();
+  await db.$transaction(async (tx) => {
     const sale = await tx.sale.findUnique({
       where: { id: saleId },
       include: { items: true, returns: { select: { id: true } } },

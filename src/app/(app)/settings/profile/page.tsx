@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { requireUser } from '@/lib/session';
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
 import { formatDateTime } from '@/lib/format';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,17 +20,17 @@ export default async function ProfilePage() {
   const user = await requireUser();
 
   const [record, recentActivity, passkeys, origin] = await Promise.all([
-    prisma.user.findUnique({
+    platformPrisma.user.findUnique({
       where: { id: user.id },
       select: { name: true, username: true, email: true, phone: true, lastLoginAt: true, createdAt: true },
     }),
-    prisma.auditLog.findMany({
+    platformPrisma.auditLog.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: 'desc' },
       take: 10,
       select: { id: true, summary: true, createdAt: true },
     }),
-    prisma.passkey.findMany({
+    platformPrisma.passkey.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: 'asc' },
       select: { id: true, name: true, backedUp: true, createdAt: true, lastUsedAt: true },

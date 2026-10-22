@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { prisma } from '@/lib/prisma';
+import { getStoreContext } from '@/lib/tenant/context';
 import { getSettings, readNumber } from '@/server/services/settings-service';
 
 /**
@@ -123,8 +123,9 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
   const pageSize = Math.min(200, Math.max(10, query.pageSize ?? 25));
   const offset = (page - 1) * pageSize;
 
-  const conditions: string[] = [`p.status = 'ACTIVE'`, `p."isTrackable" = true`];
-  const params: unknown[] = [];
+  const { db, storeId } = await getStoreContext();
+  const params: unknown[] = [storeId];
+  const conditions: string[] = [`p."storeId" = $1`, `p.status = 'ACTIVE'`, `p."isTrackable" = true`];
 
   if (query.warehouseId) {
     params.push(query.warehouseId);
@@ -192,12 +193,12 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
     ${statusFilter ? `WHERE ${statusFilter}` : ''}
   `;
 
-  const countRows = await prisma.$queryRawUnsafe<{ count: number }[]>(
+  const countRows = await db.$queryRawUnsafe<{ count: number }[]>(
     `SELECT COUNT(*)::int AS count FROM (${base}) AS filtered`,
     ...params,
   );
 
-  const rows = await prisma.$queryRawUnsafe<StockLevelSqlRow[]>(
+  const rows = await db.$queryRawUnsafe<StockLevelSqlRow[]>(
     `
     SELECT
       "productId", "name", "sku", "barcode", "imageUrl", "categoryName", "warehouseName",
@@ -282,21 +283,23 @@ export interface TurnoverResult {
  * average used in retail accounting.
  */
 export async function getInventoryTurnover(from: Date, to: Date): Promise<TurnoverResult> {
-  const rows = await prisma.$queryRaw<{ cogs: string; opening: string; closing: string }[]>`
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<{ cogs: string; opening: string; closing: string }[]>`
     WITH cogs AS (
       SELECT COALESCE(SUM(s."costOfGoods"), 0) AS value
       FROM sales s
-      WHERE s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+      WHERE s."storeId" = ${storeId} AND s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
     ),
     closing AS (
       SELECT COALESCE(SUM(i.quantity * p."costPrice"), 0) AS value
       FROM inventory i JOIN products p ON p.id = i."productId"
+      WHERE i."storeId" = ${storeId}
     ),
     -- Rewind the ledger to reconstruct the position at the start of the window.
     movement_since AS (
       SELECT COALESCE(SUM(it.quantity * it."unitCost"), 0) AS value
       FROM inventory_transactions it
-      WHERE it."createdAt" >= ${from}
+      WHERE it."storeId" = ${storeId} AND it."createdAt" >= ${from}
     )
     SELECT
       cogs.value::text                                        AS "cogs",
@@ -333,7 +336,8 @@ export interface AgingBucket {
  * Value concentrated in the older buckets is capital that is not working.
  */
 export async function getInventoryAging(): Promise<AgingBucket[]> {
-  const rows = await prisma.$queryRaw<{ bucket: string; products: number; units: string; value: string }[]>`
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<{ bucket: string; products: number; units: string; value: string }[]>`
     WITH aged AS (
       SELECT
         p.id,
@@ -345,7 +349,7 @@ export async function getInventoryAging(): Promise<AgingBucket[]> {
         ) AS age_days
       FROM products p
       JOIN inventory i ON i."productId" = p.id
-      WHERE p.status = 'ACTIVE' AND p."isTrackable" = true
+      WHERE p."storeId" = ${storeId} AND p.status = 'ACTIVE' AND p."isTrackable" = true
       GROUP BY p.id
       HAVING SUM(i.quantity) > 0
     )
@@ -406,8 +410,9 @@ export async function getMovementAnalysis(kind: MovementClass, limit = 20): Prom
   const windowDays = readNumber(settings, 'inventory.forecastWindowDays') || 30;
 
   const thresholdDays = kind === 'DEAD' ? deadDays : slowDays;
+  const { db, storeId } = await getStoreContext();
 
-  const rows = await prisma.$queryRaw<
+  const rows = await db.$queryRaw<
     {
       productId: string;
       name: string;
@@ -424,7 +429,7 @@ export async function getMovementAnalysis(kind: MovementClass, limit = 20): Prom
         SUM(i.quantity) AS on_hand
       FROM products p
       JOIN inventory i ON i."productId" = p.id
-      WHERE p.status = 'ACTIVE' AND p."isTrackable" = true
+      WHERE p."storeId" = ${storeId} AND p.status = 'ACTIVE' AND p."isTrackable" = true
       GROUP BY p.id
       HAVING SUM(i.quantity) > 0
     ),
@@ -437,7 +442,7 @@ export async function getMovementAnalysis(kind: MovementClass, limit = 20): Prom
         MAX(s."createdAt") AS last_sale
       FROM sale_items si
       JOIN sales s ON s.id = si."saleId"
-      WHERE s.status <> 'VOIDED'
+      WHERE s."storeId" = ${storeId} AND s.status <> 'VOIDED'
       GROUP BY si."productId"
     )
     SELECT

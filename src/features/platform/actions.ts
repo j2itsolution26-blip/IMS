@@ -4,12 +4,12 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { APIError } from 'better-auth/api';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
 import { authorize } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { runAsProvisioning } from '@/lib/provisioning-context';
-import { recordAudit } from '@/server/services/audit-service';
+import { recordPlatformAudit } from '@/server/services/audit-service';
 import { OWNER_ROLE_SLUG, SYSTEM_ADMIN_ROLE_SLUG } from '@/lib/permissions';
 import { normalizeUsername, usernameProblem } from '@/lib/username';
 
@@ -55,20 +55,25 @@ export async function createOwnerAccount(input: unknown): Promise<ActionResult<{
     const admin = await authorize('platform.manage');
     const values = parseInput(createOwnerSchema, input);
 
-    const role = await prisma.role.findUnique({
-      where: { slug: OWNER_ROLE_SLUG },
+    // Until stores can be created from the platform screens, the owner is
+    // created for the store that does not have one yet.
+    const store = await platformPrisma.store.findFirst({
+      where: { ownerId: null },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (!store) {
+      throw new ConflictError(
+        'Every store already has an owner. Reset their password or reactivate them instead.',
+      );
+    }
+    const role = await platformPrisma.role.findUnique({
+      where: { storeId_slug: { storeId: store.id, slug: OWNER_ROLE_SLUG } },
       select: { id: true },
     });
     if (!role) throw new ConflictError('The Owner role is missing. Run the bootstrap script.');
 
-    const existingOwner = await prisma.user.count({ where: { role: { slug: OWNER_ROLE_SLUG } } });
-    if (existingOwner > 0) {
-      throw new ConflictError(
-        'This store already has an owner. Reset their password or reactivate them instead.',
-      );
-    }
-
-    const duplicate = await prisma.user.findUnique({
+    const duplicate = await platformPrisma.user.findUnique({
       where: { email: values.email },
       select: { id: true },
     });
@@ -78,7 +83,7 @@ export async function createOwnerAccount(input: unknown): Promise<ActionResult<{
       });
     }
 
-    const usernameHolder = await prisma.user.findUnique({
+    const usernameHolder = await platformPrisma.user.findUnique({
       where: { username: values.username },
       select: { id: true },
     });
@@ -93,7 +98,7 @@ export async function createOwnerAccount(input: unknown): Promise<ActionResult<{
     // own cookie must survive this call.
     let created: Awaited<ReturnType<typeof auth.api.signUpEmail>>;
     try {
-      created = await runAsProvisioning(async () =>
+      created = await runAsProvisioning({ storeId: store.id, roleId: role.id }, async () =>
         auth.api.signUpEmail({
           body: {
             name: values.name,
@@ -121,15 +126,14 @@ export async function createOwnerAccount(input: unknown): Promise<ActionResult<{
     const userId = created?.user?.id;
     if (!userId) throw new ConflictError('The account could not be created.');
 
-    const row = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    const row = await platformPrisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!row) throw new ConflictError('The account could not be created.');
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: { roleId: role.id, phone: values.phone || null },
-    });
+    if (values.phone) {
+      await platformPrisma.user.update({ where: { id: userId }, data: { phone: values.phone } });
+    }
 
-    await recordAudit({
+    await recordPlatformAudit({
       action: 'CREATE',
       entity: 'User',
       entityId: userId,
@@ -148,7 +152,7 @@ export async function setOwnerActive(id: string, isActive: boolean): Promise<Act
   return runAction(async () => {
     const admin = await authorize('platform.manage');
 
-    const target = await prisma.user.findUnique({
+    const target = await platformPrisma.user.findUnique({
       where: { id },
       select: { id: true, email: true, isActive: true, role: { select: { slug: true } } },
     });
@@ -161,16 +165,16 @@ export async function setOwnerActive(id: string, isActive: boolean): Promise<Act
     }
     if (target.isActive === isActive) return;
 
-    await prisma.user.update({ where: { id }, data: { isActive } });
+    await platformPrisma.user.update({ where: { id }, data: { isActive } });
 
     // Sessions are resolved against `isActive` on every request, so an existing
     // one stops working immediately; clearing the rows makes that explicit and
     // frees the records.
     if (!isActive) {
-      await prisma.session.deleteMany({ where: { userId: id } });
+      await platformPrisma.session.deleteMany({ where: { userId: id } });
     }
 
-    await recordAudit({
+    await recordPlatformAudit({
       action: 'UPDATE',
       entity: 'User',
       entityId: id,
@@ -191,7 +195,7 @@ export async function resetOwnerPassword(id: string, input: unknown): Promise<Ac
     const admin = await authorize('platform.manage');
     const values = parseInput(resetSchema, input);
 
-    const target = await prisma.user.findUnique({
+    const target = await platformPrisma.user.findUnique({
       where: { id },
       select: { id: true, email: true, role: { select: { slug: true } } },
     });
@@ -207,9 +211,9 @@ export async function resetOwnerPassword(id: string, input: unknown): Promise<Ac
     await ctx.internalAdapter.updatePassword(id, hash);
 
     // The old password is gone, so sessions opened with it should be too.
-    await prisma.session.deleteMany({ where: { userId: id } });
+    await platformPrisma.session.deleteMany({ where: { userId: id } });
 
-    await recordAudit({
+    await recordPlatformAudit({
       action: 'UPDATE',
       entity: 'User',
       entityId: id,

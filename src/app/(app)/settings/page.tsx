@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ChevronRight, User, Users } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { SETTING_DEFINITIONS } from '@/lib/settings-definitions';
 import { PageHeader } from '@/components/page-header';
 import { SettingsForm } from '@/features/admin/settings-form';
@@ -12,8 +12,9 @@ export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
   const user = await requirePermission('settings.view');
+  const db = await storeDb();
 
-  const stored = await prisma.setting.findMany({ where: { group: { not: 'counters' } } });
+  const stored = await db.setting.findMany({ where: { group: { not: 'counters' } } });
   const byKey = new Map(stored.map((row) => [row.key, row.value]));
 
   // Defaults fill any gaps so a fresh install shows a complete, working form.

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { requirePermission, userCan } from '@/lib/session';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { ALL_PERMISSIONS, isPlatformPermission } from '@/lib/permissions';
 import { accountTier } from '@/server/services/account-policy';
 import { PageHeader } from '@/components/page-header';
@@ -11,8 +11,9 @@ export const dynamic = 'force-dynamic';
 
 export default async function RolesPage() {
   const user = await requirePermission('roles.view');
+  const db = await storeDb();
 
-  const roles = await prisma.role.findMany({
+  const roles = await db.role.findMany({
     orderBy: [{ isSystem: 'desc' }, { name: 'asc' }],
     select: {
       id: true,

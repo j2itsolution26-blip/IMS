@@ -4,18 +4,24 @@ import { PrismaClient, Prisma } from '@prisma/client';
  * A single PrismaClient per process. Next.js dev server hot-reloads modules,
  * which would otherwise open a new pool on every save and exhaust Supabase's
  * connection limit.
+ *
+ * This is the PLATFORM client: it sees every store. Store data must be read
+ * and written through `getStoreContext()` / `storeDb()` from
+ * `@/lib/tenant/context`, whose client is confined to the signed-in user's
+ * store. ESLint only allows importing this from authentication, platform
+ * administration and the tenant layer itself (see eslint.config.mjs).
  */
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-export const prisma =
+export const platformPrisma =
   globalForPrisma.prisma ??
   new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   });
 
 if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
+  globalForPrisma.prisma = platformPrisma;
 }
 
 /**

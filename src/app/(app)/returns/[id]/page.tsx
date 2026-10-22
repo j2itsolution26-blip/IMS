@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AlertTriangle, PackageCheck } from 'lucide-react';
 import { requirePermission } from '@/lib/session';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { toNum } from '@/lib/decimal';
 import { getCurrency } from '@/server/services/settings-service';
 import { formatCurrency, formatDateTime, humanizeEnum } from '@/lib/format';
@@ -17,7 +17,9 @@ export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const record = await prisma.return.findUnique({ where: { id }, select: { returnNumber: true } });
+  // Metadata runs before the page's own check; without a store there is no title to show.
+  const db = await storeDb().catch(() => null);
+  const record = db ? await db.return.findUnique({ where: { id }, select: { returnNumber: true } }) : null;
   return { title: record?.returnNumber ?? 'Return' };
 }
 
@@ -27,10 +29,11 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
  */
 export default async function ReturnPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermission('returns.view');
+  const db = await storeDb();
   const { id } = await params;
 
   const [record, currency] = await Promise.all([
-    prisma.return.findUnique({
+    db.return.findUnique({
       where: { id },
       include: {
         sale: { select: { id: true, invoiceNumber: true, createdAt: true } },

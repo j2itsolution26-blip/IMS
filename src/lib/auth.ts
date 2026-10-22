@@ -2,9 +2,9 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { nextCookies } from 'better-auth/next-js';
 import { username } from 'better-auth/plugins';
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
 import { getAppUrl, getTrustedOrigins } from '@/lib/env';
-import { isProvisioning } from '@/lib/provisioning-context';
+import { provisioningTarget } from '@/lib/provisioning-context';
 import { APIError } from 'better-auth/api';
 import { APP_NAME } from '@/lib/brand';
 import { resolvePasskeyConfig } from '@/lib/passkey-config';
@@ -27,16 +27,14 @@ if (!passkeyConfig.enabled) console.info(`[auth] Passkeys are off: ${passkeyConf
 const INVALID_CREDENTIALS = 'Invalid username/email or password.';
 
 /**
- * Atomically claims the right to create the first Owner account.
+ * Atomically claims the right to create the first Owner account of a store.
  *
- * `prisma.user.count()` followed later by an insert is a classic
- * check-then-act race: two sign-up requests hitting the server at the same
- * instant could both observe zero users and both walk away with the Owner
- * role. Postgres resolves that for us in a single statement — this reuses
- * the existing `settings` table's unique `key` column as a mutex rather than
- * adding new schema. `INSERT ... WHERE NOT EXISTS (owner) ON CONFLICT DO
- * UPDATE ... WHERE <stale>` means only one concurrent caller can ever see a
- * returned row:
+ * `count()` followed later by an insert is a classic check-then-act race: two
+ * sign-up requests hitting the server at the same instant could both observe
+ * zero users and both walk away with the Owner role. Postgres resolves that in
+ * a single statement, using the store's own settings row as a mutex.
+ * `INSERT ... WHERE NOT EXISTS (owner) ON CONFLICT DO UPDATE ... WHERE <stale>`
+ * means only one concurrent caller can ever see a returned row:
  *
  *   - No owner yet, no claim row  -> insert succeeds, this caller wins.
  *   - No owner yet, fresh claim   -> conflict, update's WHERE is false,
@@ -50,17 +48,18 @@ const INVALID_CREDENTIALS = 'Invalid username/email or password.';
  * The row is left in place afterwards as a harmless, permanent marker (it is
  * outside `SETTING_DEFINITIONS`, so it never appears in the Settings UI).
  */
-async function claimOwnerSetupSlot(): Promise<boolean> {
-  const rows = await prisma.$queryRaw<{ id: string }[]>`
-    INSERT INTO settings (id, key, value, type, "group", label, description, "createdAt", "updatedAt")
-    SELECT gen_random_uuid()::text, 'system.ownerSetupClaim', 'claimed', 'STRING', 'system',
+async function claimOwnerSetupSlot(storeId: string): Promise<boolean> {
+  const rows = await platformPrisma.$queryRaw<{ id: string }[]>`
+    INSERT INTO settings (id, "storeId", key, value, type, "group", label, description, "createdAt", "updatedAt")
+    SELECT gen_random_uuid()::text, ${storeId}, 'system.ownerSetupClaim', 'claimed', 'STRING', 'system',
            'Owner setup claim',
            'Internal marker that serialises first-owner creation. Safe to delete manually if a crashed request ever leaves it stuck.',
            now(), now()
     WHERE NOT EXISTS (
-      SELECT 1 FROM users u JOIN roles r ON r.id = u."roleId" WHERE r.slug = 'owner'
+      SELECT 1 FROM users u JOIN roles r ON r.id = u."roleId"
+      WHERE r.slug = 'owner' AND u."storeId" = ${storeId}
     )
-    ON CONFLICT (key) DO UPDATE
+    ON CONFLICT ("storeId", key) DO UPDATE
       SET "updatedAt" = now()
       WHERE settings."updatedAt" < now() - interval '2 minutes'
     RETURNING id
@@ -69,51 +68,55 @@ async function claimOwnerSetupSlot(): Promise<boolean> {
 }
 
 /**
- * Resolves the role a newly created account should get.
+ * The store and role a newly created account gets.
  *
- * The very first account to exist becomes the Owner — that is how the system
- * bootstraps without shipping a seeded admin user with a known password. Every
- * account after that is created by the Owner from Settings > Staff Accounts,
- * which overrides this default with the role they picked.
+ * An authorised caller (a store's staff screen, the platform's owner screen)
+ * names both through `runAsProvisioning`; the role must be one of that
+ * store's. Otherwise this is a public sign-up, which is only allowed for the
+ * very first account of all: it becomes the owner of the store that has no
+ * owner yet. That is how a new installation bootstraps without shipping a
+ * seeded admin with a known password.
  */
-async function resolveRoleIdForNewUser(): Promise<string> {
-  const existingUsers = await prisma.user.count();
+async function resolveNewAccount(): Promise<{ roleId: string; storeId: string | null }> {
+  const target = provisioningTarget();
+  if (target) {
+    const role = await platformPrisma.role.findFirst({
+      where: { id: target.roleId, storeId: target.storeId },
+      select: { id: true },
+    });
+    if (!role) throw new APIError('FORBIDDEN', { message: 'That role does not belong to this store.' });
+    return { roleId: target.roleId, storeId: target.storeId };
+  }
 
-  // Sign-up is not a public endpoint in a business system. Once the first
-  // account exists, new accounts may only be created by an admin who has
-  // already passed a `users.create` check (see `runAsProvisioning`).
-  if (existingUsers > 0 && !isProvisioning()) {
+  // Sign-up is not a public endpoint in a business system.
+  if ((await platformPrisma.user.count()) > 0) {
     throw new APIError('FORBIDDEN', {
       message: 'Public sign-up is disabled. Ask an administrator to create your account.',
     });
   }
 
-  if (existingUsers === 0) {
-    const owner = await prisma.role.findUnique({ where: { slug: 'owner' } });
-    if (owner) {
-      const claimed = await claimOwnerSetupSlot();
-      if (!claimed) {
-        // Either an owner was created a moment ago by a concurrent request,
-        // or one already existed — either way, this request does not get to
-        // create a second one.
-        throw new APIError('FORBIDDEN', {
-          message: 'Owner account has already been created. Please sign in.',
-        });
-      }
-      return owner.id;
-    }
-  }
-
-  const fallback =
-    (await prisma.role.findUnique({ where: { slug: 'cashier' } })) ??
-    (await prisma.role.findFirst({ orderBy: { createdAt: 'asc' } }));
-
-  if (!fallback) {
+  const store = await platformPrisma.store.findFirst({
+    where: { ownerId: null },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  const owner = store
+    ? await platformPrisma.role.findUnique({
+        where: { storeId_slug: { storeId: store.id, slug: 'owner' } },
+        select: { id: true },
+      })
+    : null;
+  if (!store || !owner) {
     throw new Error(
-      'No roles exist. Run `npm run db:bootstrap` to install the role and permission catalogue before signing up.',
+      'No store is ready for its owner. Run `npm run db:bootstrap` to install the roles before signing up.',
     );
   }
-  return fallback.id;
+  if (!(await claimOwnerSetupSlot(store.id))) {
+    // Either an owner was created a moment ago by a concurrent request, or one
+    // already existed — either way, this request does not get to create a second.
+    throw new APIError('FORBIDDEN', { message: 'Owner account has already been created. Please sign in.' });
+  }
+  return { roleId: owner.id, storeId: store.id };
 }
 
 export const auth = betterAuth({
@@ -125,7 +128,7 @@ export const auth = betterAuth({
   // with a CSRF rejection that surfaces as a generic error.
   trustedOrigins: getTrustedOrigins(),
   secret: process.env.BETTER_AUTH_SECRET,
-  database: prismaAdapter(prisma, { provider: 'postgresql' }),
+  database: prismaAdapter(platformPrisma, { provider: 'postgresql' }),
 
   emailAndPassword: {
     enabled: true,
@@ -175,6 +178,8 @@ export const auth = betterAuth({
       // `input: false` keeps these out of the public sign-up payload — a user
       // must not be able to grant themselves a role or activate their own account.
       roleId: { type: 'string', required: false, input: false },
+      // Which store the account works in; null for platform administrators.
+      storeId: { type: 'string', required: false, input: false },
       isActive: { type: 'boolean', required: false, defaultValue: true, input: false },
       phone: { type: 'string', required: false, input: true },
       lastLoginAt: { type: 'date', required: false, input: false },
@@ -211,9 +216,21 @@ export const auth = betterAuth({
             throw new APIError('BAD_REQUEST', { message: 'Choose a valid username.' });
           }
 
-          return {
-            data: { ...user, roleId: await resolveRoleIdForNewUser() },
-          };
+          const { roleId, storeId } = await resolveNewAccount();
+          return { data: { ...user, roleId, storeId } };
+        },
+        // A store's first owner becomes its owner of record.
+        after: async (user) => {
+          const created = await platformPrisma.user.findUnique({
+            where: { id: user.id },
+            select: { storeId: true, role: { select: { slug: true } } },
+          });
+          if (created?.storeId && created.role.slug === 'owner') {
+            await platformPrisma.store.updateMany({
+              where: { id: created.storeId, ownerId: null },
+              data: { ownerId: user.id },
+            });
+          }
         },
       },
     },
@@ -223,7 +240,7 @@ export const auth = betterAuth({
         // A deactivated account must not get a session at all, and the refusal
         // reads exactly like a wrong password so it reveals nothing.
         before: async (session) => {
-          const owner = await prisma.user.findUnique({
+          const owner = await platformPrisma.user.findUnique({
             where: { id: session.userId },
             select: { isActive: true },
           });
@@ -235,13 +252,17 @@ export const auth = betterAuth({
         after: async (session) => {
           // Recording the login here (rather than in the UI) means every entry
           // point — form, API, future SSO — is captured.
-          await prisma.$transaction([
-            prisma.user.update({
+          await platformPrisma.$transaction(async (tx) => {
+            const user = await tx.user.update({
               where: { id: session.userId },
               data: { lastLoginAt: new Date() },
-            }),
-            prisma.auditLog.create({
+              select: { storeId: true },
+            });
+            await tx.auditLog.create({
               data: {
+                // The store the account works in; a platform admin's own
+                // sign-ins stay outside every store.
+                storeId: user.storeId,
                 action: 'LOGIN',
                 entity: 'User',
                 entityId: session.userId,
@@ -250,8 +271,8 @@ export const auth = betterAuth({
                 ipAddress: session.ipAddress || null,
                 userAgent: session.userAgent || null,
               },
-            }),
-          ]);
+            });
+          });
         },
       },
     },

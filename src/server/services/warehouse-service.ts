@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { cache } from 'react';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { NotFoundError } from '@/lib/errors';
 
 /**
@@ -10,7 +10,8 @@ import { NotFoundError } from '@/lib/errors';
  * it silently — there is no location picker anywhere in the UI.
  */
 export const getDefaultWarehouseId = cache(async (): Promise<string> => {
-  const warehouse = await prisma.warehouse.findFirst({
+  const db = await storeDb();
+  const warehouse = await db.warehouse.findFirst({
     where: { isActive: true },
     orderBy: { isDefault: 'desc' },
     select: { id: true },

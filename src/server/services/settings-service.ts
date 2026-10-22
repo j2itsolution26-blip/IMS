@@ -1,7 +1,8 @@
 import 'server-only';
 
 import { cache } from 'react';
-import { prisma } from '@/lib/prisma';
+import { getCurrentUser } from '@/lib/session';
+import { storeDb } from '@/lib/tenant/context';
 import {
   SETTING_DEFAULTS as DEFAULTS,
   SETTING_DEFINITIONS,
@@ -21,11 +22,16 @@ export type { SettingDefinition };
 
 export type SettingsMap = Map<string, string>;
 
-/** All settings for one request, defaults merged in. Cached per request. */
+/**
+ * The signed-in store's settings, defaults merged in. Cached per request.
+ * Platform administrators belong to no store and get the defaults.
+ */
 export const getSettings = cache(async (): Promise<SettingsMap> => {
   const map = new Map(DEFAULTS);
+  if (!(await getCurrentUser())?.store) return map;
   try {
-    const rows = await prisma.setting.findMany({ where: { group: { not: 'counters' } } });
+    const db = await storeDb();
+    const rows = await db.setting.findMany({ where: { group: { not: 'counters' } } });
     for (const row of rows) map.set(row.key, row.value);
   } catch (error) {
     // Settings must never take the whole app down; defaults are viable.

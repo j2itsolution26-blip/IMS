@@ -1,6 +1,6 @@
 'use server';
 
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { blockIfUsed, createResourceActions } from '@/server/crud/resource';
 import { slugify } from '@/lib/utils';
 import { categorySchema } from '@/features/catalogue/schemas';
@@ -25,9 +25,10 @@ const categoryActions = createResourceActions({
   revalidate: ['/inventory', '/products', '/pos'],
   transform: (input) => ({ ...input, slug: slugify(String(input.name)) }),
   guardDelete: async (id) => {
+    const db = await storeDb();
     const [products, children] = await Promise.all([
-      prisma.product.count({ where: { categoryId: id } }),
-      prisma.category.count({ where: { parentId: id } }),
+      db.product.count({ where: { categoryId: id } }),
+      db.category.count({ where: { parentId: id } }),
     ]);
     return blockIfUsed(products, 'product', 'category') ?? blockIfUsed(children, 'sub-category', 'category');
   },

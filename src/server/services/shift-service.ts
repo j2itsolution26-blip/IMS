@@ -1,7 +1,8 @@
 import 'server-only';
 
 import type { CashMovementType, PaymentMethod, Prisma, SaleStatus, ShiftReviewStatus, ShiftStatus } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import type { DbClient } from '@/lib/prisma';
+import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { D, money, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { MAX_DRAWER_AMOUNT } from '@/lib/cash-amount';
@@ -36,7 +37,7 @@ import { getSettings, readNumber } from '@/server/services/settings-service';
  * the cashier already reconciled.
  */
 
-type Db = Prisma.TransactionClient | typeof prisma;
+type Db = DbClient;
 
 export interface OpenShiftSummary {
   id: string;
@@ -60,7 +61,8 @@ function toSummary(shift: { id: string; number: number; openedAt: Date; openingC
 
 const peso = (value: Numeric) => formatCurrency(toNum(value), 'PHP');
 
-export async function getOpenShift(userId: string, db: Db = prisma): Promise<OpenShiftSummary | null> {
+export async function getOpenShift(userId: string, db?: Db): Promise<OpenShiftSummary | null> {
+  db ??= await storeDb();
   const shift = await db.cashierShift.findFirst({
     where: { userId, status: 'OPEN' },
     orderBy: { openedAt: 'desc' },
@@ -80,10 +82,11 @@ export async function requireOpenShift(userId: string): Promise<OpenShiftSummary
  * `share` for work that adds to the shift; `update` for closing it.
  */
 export async function lockShiftIfOpen(tx: Prisma.TransactionClient, shiftId: string, mode: 'share' | 'update'): Promise<boolean> {
+  const { storeId } = await getStoreContext();
   const rows =
     mode === 'update'
-      ? await tx.$queryRaw<{ id: string }[]>`SELECT id FROM cashier_shifts WHERE id = ${shiftId} AND status = 'OPEN' FOR UPDATE`
-      : await tx.$queryRaw<{ id: string }[]>`SELECT id FROM cashier_shifts WHERE id = ${shiftId} AND status = 'OPEN' FOR SHARE`;
+      ? await tx.$queryRaw<{ id: string }[]>`SELECT id FROM cashier_shifts WHERE id = ${shiftId} AND "storeId" = ${storeId} AND status = 'OPEN' FOR UPDATE`
+      : await tx.$queryRaw<{ id: string }[]>`SELECT id FROM cashier_shifts WHERE id = ${shiftId} AND "storeId" = ${storeId} AND status = 'OPEN' FOR SHARE`;
   return rows.length > 0;
 }
 
@@ -108,6 +111,7 @@ export async function openShift(input: {
   openingCash: Numeric;
   openingNotes?: string | null;
 }): Promise<{ shift: OpenShiftSummary; resumed: boolean }> {
+  const db = await storeDb();
   const existing = await getOpenShift(input.userId);
   if (existing) return { shift: existing, resumed: true };
 
@@ -116,7 +120,7 @@ export async function openShift(input: {
 
   let created;
   try {
-    created = await prisma.$transaction(async (tx) => {
+    created = await db.$transaction(async (tx) => {
       const shift = await tx.cashierShift.create({
         data: { userId: input.userId, openingCash, openingNotes, status: 'OPEN' },
         select: { ...OPEN_SHIFT_SELECT, user: { select: { name: true } } },
@@ -170,7 +174,8 @@ export interface ShiftCloseSummary extends DrawerTotals {
 }
 
 /** The live drawer figures for a shift, from the sales, payments and movements tied to it. */
-export async function computeShiftSummary(shiftId: string, openingCash: Numeric, db: Db = prisma): Promise<ShiftCloseSummary> {
+export async function computeShiftSummary(shiftId: string, openingCash: Numeric, db?: Db): Promise<ShiftCloseSummary> {
+  db ??= await storeDb();
   const [tendered, sales, refunds, movements] = await Promise.all([
     db.payment.aggregate({
       where: { shiftId, method: 'CASH', direction: 'INBOUND', sale: { status: { not: 'VOIDED' } } },
@@ -230,10 +235,11 @@ async function closeShiftById(input: {
   /** Restricts the close to this cashier's own shift. */
   ownerUserId?: string;
 }): Promise<CloseShiftResult> {
+  const db = await storeDb();
   const actualCash = validDrawerAmount(input.actualCash, 'Counted cash', { allowZero: true });
   const tolerance = readNumber(await getSettings(), 'shifts.varianceTolerance');
 
-  return prisma.$transaction(async (tx) => {
+  return db.$transaction(async (tx) => {
     // Waits for any sale or movement in flight on this shift, then holds
     // new ones off until the close commits.
     if (!(await lockShiftIfOpen(tx, input.shiftId, 'update'))) {
@@ -347,6 +353,7 @@ export async function addCashMovement(input: {
   amount: Numeric;
   reason: string;
 }): Promise<{ id: string }> {
+  const db = await storeDb();
   const amount = validDrawerAmount(input.amount, 'The amount', { allowZero: false });
   const reason = input.reason.trim();
   if (reason.length < 3) throw new ValidationError('Say what the cash is for.', { reason: ['Give a short reason.'] });
@@ -354,7 +361,7 @@ export async function addCashMovement(input: {
   const shift = await getOpenShift(input.userId);
   if (!shift) throw new ConflictError('Open a shift first.');
 
-  return prisma.$transaction(async (tx) => {
+  return db.$transaction(async (tx) => {
     if (!(await lockShiftIfOpen(tx, shift.id, 'share'))) throw new ConflictError('Your shift was closed. Open a new shift first.');
     const movement = await tx.cashMovement.create({
       data: { shiftId: shift.id, type: input.type, amount, reason: reason.slice(0, 200), userId: input.userId },
@@ -520,12 +527,13 @@ async function totalsFor(row: {
 }
 
 export async function listShifts(query: ShiftListQuery) {
+  const db = await storeDb();
   const page = query.all ? 1 : Math.max(1, query.page ?? 1);
   const pageSize = query.all ? EXPORT_ROW_LIMIT : Math.min(50, Math.max(5, query.pageSize ?? 20));
   const where = shiftWhere(query);
 
   const [rows, total, outsideShift] = await Promise.all([
-    prisma.cashierShift.findMany({
+    db.cashierShift.findMany({
       where,
       orderBy: shiftOrder(query.sort),
       skip: (page - 1) * pageSize,
@@ -537,9 +545,9 @@ export async function listShifts(query: ShiftListQuery) {
         adjustments: { select: { amount: true } },
       },
     }),
-    prisma.cashierShift.count({ where }),
+    db.cashierShift.count({ where }),
     // Cash refunds paid while no drawer was open to take them from.
-    prisma.payment.aggregate({
+    db.payment.aggregate({
       where: { method: 'CASH', direction: 'OUTBOUND', shiftId: null, createdAt: { gte: query.from, lte: query.to } },
       _sum: { amount: true },
       _count: { _all: true },
@@ -551,8 +559,8 @@ export async function listShifts(query: ShiftListQuery) {
     ids.length === 0
       ? [[], []]
       : await Promise.all([
-          prisma.payment.groupBy({ by: ['shiftId'], where: { shiftId: { in: ids } }, _max: { createdAt: true } }),
-          prisma.cashMovement.groupBy({ by: ['shiftId'], where: { shiftId: { in: ids } }, _max: { createdAt: true } }),
+          db.payment.groupBy({ by: ['shiftId'], where: { shiftId: { in: ids } }, _max: { createdAt: true } }),
+          db.cashMovement.groupBy({ by: ['shiftId'], where: { shiftId: { in: ids } }, _max: { createdAt: true } }),
         ]);
   const lastActivity = new Map<string, Date>();
   for (const entry of [...paymentActivity, ...movementActivity]) {
@@ -614,18 +622,19 @@ export interface ShiftKpis {
 
 /** The six headline figures on Shift Management, for the store's current trading day. */
 export async function getShiftKpis(now: Date = new Date()): Promise<ShiftKpis> {
+  const db = await storeDb();
   const today = { gte: startOfStoreDay(now), lte: endOfStoreDay(now) };
   const [open, tendered, change, closedToday, pendingReview] = await Promise.all([
-    prisma.cashierShift.findMany({ where: { status: 'OPEN' }, select: { id: true, openingCash: true } }),
+    db.cashierShift.findMany({ where: { status: 'OPEN' }, select: { id: true, openingCash: true } }),
     // Cash handed over on today's completed sales…
-    prisma.payment.aggregate({
+    db.payment.aggregate({
       where: { method: 'CASH', direction: 'INBOUND', sale: { status: { not: 'VOIDED' }, createdAt: today } },
       _sum: { amount: true },
     }),
     // …less the change given back (change only ever comes from cash).
-    prisma.sale.aggregate({ where: { status: { not: 'VOIDED' }, createdAt: today }, _sum: { changeAmount: true } }),
-    prisma.cashierShift.count({ where: { status: 'CLOSED', closedAt: today } }),
-    prisma.cashierShift.count({ where: { reviewStatus: 'PENDING' } }),
+    db.sale.aggregate({ where: { status: { not: 'VOIDED' }, createdAt: today }, _sum: { changeAmount: true } }),
+    db.cashierShift.count({ where: { status: 'CLOSED', closedAt: today } }),
+    db.cashierShift.count({ where: { reviewStatus: 'PENDING' } }),
   ]);
 
   const live = await Promise.all(open.map((shift) => computeShiftSummary(shift.id, shift.openingCash)));
@@ -680,7 +689,8 @@ export interface ShiftDetail extends ShiftHistoryRow {
 const TRANSACTION_LIMIT = 500;
 
 export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | null> {
-  const row = await prisma.cashierShift.findUnique({
+  const db = await storeDb();
+  const row = await db.cashierShift.findUnique({
     where: { id: shiftId },
     include: {
       user: { select: { name: true } },
@@ -697,24 +707,24 @@ export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | nul
   const notVoided = { shiftId: row.id, status: { not: 'VOIDED' as const } };
 
   const [completed, voided, received, refunds, transactions, refundRows, lastPayment] = await Promise.all([
-    prisma.sale.aggregate({
+    db.sale.aggregate({
       where: notVoided,
       _sum: { subtotal: true, discount: true, taxAmount: true, total: true, changeAmount: true },
       _count: { _all: true },
     }),
-    prisma.sale.aggregate({ where: { shiftId: row.id, status: 'VOIDED' }, _sum: { total: true }, _count: { _all: true } }),
-    prisma.payment.groupBy({
+    db.sale.aggregate({ where: { shiftId: row.id, status: 'VOIDED' }, _sum: { total: true }, _count: { _all: true } }),
+    db.payment.groupBy({
       by: ['method'],
       where: { shiftId: row.id, direction: 'INBOUND', sale: { status: { not: 'VOIDED' } } },
       _sum: { amount: true },
     }),
-    prisma.payment.groupBy({
+    db.payment.groupBy({
       by: ['method'],
       where: { shiftId: row.id, direction: 'OUTBOUND' },
       _sum: { amount: true },
       _count: { _all: true },
     }),
-    prisma.sale.findMany({
+    db.sale.findMany({
       where: { shiftId: row.id },
       orderBy: { createdAt: 'asc' },
       take: TRANSACTION_LIMIT + 1,
@@ -728,13 +738,13 @@ export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | nul
         payments: { where: { direction: 'INBOUND' }, select: { method: true, amount: true } },
       },
     }),
-    prisma.payment.findMany({
+    db.payment.findMany({
       where: { shiftId: row.id, direction: 'OUTBOUND' },
       orderBy: { createdAt: 'asc' },
       take: TRANSACTION_LIMIT,
       select: { id: true, method: true, amount: true, createdAt: true, return: { select: { id: true, returnNumber: true } } },
     }),
-    prisma.payment.aggregate({ where: { shiftId: row.id }, _max: { createdAt: true } }),
+    db.payment.aggregate({ where: { shiftId: row.id }, _max: { createdAt: true } }),
   ]);
 
   const actual = row.actualCash == null ? null : toNum(row.actualCash);
@@ -829,10 +839,11 @@ export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | nul
  * database trigger holds them). Authorise before calling.
  */
 export async function reviewShift(input: { shiftId: string; actorId: string; note: string }): Promise<void> {
+  const db = await storeDb();
   const note = input.note.trim();
   if (note.length < 3) throw new ValidationError('Say what you found.', { note: ['Give a short resolution note.'] });
 
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     const updated = await tx.cashierShift.updateMany({
       where: { id: input.shiftId, status: 'CLOSED', reviewStatus: 'PENDING' },
       data: { reviewStatus: 'REVIEWED', reviewedById: input.actorId, reviewedAt: new Date(), reviewNote: note.slice(0, 1000) },
@@ -879,6 +890,7 @@ export async function addShiftAdjustment(input: {
   amount: Numeric;
   reason: string;
 }): Promise<{ id: string }> {
+  const db = await storeDb();
   const amount = money(input.amount);
   if (amount.isNaN() || !amount.isFinite() || amount.isZero()) {
     throw new ValidationError('Enter the amount to adjust by.', { amount: ['Enter a non-zero amount.'] });
@@ -889,7 +901,7 @@ export async function addShiftAdjustment(input: {
   const reason = input.reason.trim();
   if (reason.length < 3) throw new ValidationError('Say why.', { reason: ['Give a reason for the adjustment.'] });
 
-  return prisma.$transaction(async (tx) => {
+  return db.$transaction(async (tx) => {
     const shift = await tx.cashierShift.findUnique({ where: { id: input.shiftId }, select: { status: true, number: true } });
     if (!shift) throw new NotFoundError('Shift');
     if (shift.status !== 'CLOSED') throw new ConflictError('Only a closed shift can be adjusted.');

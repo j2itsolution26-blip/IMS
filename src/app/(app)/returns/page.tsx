@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { RotateCcw } from 'lucide-react';
 import { requirePermission } from '@/lib/session';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { toNum } from '@/lib/decimal';
 import { getCurrency } from '@/server/services/settings-service';
 import { resolveRange, parsePeriod } from '@/server/analytics/date-range';
@@ -23,13 +23,14 @@ export default async function ReturnsPage({
   searchParams: Promise<{ period?: string }>;
 }) {
   await requirePermission('returns.view');
+  const db = await storeDb();
   const params = await searchParams;
 
   const period = parsePeriod(params.period, 'last30');
   const range = resolveRange(period);
   const currency = await getCurrency();
 
-  const returns = await prisma.return.findMany({
+  const returns = await db.return.findMany({
     where: { createdAt: { gte: range.from, lte: range.to } },
     orderBy: { createdAt: 'desc' },
     take: 200,

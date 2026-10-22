@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { Prisma, type PaymentMethod } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { D, money, sum, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { applyStockMovement, wholePieces } from '@/server/services/inventory-service';
@@ -35,9 +35,10 @@ export interface CreateSaleReturnInput {
 }
 
 export async function createSaleReturn(input: CreateSaleReturnInput) {
+  const db = await storeDb();
   const restock = input.restock ?? true;
 
-  const result = await prisma.$transaction(
+  const result = await db.$transaction(
     async (tx) => {
       const sale = await tx.sale.findUnique({
         where: { id: input.saleId },

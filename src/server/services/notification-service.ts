@@ -1,7 +1,8 @@
 import 'server-only';
 
-import type { NotificationType, Prisma } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import type { NotificationType } from '@prisma/client';
+import type { DbClient } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { isOverdue, notificationKey, shiftReference } from '@/lib/shift-review';
 import { getSettings, readNumber } from '@/server/services/settings-service';
 
@@ -15,7 +16,7 @@ import { getSettings, readNumber } from '@/server/services/settings-service';
  * one never exists without the other.
  */
 
-type Db = Prisma.TransactionClient | typeof prisma;
+type Db = DbClient;
 
 export interface NewNotification {
   type: NotificationType;
@@ -25,8 +26,9 @@ export interface NewNotification {
   shiftId?: string | null;
 }
 
-export async function raiseNotifications(items: NewNotification[], db: Db = prisma): Promise<void> {
+export async function raiseNotifications(items: NewNotification[], db?: Db): Promise<void> {
   if (items.length === 0) return;
+  db ??= await storeDb();
   await db.notification.createMany({
     data: items.map((item) => ({
       type: item.type,
@@ -45,11 +47,12 @@ export async function raiseNotifications(items: NewNotification[], db: Db = pris
  * Cheap and idempotent, so it runs on each poll instead of on a timer.
  */
 export async function syncOverdueShiftNotifications(now: Date = new Date()): Promise<void> {
+  const db = await storeDb();
   const hours = readNumber(await getSettings(), 'shifts.overdueHours');
   if (!(hours > 0)) return;
 
   const cutoff = new Date(now.getTime() - hours * 60 * 60 * 1000);
-  const shifts = await prisma.cashierShift.findMany({
+  const shifts = await db.cashierShift.findMany({
     where: { status: 'OPEN', openedAt: { lte: cutoff }, notifications: { none: { type: 'SHIFT_OVERDUE' } } },
     select: { id: true, number: true, openedAt: true, user: { select: { name: true } } },
     take: 50,
@@ -79,9 +82,10 @@ export interface NotificationView {
 }
 
 export async function listNotifications(limit = 20): Promise<{ items: NotificationView[]; unread: number }> {
+  const db = await storeDb();
   const [rows, unread] = await Promise.all([
-    prisma.notification.findMany({ orderBy: { createdAt: 'desc' }, take: Math.min(50, Math.max(1, limit)) }),
-    prisma.notification.count({ where: { readAt: null } }),
+    db.notification.findMany({ orderBy: { createdAt: 'desc' }, take: Math.min(50, Math.max(1, limit)) }),
+    db.notification.count({ where: { readAt: null } }),
   ]);
   return {
     unread,
@@ -98,7 +102,8 @@ export async function listNotifications(limit = 20): Promise<{ items: Notificati
 }
 
 /** Marks the given notices read, or every unread one when no ids are passed. */
-export async function markNotificationsRead(userId: string, ids?: string[], db: Db = prisma): Promise<void> {
+export async function markNotificationsRead(userId: string, ids?: string[], db?: Db): Promise<void> {
+  db ??= await storeDb();
   await db.notification.updateMany({
     where: { readAt: null, ...(ids ? { id: { in: ids } } : {}) },
     data: { readAt: new Date(), readById: userId },

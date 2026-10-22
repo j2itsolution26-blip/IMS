@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { PaymentMethod, SaleStatus } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { D, money, toNum } from '@/lib/decimal';
 import { endOfStoreDay, startOfStoreDay } from '@/lib/store-time';
 import { COMPLETED_TRANSACTION_STATUSES } from '@/lib/sales-scope';
@@ -56,12 +56,13 @@ const RECENT_SALES = 8;
 const STOCK_ALERTS = 8;
 
 export async function getCashierDashboard(userId: string, now: Date = new Date()): Promise<CashierDashboardData> {
+  const db = await storeDb();
   const shift = await getOpenShift(userId);
   const cashWindow = cashierCashWindow(shift, now);
 
   const [shiftSummary, transactionsToday, cashCollected, kpis, recent, out, low] = await Promise.all([
     shift ? computeShiftSummary(shift.id, shift.openingCash) : null,
-    prisma.sale.count({
+    db.sale.count({
       where: {
         userId,
         status: { in: COMPLETED_TRANSACTION_STATUSES },
@@ -70,7 +71,7 @@ export async function getCashierDashboard(userId: string, now: Date = new Date()
     }),
     getCashCollected(userId, cashWindow),
     getInventoryKpis({ now }),
-    prisma.sale.findMany({
+    db.sale.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: RECENT_SALES,
@@ -128,6 +129,7 @@ export async function getCashierDashboard(userId: string, now: Date = new Date()
  * used. For an open shift this is the shift's own drawer maths.
  */
 async function getCashCollected(userId: string, window: CashierCashWindow): Promise<number> {
+  const db = await storeDb();
   if (window.kind === 'shift') {
     const shift = await getOpenShift(userId);
     if (!shift) return 0;
@@ -137,15 +139,15 @@ async function getCashCollected(userId: string, window: CashierCashWindow): Prom
 
   const inWindow = { gte: window.from, lte: window.to };
   const [tendered, change, refunds] = await Promise.all([
-    prisma.payment.aggregate({
+    db.payment.aggregate({
       where: { method: 'CASH', direction: 'INBOUND', sale: { userId, status: { not: 'VOIDED' } }, createdAt: inWindow },
       _sum: { amount: true },
     }),
-    prisma.sale.aggregate({
+    db.sale.aggregate({
       where: { userId, status: { not: 'VOIDED' }, createdAt: inWindow },
       _sum: { changeAmount: true },
     }),
-    prisma.payment.aggregate({
+    db.payment.aggregate({
       where: { method: 'CASH', direction: 'OUTBOUND', return: { sale: { userId } }, createdAt: inWindow },
       _sum: { amount: true },
     }),

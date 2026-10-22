@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { Prisma, ProductStatus } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { toNum } from '@/lib/decimal';
 import { getDefaultWarehouseId } from '@/server/services/warehouse-service';
 import { normalizeBarcode } from '@/lib/barcode';
@@ -43,6 +43,7 @@ export interface ProductListRow {
 }
 
 export async function listProducts(query: ProductListQuery = {}) {
+  const db = await storeDb();
   const page = Math.max(1, query.page ?? 1);
   const pageSize = Math.min(100, Math.max(10, query.pageSize ?? 20));
 
@@ -71,7 +72,7 @@ export async function listProducts(query: ProductListQuery = {}) {
           : { name: direction };
 
   const [rows, total] = await Promise.all([
-    prisma.product.findMany({
+    db.product.findMany({
       where,
       orderBy,
       skip: (page - 1) * pageSize,
@@ -92,7 +93,7 @@ export async function listProducts(query: ProductListQuery = {}) {
         inventory: { select: { quantity: true } },
       },
     }),
-    prisma.product.count({ where }),
+    db.product.count({ where }),
   ]);
 
   const mapped: ProductListRow[] = rows.map((row) => {
@@ -131,7 +132,8 @@ export async function listProducts(query: ProductListQuery = {}) {
 
 /** Reference lists for the product form's select inputs. */
 export async function getProductFormOptions() {
-  const categories = await prisma.category.findMany({
+  const db = await storeDb();
+  const categories = await db.category.findMany({
     where: { isActive: true },
     select: { id: true, name: true },
     orderBy: { name: 'asc' },
@@ -141,7 +143,8 @@ export async function getProductFormOptions() {
 }
 
 export async function getProduct(id: string) {
-  return prisma.product.findUnique({
+  const db = await storeDb();
+  return db.product.findUnique({
     where: { id },
     include: {
       category: { select: { id: true, name: true } },
@@ -164,9 +167,10 @@ export async function getProduct(id: string) {
  */
 export async function getProductHistory(id: string, days = 90) {
   const since = new Date(Date.now() - days * 86_400_000);
+  const { db, storeId } = await getStoreContext();
 
   const [movements, performance, priceHistory] = await Promise.all([
-    prisma.inventoryTransaction.findMany({
+    db.inventoryTransaction.findMany({
       where: { productId: id },
       orderBy: { createdAt: 'desc' },
       take: 25,
@@ -182,7 +186,7 @@ export async function getProductHistory(id: string, days = 90) {
         user: { select: { name: true } },
       },
     }),
-    prisma.$queryRaw<{ piecesSold: string; revenue: string; profit: string; orders: number }[]>`
+    db.$queryRaw<{ piecesSold: string; revenue: string; profit: string; orders: number }[]>`
       SELECT
         COALESCE(SUM(si.quantity), 0)::text  AS "piecesSold",
         COALESCE(SUM(si.total), 0)::text     AS "revenue",
@@ -190,9 +194,9 @@ export async function getProductHistory(id: string, days = 90) {
         COUNT(DISTINCT s.id)::int            AS "orders"
       FROM sale_items si
       JOIN sales s ON s.id = si."saleId"
-      WHERE si."productId" = ${id} AND s.status <> 'VOIDED' AND s."createdAt" >= ${since}
+      WHERE s."storeId" = ${storeId} AND si."productId" = ${id} AND s.status <> 'VOIDED' AND s."createdAt" >= ${since}
     `,
-    prisma.priceHistory.findMany({
+    db.priceHistory.findMany({
       where: { productId: id },
       orderBy: { createdAt: 'desc' },
       take: 10,
@@ -247,10 +251,11 @@ export interface SellableFilters {
 
 /** Product lookup for the POS — active, sellable lines with live availability. */
 export async function searchSellableProducts(term: string, limit = 24, filters: SellableFilters = {}) {
+  const db = await storeDb();
   const trimmed = term.trim();
   const warehouseId = await getDefaultWarehouseId();
 
-  const products = await prisma.product.findMany({
+  const products = await db.product.findMany({
     where: {
       status: 'ACTIVE',
       ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
@@ -329,22 +334,23 @@ export async function getPosCategories(lowStockAtOrBelow: number): Promise<{
   lowStock: number;
   categories: PosCategoryChip[];
 }> {
+  const db = await storeDb();
   const warehouseId = await getDefaultWarehouseId();
 
   const [total, lowStock, grouped, categories] = await Promise.all([
-    prisma.product.count({ where: { status: 'ACTIVE' } }),
-    prisma.product.count({
+    db.product.count({ where: { status: 'ACTIVE' } }),
+    db.product.count({
       where: {
         status: 'ACTIVE',
         inventory: { some: { warehouseId, quantity: { lte: lowStockAtOrBelow, gt: 0 } } },
       },
     }),
-    prisma.product.groupBy({
+    db.product.groupBy({
       by: ['categoryId'],
       where: { status: 'ACTIVE' },
       _count: { _all: true },
     }),
-    prisma.category.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+    db.category.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
   ]);
 
   const counts = new Map(grouped.map((row) => [row.categoryId, row._count._all]));
@@ -409,9 +415,11 @@ export async function findProductRefByBarcode(
   const normalized = normalizeBarcode(barcode);
   if (!normalized) return null;
 
-  const rows = await prisma.$queryRaw<{ id: string; barcode: string; name: string; status: ProductStatus }[]>`
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<{ id: string; barcode: string; name: string; status: ProductStatus }[]>`
     SELECT id, barcode, name, status::text AS status FROM products
-    WHERE barcode IS NOT NULL
+    WHERE "storeId" = ${storeId}
+      AND barcode IS NOT NULL
       AND upper(regexp_replace(barcode, '[^0-9A-Za-z]', '', 'g')) = ${normalized}
     ORDER BY (status = 'ACTIVE') DESC
     LIMIT 1
@@ -426,10 +434,11 @@ export async function findProductRefByBarcode(
  * the edit form check without matching the product it's already editing.
  */
 export async function findProductByBarcode(barcode: string, excludeId?: string) {
+  const db = await storeDb();
   const trimmed = barcode.trim();
   if (!trimmed) return null;
 
-  const product = await prisma.product.findFirst({
+  const product = await db.product.findFirst({
     where: { barcode: trimmed, ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: {
       id: true,

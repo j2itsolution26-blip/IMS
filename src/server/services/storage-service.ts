@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
+import { ownsImagePath, storeFolder } from '@/lib/storage-paths';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
   getDatabaseProjectRef,
@@ -261,7 +262,7 @@ async function ensureBucket(supabase: SupabaseClient): Promise<void> {
   bucketReady = true;
 }
 
-export async function uploadProductImage(file: File, productSku: string): Promise<string> {
+export async function uploadProductImage(file: File, productSku: string, storeId: string): Promise<string> {
   if (file.size === 0) throw new ValidationError('The selected file is empty.', { image: ['File is empty.'] });
   if (file.size > MAX_BYTES) {
     throw new ValidationError('Image must be 5 MB or smaller.', { image: ['Image must be 5 MB or smaller.'] });
@@ -281,7 +282,8 @@ export async function uploadProductImage(file: File, productSku: string): Promis
   // same millisecond would otherwise collide, and `upsert: false` would reject
   // the second one. The SKU is kept only as a human-readable prefix — never as
   // the sole filename, so a user-supplied name can never determine the path.
-  const path = `products/${safeSku}-${randomUUID()}.${extension}`;
+  // Each store's files live under its own folder, so a delete can be held to it.
+  const path = `${storeFolder(storeId)}products/${safeSku}-${randomUUID()}.${extension}`;
   const body = await file.arrayBuffer();
 
   try {
@@ -356,7 +358,7 @@ export type DeleteImageResult =
  * for a while after the object is gone. That is harmless here because uploads
  * are UUID-named, so a replacement never reuses the old URL.
  */
-export async function deleteProductImage(publicUrl: string): Promise<DeleteImageResult> {
+export async function deleteProductImage(publicUrl: string, storeId: string): Promise<DeleteImageResult> {
   if (!publicUrl) return { status: 'skipped', reason: 'no image to remove' };
   if (!isStorageConfigured()) return { status: 'skipped', reason: 'storage not configured' };
 
@@ -369,6 +371,11 @@ export async function deleteProductImage(publicUrl: string): Promise<DeleteImage
   }
 
   const path = decodeURIComponent(publicUrl.slice(index + marker.length));
+  // A product's image URL is editable, so it could name another store's file.
+  // Only files in this store's own folder are ever removed.
+  if (!ownsImagePath(path, storeId)) {
+    return { status: 'skipped', reason: "image belongs to another store's folder" };
+  }
   const { error } = await getClient().storage.from(bucket()).remove([path]);
 
   if (error) {

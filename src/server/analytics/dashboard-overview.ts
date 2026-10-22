@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { prisma } from '@/lib/prisma';
+import { getStoreContext } from '@/lib/tenant/context';
 import { percentChange } from '@/lib/decimal';
 import { resolveRange, type DateRange } from '@/server/analytics/date-range';
 import {
@@ -93,7 +93,8 @@ async function getHeadline(now: Date): Promise<DashboardOverview['headline']> {
   const earliest = new Date(Math.min(week.previous.from.getTime(), month.previous.from.getTime()));
   const latest = new Date(Math.max(week.to.getTime(), month.to.getTime()));
 
-  const rows = await prisma.$queryRaw<HeadlineRow[]>`
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<HeadlineRow[]>`
     SELECT
       COALESCE(SUM(s.total) FILTER (WHERE s."createdAt" BETWEEN ${today.from} AND ${today.to}), 0)::text AS "todayRevenue",
       (COUNT(*) FILTER (WHERE s."createdAt" BETWEEN ${today.from} AND ${today.to}))::int AS "todayCount",
@@ -108,7 +109,8 @@ async function getHeadline(now: Date): Promise<DashboardOverview['headline']> {
       COALESCE(SUM(s.total) FILTER (WHERE s."createdAt" BETWEEN ${month.previous.from} AND ${month.previous.to}), 0)::text AS "lastMonthRevenue",
       (COUNT(*) FILTER (WHERE s."createdAt" BETWEEN ${month.previous.from} AND ${month.previous.to}))::int AS "lastMonthCount"
     FROM sales s
-    WHERE s.status <> 'VOIDED'
+    WHERE s."storeId" = ${storeId}
+      AND s.status <> 'VOIDED'
       AND s."createdAt" >= ${earliest}
       AND s."createdAt" <= ${latest}
   `;

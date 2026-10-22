@@ -19,7 +19,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { auth } from '../src/lib/auth';
-import { prisma } from '../src/lib/prisma';
+import { platformPrisma as prisma } from '../src/lib/prisma';
 import { normalizeUsername, suggestUsername, usernameProblem } from '../src/lib/username';
 import { runAsProvisioning } from '../src/lib/provisioning-context';
 import { SYSTEM_ADMIN_ROLE_SLUG } from '../src/lib/permissions';
@@ -44,8 +44,8 @@ async function main() {
     process.exit(1);
   }
 
-  const role = await prisma.role.findUnique({
-    where: { slug: SYSTEM_ADMIN_ROLE_SLUG },
+  const role = await prisma.role.findFirst({
+    where: { slug: SYSTEM_ADMIN_ROLE_SLUG, storeId: null },
     select: { id: true },
   });
   if (!role) {
@@ -95,14 +95,14 @@ async function main() {
 
   // Better Auth owns hashing, so the account is created through it rather than
   // written to the table directly.
-  const created = await runAsProvisioning(async () =>
+  // The platform role has no store, so neither does the account.
+  const created = await runAsProvisioning({ storeId: null, roleId: role.id }, async () =>
     auth.api.signUpEmail({ body: { name, email, password, username } }),
   );
 
   const userId = created?.user?.id;
   if (!userId) throw new Error('The account could not be created.');
 
-  await prisma.user.update({ where: { id: userId }, data: { roleId: role.id } });
 
   console.log(`\nSystem Administrator created: ${email} (username: ${username})`);
   if (generated) {

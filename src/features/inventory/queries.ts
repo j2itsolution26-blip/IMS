@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { InventoryTransactionType, Prisma } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { toNum } from '@/lib/decimal';
 import { findProductRefByBarcode } from '@/features/products/queries';
 
@@ -18,6 +18,7 @@ export interface MovementQuery {
 }
 
 export async function listMovements(query: MovementQuery = {}, { includeCost = false }: { includeCost?: boolean } = {}) {
+  const db = await storeDb();
   const page = Math.max(1, query.page ?? 1);
   const pageSize = Math.min(200, Math.max(10, query.pageSize ?? 40));
 
@@ -40,7 +41,7 @@ export async function listMovements(query: MovementQuery = {}, { includeCost = f
   };
 
   const [rows, total] = await Promise.all([
-    prisma.inventoryTransaction.findMany({
+    db.inventoryTransaction.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
@@ -60,7 +61,7 @@ export async function listMovements(query: MovementQuery = {}, { includeCost = f
         user: { select: { name: true } },
       },
     }),
-    prisma.inventoryTransaction.count({ where }),
+    db.inventoryTransaction.count({ where }),
   ]);
 
   return {
@@ -97,7 +98,8 @@ export async function listMovements(query: MovementQuery = {}, { includeCost = f
  * product's recorded cost regardless of what the browser holds.
  */
 export async function getStockPickerProducts({ includeCost = false }: { includeCost?: boolean } = {}) {
-  const products = await prisma.product.findMany({
+  const db = await storeDb();
+  const products = await db.product.findMany({
     where: { status: 'ACTIVE', isTrackable: true },
     orderBy: { name: 'asc' },
     take: 500,
@@ -151,10 +153,11 @@ export async function findInventoryProductByBarcode(
   barcode: string,
   { includeCost = false }: { includeCost?: boolean } = {},
 ): Promise<InventoryBarcodeLookup> {
+  const db = await storeDb();
   const ref = await findProductRefByBarcode(barcode);
   if (!ref) return { status: 'not-found' };
 
-  const product = await prisma.product.findUnique({
+  const product = await db.product.findUnique({
     where: { id: ref.id },
     select: {
       id: true,

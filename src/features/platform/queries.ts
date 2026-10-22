@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
 import { OWNER_ROLE_SLUG, SYSTEM_ADMIN_ROLE_SLUG } from '@/lib/permissions';
 
 /**
@@ -65,7 +65,7 @@ const toAccount = (row: AccountRow): PlatformAccount => ({
 export async function listOwnerAccounts(search?: string): Promise<PlatformAccount[]> {
   const term = search?.trim();
 
-  const rows = await prisma.user.findMany({
+  const rows = await platformPrisma.user.findMany({
     where: {
       role: { slug: OWNER_ROLE_SLUG },
       ...(term
@@ -99,14 +99,15 @@ export async function getPlatformStats(): Promise<PlatformStats> {
   const owner = { role: { slug: OWNER_ROLE_SLUG } };
 
   const [total, active, staff, admins, recentOwners, storeNameSetting] = await Promise.all([
-    prisma.user.count({ where: owner }),
-    prisma.user.count({ where: { ...owner, isActive: true } }),
-    prisma.user.count({
+    platformPrisma.user.count({ where: owner }),
+    platformPrisma.user.count({ where: { ...owner, isActive: true } }),
+    platformPrisma.user.count({
       where: { role: { slug: { notIn: [OWNER_ROLE_SLUG, SYSTEM_ADMIN_ROLE_SLUG] } } },
     }),
-    prisma.user.count({ where: { role: { slug: SYSTEM_ADMIN_ROLE_SLUG } } }),
-    prisma.user.count({ where: { ...owner, createdAt: { gte: thirtyDaysAgo } } }),
-    prisma.setting.findUnique({ where: { key: 'company.name' }, select: { value: true } }),
+    platformPrisma.user.count({ where: { role: { slug: SYSTEM_ADMIN_ROLE_SLUG } } }),
+    platformPrisma.user.count({ where: { ...owner, createdAt: { gte: thirtyDaysAgo } } }),
+    // The store's own name; with several stores the platform lists them all.
+    platformPrisma.store.findFirst({ orderBy: { createdAt: 'asc' }, select: { name: true } }),
   ]);
 
   return {
@@ -114,7 +115,7 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     staff,
     admins,
     recentOwners,
-    storeName: storeNameSetting?.value || 'Unnamed store',
+    storeName: storeNameSetting?.name || 'Unnamed store',
   };
 }
 
@@ -133,7 +134,7 @@ export interface AdminAuditEntry {
  * denied access, rather than a firehose of every stock movement.
  */
 export async function listAccountAudit(limit = 25): Promise<AdminAuditEntry[]> {
-  const rows = await prisma.auditLog.findMany({
+  const rows = await platformPrisma.auditLog.findMany({
     where: { entity: 'User' },
     orderBy: { createdAt: 'desc' },
     take: limit,

@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { prisma } from '@/lib/prisma';
+import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { authorize } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, NotFoundError } from '@/lib/errors';
@@ -33,6 +33,7 @@ async function trackPriceChanges(
   after: { costPrice: number; sellingPrice: number },
   userId: string,
 ): Promise<void> {
+  const db = await storeDb();
   const changes: { field: 'COST' | 'SELLING'; oldValue: number; newValue: number }[] = [];
 
   const beforeCost = toNum(before.costPrice as never);
@@ -47,7 +48,7 @@ async function trackPriceChanges(
 
   if (changes.length === 0) return;
 
-  await prisma.priceHistory.createMany({
+  await db.priceHistory.createMany({
     data: changes.map((change) => ({
       productId,
       field: change.field,
@@ -59,11 +60,12 @@ async function trackPriceChanges(
 }
 
 export async function createProduct(input: unknown): Promise<ActionResult<{ id: string }>> {
+  const db = await storeDb();
   return runAction(async () => {
     const user = await authorize('products.create');
     const values = parseInput(productSchema, input);
 
-    const product = await prisma.product.create({
+    const product = await db.product.create({
       data: {
         name: values.name,
         sku: values.sku.toUpperCase(),
@@ -97,14 +99,15 @@ export async function createProduct(input: unknown): Promise<ActionResult<{ id: 
 }
 
 export async function updateProduct(id: string, input: unknown): Promise<ActionResult<{ id: string }>> {
+  const db = await storeDb();
   return runAction(async () => {
     const user = await authorize('products.update');
     const values = parseInput(productSchema, input);
 
-    const before = await prisma.product.findUnique({ where: { id } });
+    const before = await db.product.findUnique({ where: { id } });
     if (!before) throw new NotFoundError('Product');
 
-    const updated = await prisma.product.update({
+    const updated = await db.product.update({
       where: { id },
       data: {
         name: values.name,
@@ -152,7 +155,7 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
     // Only after the new image has been saved, so a failure here can never
     // leave the product pointing at a file that no longer exists.
     if (before.imageUrl && before.imageUrl !== values.imageUrl) {
-      const removal = await deleteProductImage(before.imageUrl);
+      const removal = await deleteProductImage(before.imageUrl, (await getStoreContext()).storeId);
       if (removal.status === 'failed') {
         console.error(`[products] replaced image for ${id} but could not remove the old object`, removal);
       }
@@ -169,13 +172,14 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
  * that references them stays intact.
  */
 export async function archiveProductAction(id: string): Promise<ActionResult<void>> {
+  const db = await storeDb();
   return runAction(async () => {
     const user = await authorize('products.update');
 
-    const product = await prisma.product.findUnique({ where: { id }, select: { name: true, sku: true } });
+    const product = await db.product.findUnique({ where: { id }, select: { name: true, sku: true } });
     if (!product) throw new NotFoundError('Product');
 
-    await prisma.product.update({ where: { id }, data: { status: 'ARCHIVED' } });
+    await db.product.update({ where: { id }, data: { status: 'ARCHIVED' } });
 
     await recordAudit({
       action: 'UPDATE',
@@ -196,10 +200,11 @@ export async function archiveProductAction(id: string): Promise<ActionResult<voi
  * historical report. Those are archived instead.
  */
 export async function deleteProduct(id: string): Promise<ActionResult<void>> {
+  const db = await storeDb();
   return runAction(async () => {
     const user = await authorize('products.delete');
 
-    const product = await prisma.product.findUnique({
+    const product = await db.product.findUnique({
       where: { id },
       select: {
         id: true,
@@ -226,10 +231,10 @@ export async function deleteProduct(id: string): Promise<ActionResult<void>> {
       );
     }
 
-    await prisma.product.delete({ where: { id } });
+    await db.product.delete({ where: { id } });
 
     if (product.imageUrl) {
-      const removal = await deleteProductImage(product.imageUrl);
+      const removal = await deleteProductImage(product.imageUrl, (await getStoreContext()).storeId);
       if (removal.status === 'failed') {
         console.error(`[products] deleted product ${id} but could not remove its image`, removal);
       }
@@ -259,7 +264,8 @@ export async function uploadProductImageAction(formData: FormData): Promise<Acti
       throw new ConflictError('No file was received.');
     }
 
-    const url = await uploadProductImage(file, sku);
+    const { storeId } = await getStoreContext();
+    const url = await uploadProductImage(file, sku, storeId);
     return { url };
   });
 }

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import type { CategoryRow } from '@/features/catalogue/managers';
 
 /**
@@ -11,7 +11,8 @@ import type { CategoryRow } from '@/features/catalogue/managers';
  */
 
 export async function listCategories(): Promise<CategoryRow[]> {
-  const rows = await prisma.category.findMany({
+  const db = await storeDb();
+  const rows = await db.category.findMany({
     orderBy: { name: 'asc' },
     select: {
       id: true,

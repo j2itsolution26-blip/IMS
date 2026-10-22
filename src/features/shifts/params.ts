@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { prisma } from '@/lib/prisma';
+import { storeDb } from '@/lib/tenant/context';
 import { resolveRangeFromParams, type DateRange, type PeriodKey } from '@/server/analytics/date-range';
 import type { DiscrepancyFilter, ShiftListQuery, ShiftSort, ShiftView } from '@/server/services/shift-service';
 
@@ -37,8 +37,9 @@ export async function resolveShiftQuery(params: ShiftSearchParams): Promise<{
   custom: { from: string; to: string } | null;
   cashiers: { id: string; name: string }[];
 }> {
+  const db = await storeDb();
   const { period, range, custom } = resolveRangeFromParams(params, 'week');
-  const cashiers = await prisma.user.findMany({
+  const cashiers = await db.user.findMany({
     where: { shifts: { some: {} } },
     select: { id: true, name: true },
     orderBy: { name: 'asc' },

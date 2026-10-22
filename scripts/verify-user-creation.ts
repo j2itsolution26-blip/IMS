@@ -2,7 +2,7 @@
  * Verification for admin account provisioning.
  * Creates temporary accounts against the real database and removes them again.
  */
-import { prisma } from '../src/lib/prisma';
+import { platformPrisma as prisma } from '../src/lib/prisma';
 import { auth } from '../src/lib/auth';
 import { APIError } from 'better-auth/api';
 import { runAsProvisioning } from '../src/lib/provisioning-context';
@@ -23,10 +23,11 @@ async function purge() {
 
 async function main() {
   await purge();
-  const cashier = await prisma.role.findUniqueOrThrow({ where: { slug: 'cashier' }, select: { id: true } });
+  const cashier = await prisma.role.findFirstOrThrow({ where: { slug: 'cashier', storeId: { not: null } }, orderBy: { createdAt: 'asc' }, select: { id: true, storeId: true } });
+  const target = { storeId: cashier.storeId, roleId: cashier.id };
 
   console.log('\n1. Account creation mints NO session (the reported bug)');
-  const created = await runAsProvisioning(async () =>
+  const created = await runAsProvisioning(target, async () =>
     auth.api.signUpEmail({ body: { name: 'Verify User', email: EMAIL, password: PASSWORD, username: 'verify_user' } }));
   const userId = created?.user?.id;
   check('account created', Boolean(userId));
@@ -57,7 +58,7 @@ async function main() {
   const preCheck = await prisma.user.findUnique({ where: { email: EMAIL }, select: { id: true } });
   check('guard 1: pre-check finds the existing account', Boolean(preCheck));
 
-  const dup = await runAsProvisioning(async () =>
+  const dup = await runAsProvisioning(target, async () =>
     auth.api.signUpEmail({ body: { name: 'Dup', email: EMAIL, password: PASSWORD, username: 'verify_dup' } }));
   const phantom = await prisma.user.findUnique({
     where: { id: dup!.user.id }, select: { id: true } });
@@ -69,7 +70,7 @@ async function main() {
 
   console.log('\n5. Password policy enforced server-side');
   try {
-    await runAsProvisioning(async () =>
+    await runAsProvisioning(target, async () =>
       auth.api.signUpEmail({ body: { name: 'Weak', email: 'weak@localhost.test', password: 'short', username: 'verify_weak' } }));
     check('weak password rejected', false, 'no error thrown');
     await prisma.user.deleteMany({ where: { email: 'weak@localhost.test' } });

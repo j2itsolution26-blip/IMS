@@ -8,8 +8,9 @@
 //  * `Inventory` is the single source of truth for on-hand stock and is only ever
 //    mutated inside a transaction that also writes an `InventoryTransaction` row.
 //    The ledger and the balance can therefore never drift.
-//  * This is a single-location system. Exactly one `Warehouse` row is seeded and
-//    every operation resolves it silently server-side — there is no location
+//  * Multi-store: every business row belongs to a `Store` (see below). Each
+//    store is a single location: exactly one `Warehouse` row per store is
+//    seeded and every operation resolves it silently server-side — there is no location
 //    picker anywhere in the UI. The model is kept (rather than removed) so the
 //    stock-ledger engine below needs no changes to its signatures.
 //  * There is no Customer model. Every sale is a walk-in sale.
@@ -25,26 +26,98 @@ datasource db {
 }
 
 // ---------------------------------------------------------------------------
+// Stores (tenants)
+// ---------------------------------------------------------------------------
+
+// One business on the platform. Every store-owned row carries `storeId`, and
+// application code only ever reaches those rows through the store-scoped
+// client in src/lib/tenant, which adds the store to every query. Database
+// triggers (migration 20261023090000) also refuse a row that points at a row
+// of another store, so the two can never be linked even by a bug.
+model Store {
+  id   String @id @default(cuid())
+  name String
+  // URL-safe handle, unique across the platform.
+  slug String @unique
+
+  // The account that owns the store. Set once the owner exists.
+  ownerId String? @unique
+  owner   User?   @relation("StoreOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  plan             StorePlan   @default(BASIC)
+  status           StoreStatus @default(TRIAL)
+  trialEndsAt      DateTime?
+  currentPeriodEnd DateTime?
+
+  members               User[]                 @relation("StoreMembers")
+  roles                 Role[]
+  categories            Category[]
+  products              Product[]
+  priceHistory          PriceHistory[]
+  warehouses            Warehouse[]
+  inventory             Inventory[]
+  inventoryTransactions InventoryTransaction[]
+  shifts                CashierShift[]
+  shiftAdjustments      ShiftAdjustment[]
+  notifications         Notification[]
+  cashMovements         CashMovement[]
+  sales                 Sale[]
+  saleItems             SaleItem[]
+  payments              Payment[]
+  returns               Return[]
+  returnItems           ReturnItem[]
+  auditLogs             AuditLog[]
+  settings              Setting[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("stores")
+}
+
+enum StorePlan {
+  BASIC
+  BUSINESS
+  ENTERPRISE
+}
+
+enum StoreStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+}
+
+// ---------------------------------------------------------------------------
 // Identity & access control
 // ---------------------------------------------------------------------------
 
 model User {
-  id            String    @id @default(cuid())
-  name          String
-  email         String    @unique
+  id String @id @default(cuid())
+
+  // The store this account works in. Empty only for the platform's system
+  // administrators, who hold no store permissions. Migration 20261023090000
+  // keeps a user's store equal to their role's, and only the System
+  // Administrator role has none.
+  storeId         String?
+  store           Store?    @relation("StoreMembers", fields: [storeId], references: [id], onDelete: Restrict)
+  ownedStore      Store?    @relation("StoreOwner")
+  name            String
+  email           String    @unique
   // Sign-in name, stored trimmed and lowercase so uniqueness is
   // case-insensitive (a CHECK constraint in migration 20261020090000 holds
   // it to that form). `displayUsername` keeps the capitalisation as typed.
-  username        String  @unique
+  username        String    @unique
   displayUsername String?
-  emailVerified Boolean   @default(false)
-  image         String?
-  phone         String?
-  isActive      Boolean   @default(true)
-  lastLoginAt   DateTime?
+  emailVerified   Boolean   @default(false)
+  image           String?
+  phone           String?
+  isActive        Boolean   @default(true)
+  lastLoginAt     DateTime?
   // Hash of the POS lock-screen PIN (same hasher as passwords). Optional: with
   // no PIN the lock screen asks for the account password.
-  posPinHash    String?
+  posPinHash      String?
 
   roleId String
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
@@ -56,12 +129,12 @@ model User {
   inventoryTransaction InventoryTransaction[]
   returns              Return[]
   payments             Payment[]
-  shifts               CashierShift[] @relation("ShiftCashier")
-  closedShifts         CashierShift[] @relation("ShiftClosedBy")
-  reviewedShifts       CashierShift[] @relation("ShiftReviewedBy")
+  shifts               CashierShift[]         @relation("ShiftCashier")
+  closedShifts         CashierShift[]         @relation("ShiftClosedBy")
+  reviewedShifts       CashierShift[]         @relation("ShiftReviewedBy")
   cashMovements        CashMovement[]
   shiftAdjustments     ShiftAdjustment[]
-  readNotifications    Notification[] @relation("NotificationReadBy")
+  readNotifications    Notification[]         @relation("NotificationReadBy")
   passkeys             Passkey[]
 
   createdAt DateTime @default(now())
@@ -69,13 +142,20 @@ model User {
 
   @@index([roleId])
   @@index([isActive])
+  @@index([storeId])
   @@map("users")
 }
 
 model Role {
-  id          String  @id @default(cuid())
-  name        String  @unique
-  slug        String  @unique
+  id String @id @default(cuid())
+
+  // Each store has its own copy of the built-in roles, so one owner editing
+  // "Cashier" never changes another store's cashiers. Empty only for the
+  // global System Administrator role.
+  storeId     String?
+  store       Store?  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  name        String
+  slug        String
   description String?
   isSystem    Boolean @default(false)
 
@@ -85,6 +165,9 @@ model Role {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([storeId, slug])
+  @@unique([storeId, name])
+  @@index([storeId])
   @@map("roles")
 }
 
@@ -210,9 +293,15 @@ model Verification {
 // ---------------------------------------------------------------------------
 
 model Category {
-  id          String  @id @default(cuid())
-  name        String  @unique
-  slug        String  @unique
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId     String  @default(dbgenerated())
+  store       Store   @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  name        String
+  slug        String
   description String?
   isActive    Boolean @default(true)
 
@@ -226,14 +315,23 @@ model Category {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([storeId, name])
+  @@unique([storeId, slug])
   @@index([parentId])
+  @@index([storeId])
   @@map("categories")
 }
 
 model Product {
-  id          String  @id @default(cuid())
-  sku         String  @unique
-  barcode     String? @unique
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId     String  @default(dbgenerated())
+  store       Store   @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  sku         String
+  barcode     String?
   name        String
   description String?
   imageUrl    String?
@@ -262,9 +360,12 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([storeId, sku])
+  @@unique([storeId, barcode])
   @@index([categoryId])
   @@index([status])
   @@index([name])
+  @@index([storeId])
   @@map("products")
 }
 
@@ -276,17 +377,24 @@ enum ProductStatus {
 
 // Price changes are auditable and drive the "Price Changed" notification.
 model PriceHistory {
-  id        String   @id @default(cuid())
-  productId String
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
 
-  field    PriceField
-  oldValue Decimal    @db.Decimal(18, 4)
-  newValue Decimal    @db.Decimal(18, 4)
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId   String  @default(dbgenerated())
+  store     Store   @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  field     PriceField
+  oldValue  Decimal    @db.Decimal(18, 4)
+  newValue  Decimal    @db.Decimal(18, 4)
   changedBy String?
-  createdAt DateTime  @default(now())
+  createdAt DateTime   @default(now())
 
   @@index([productId, createdAt])
+  @@index([storeId])
   @@map("price_history")
 }
 
@@ -303,8 +411,14 @@ enum PriceField {
 // Kept as its own table (rather than removed) so the stock-ledger engine
 // below needs no changes — see the file-level note at the top.
 model Warehouse {
-  id        String  @id @default(cuid())
-  code      String  @unique
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId   String  @default(dbgenerated())
+  store     Store   @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  code      String
   name      String
   address   String?
   isDefault Boolean @default(false)
@@ -317,6 +431,8 @@ model Warehouse {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([storeId, code])
+  @@index([storeId])
   @@map("warehouses")
 }
 
@@ -327,7 +443,13 @@ model Warehouse {
 // One row per product per warehouse. `quantity` is on-hand; `reserved` is
 // committed to unfulfilled orders. Available = quantity - reserved.
 model Inventory {
-  id          String @id @default(cuid())
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId     String @default(dbgenerated())
+  store       Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
   productId   String
   warehouseId String
 
@@ -346,12 +468,19 @@ model Inventory {
 
   @@unique([productId, warehouseId])
   @@index([warehouseId])
+  @@index([storeId])
   @@map("inventory")
 }
 
 // Append-only stock ledger. Every movement in the system lands here.
 model InventoryTransaction {
-  id          String @id @default(cuid())
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId     String @default(dbgenerated())
+  store       Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
   productId   String
   warehouseId String
 
@@ -381,6 +510,7 @@ model InventoryTransaction {
   @@index([warehouseId, createdAt])
   @@index([type, createdAt])
   @@index([referenceType, referenceId])
+  @@index([storeId, createdAt])
   @@map("inventory_transactions")
 }
 
@@ -408,9 +538,15 @@ enum ReferenceType {
 // computed live while the shift is open, then frozen onto this row at close
 // so a later void/return can never silently rewrite a reconciled shift.
 model CashierShift {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation("ShiftCashier", fields: [userId], references: [id], onDelete: Restrict)
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId String @default(dbgenerated())
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  userId  String
+  user    User   @relation("ShiftCashier", fields: [userId], references: [id], onDelete: Restrict)
 
   status       ShiftStatus @default(OPEN)
   openedAt     DateTime    @default(now())
@@ -463,6 +599,7 @@ model CashierShift {
   @@index([status])
   @@index([closedAt])
   @@index([reviewStatus])
+  @@index([storeId, status])
   @@map("cashier_shifts")
 }
 
@@ -479,7 +616,13 @@ enum ShiftReviewStatus {
 // cash, negative takes from it. Kept beside the original figures rather than
 // rewriting them, and append-only (a trigger refuses updates and deletes).
 model ShiftAdjustment {
-  id      String       @id @default(cuid())
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId String       @default(dbgenerated())
+  store   Store        @relation(fields: [storeId], references: [id], onDelete: Restrict)
   shiftId String
   shift   CashierShift @relation(fields: [shiftId], references: [id], onDelete: Restrict)
   amount  Decimal      @db.Decimal(18, 4)
@@ -491,6 +634,7 @@ model ShiftAdjustment {
   createdAt DateTime @default(now())
 
   @@index([shiftId])
+  @@index([storeId])
   @@map("shift_adjustments")
 }
 
@@ -498,12 +642,18 @@ model ShiftAdjustment {
 // financial permission sees them. `dedupeKey` is unique, so a retried request
 // or a repeated poll cannot raise the same notice twice.
 model Notification {
-  id        String           @id @default(cuid())
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId   String           @default(dbgenerated())
+  store     Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
   type      NotificationType
   title     String
   body      String
   href      String?
-  dedupeKey String           @unique
+  dedupeKey String
 
   shiftId String?
   shift   CashierShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
@@ -514,8 +664,10 @@ model Notification {
 
   createdAt DateTime @default(now())
 
+  @@unique([storeId, dedupeKey])
   @@index([readAt, createdAt])
   @@index([createdAt])
+  @@index([storeId, createdAt])
   @@map("notifications")
 }
 
@@ -531,7 +683,13 @@ enum NotificationType {
 // than a sale or refund — more change, a supplier paid from the till, a bank
 // drop. Append-only: a mistake is corrected with an opposite movement.
 model CashMovement {
-  id      String           @id @default(cuid())
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId String           @default(dbgenerated())
+  store   Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
   shiftId String
   shift   CashierShift     @relation(fields: [shiftId], references: [id], onDelete: Restrict)
   type    CashMovementType
@@ -545,6 +703,7 @@ model CashMovement {
   createdAt DateTime @default(now())
 
   @@index([shiftId])
+  @@index([storeId])
   @@map("cash_movements")
 }
 
@@ -563,8 +722,14 @@ enum ShiftStatus {
 // ---------------------------------------------------------------------------
 
 model Sale {
-  id            String @id @default(cuid())
-  invoiceNumber String @unique
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId       String @default(dbgenerated())
+  store         Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  invoiceNumber String
 
   warehouseId String
   userId      String
@@ -577,15 +742,15 @@ model Sale {
   status  SaleStatus  @default(COMPLETED)
   channel SaleChannel @default(POS)
 
-  subtotal    Decimal @default(0) @db.Decimal(18, 4)
-  taxAmount   Decimal @default(0) @db.Decimal(18, 4)
-  discount    Decimal @default(0) @db.Decimal(18, 4)
-  total       Decimal @default(0) @db.Decimal(18, 4)
-  paidAmount  Decimal @default(0) @db.Decimal(18, 4)
+  subtotal     Decimal @default(0) @db.Decimal(18, 4)
+  taxAmount    Decimal @default(0) @db.Decimal(18, 4)
+  discount     Decimal @default(0) @db.Decimal(18, 4)
+  total        Decimal @default(0) @db.Decimal(18, 4)
+  paidAmount   Decimal @default(0) @db.Decimal(18, 4)
   changeAmount Decimal @default(0) @db.Decimal(18, 4)
   // Sum of (unitCost * qty) frozen at sale time, so profit never drifts when
   // product cost changes later.
-  costOfGoods Decimal @default(0) @db.Decimal(18, 4)
+  costOfGoods  Decimal @default(0) @db.Decimal(18, 4)
 
   notes String?
 
@@ -596,10 +761,12 @@ model Sale {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([storeId, invoiceNumber])
   @@index([createdAt])
   @@index([userId, createdAt])
   @@index([status])
   @@index([shiftId])
+  @@index([storeId, createdAt])
   @@map("sales")
 }
 
@@ -616,7 +783,13 @@ enum SaleChannel {
 }
 
 model SaleItem {
-  id        String @id @default(cuid())
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId   String @default(dbgenerated())
+  store     Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
   saleId    String
   productId String
 
@@ -634,6 +807,7 @@ model SaleItem {
 
   @@index([saleId])
   @@index([productId])
+  @@index([storeId])
   @@map("sale_items")
 }
 
@@ -642,8 +816,14 @@ model SaleItem {
 // ---------------------------------------------------------------------------
 
 model Payment {
-  id            String @id @default(cuid())
-  paymentNumber String @unique
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId       String @default(dbgenerated())
+  store         Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  paymentNumber String
 
   direction PaymentDirection
   method    PaymentMethod
@@ -668,11 +848,13 @@ model Payment {
 
   createdAt DateTime @default(now())
 
+  @@unique([storeId, paymentNumber])
   @@index([saleId])
   @@index([returnId])
   @@index([shiftId])
   @@index([createdAt])
   @@index([method, createdAt])
+  @@index([storeId, createdAt])
   @@map("payments")
 }
 
@@ -693,8 +875,14 @@ enum PaymentMethod {
 // ---------------------------------------------------------------------------
 
 model Return {
-  id           String @id @default(cuid())
-  returnNumber String @unique
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId      String @default(dbgenerated())
+  store        Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  returnNumber String
 
   status ReturnStatus @default(COMPLETED)
 
@@ -704,11 +892,11 @@ model Return {
   sale Sale? @relation(fields: [saleId], references: [id], onDelete: SetNull)
   user User  @relation(fields: [userId], references: [id], onDelete: Restrict)
 
-  reason      String?
-  subtotal    Decimal @default(0) @db.Decimal(18, 4)
-  total       Decimal @default(0) @db.Decimal(18, 4)
+  reason   String?
+  subtotal Decimal @default(0) @db.Decimal(18, 4)
+  total    Decimal @default(0) @db.Decimal(18, 4)
   // Returned goods that cannot be resold do not go back into sellable stock.
-  restock     Boolean @default(true)
+  restock  Boolean @default(true)
 
   items    ReturnItem[]
   payments Payment[]
@@ -716,8 +904,10 @@ model Return {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([storeId, returnNumber])
   @@index([createdAt])
   @@index([saleId])
+  @@index([storeId, createdAt])
   @@map("returns")
 }
 
@@ -728,7 +918,13 @@ enum ReturnStatus {
 }
 
 model ReturnItem {
-  id         String @id @default(cuid())
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId    String  @default(dbgenerated())
+  store      Store   @relation(fields: [storeId], references: [id], onDelete: Restrict)
   returnId   String
   productId  String
   saleItemId String?
@@ -744,6 +940,7 @@ model ReturnItem {
 
   @@index([returnId])
   @@index([productId])
+  @@index([storeId])
   @@map("return_items")
 }
 
@@ -752,9 +949,14 @@ model ReturnItem {
 // ---------------------------------------------------------------------------
 
 model AuditLog {
-  id     String      @id @default(cuid())
-  action AuditAction
-  entity String
+  id String @id @default(cuid())
+
+  // Store the entry belongs to. Empty for platform events (system
+  // administrators managing stores), which no store can see.
+  storeId  String?
+  store    Store?      @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  action   AuditAction
+  entity   String
   entityId String?
   summary  String
 
@@ -773,6 +975,7 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([entity, entityId])
   @@index([action])
+  @@index([storeId, createdAt])
   @@map("audit_logs")
 }
 
@@ -798,8 +1001,14 @@ enum AuditAction {
 // Key/value app configuration. Typed by `type` so the settings UI can render
 // the right control without a schema migration per setting.
 model Setting {
-  id          String      @id @default(cuid())
-  key         String      @unique
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId     String      @default(dbgenerated())
+  store       Store       @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  key         String
   value       String
   type        SettingType @default(STRING)
   group       String      @default("general")
@@ -809,7 +1018,9 @@ model Setting {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([storeId, key])
   @@index([group])
+  @@index([storeId])
   @@map("settings")
 }
 

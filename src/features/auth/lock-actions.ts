@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
+import { platformPrisma } from '@/lib/prisma';
 import { authenticate, getCurrentUser } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { UnauthorizedError, ValidationError } from '@/lib/errors';
@@ -15,7 +15,7 @@ import {
   pinProblem,
   type UnlockMethod,
 } from '@/lib/pos-pin';
-import { recordAudit } from '@/server/services/audit-service';
+import { recordAuditFor } from '@/server/services/audit-service';
 
 /**
  * POS screen lock.
@@ -36,7 +36,7 @@ export async function lockSession(): Promise<ActionResult<void>> {
     if (!user) throw new UnauthorizedError();
     if (user.isLocked) return;
 
-    await prisma.session.update({
+    await platformPrisma.session.update({
       where: { id: user.sessionId },
       data: { lockedAt: new Date(), unlockFailures: 0 },
     });
@@ -66,7 +66,7 @@ export async function unlockSession(input: unknown): Promise<ActionResult<Unlock
     // server recording it. Clearing it must still prove who is at the counter.
     checkRateLimit(`unlock:${user.sessionId}`, RATE_LIMITS.auth);
 
-    const owner = await prisma.user.findUnique({
+    const owner = await platformPrisma.user.findUnique({
       where: { id: user.id },
       select: { posPinHash: true },
     });
@@ -79,13 +79,13 @@ export async function unlockSession(input: unknown): Promise<ActionResult<Unlock
     // atomic, so parallel guesses cannot slip past the limit between a read
     // and a write.
     const limit = method === 'pin' ? MAX_PIN_FAILURES : MAX_UNLOCK_FAILURES;
-    const claimed = await prisma.session.updateMany({
+    const claimed = await platformPrisma.session.updateMany({
       where: { id: user.sessionId, unlockFailures: { lt: limit } },
       data: { unlockFailures: { increment: 1 } },
     });
 
     if (claimed.count === 0) {
-      const row = await prisma.session.findUnique({
+      const row = await platformPrisma.session.findUnique({
         where: { id: user.sessionId },
         select: { unlockFailures: true },
       });
@@ -101,7 +101,7 @@ export async function unlockSession(input: unknown): Promise<ActionResult<Unlock
     if (method === 'pin' && owner?.posPinHash) {
       valid = await ctx.password.verify({ hash: owner.posPinHash, password: secret });
     } else if (method === 'password') {
-      const account = await prisma.account.findFirst({
+      const account = await platformPrisma.account.findFirst({
         where: { userId: user.id, providerId: 'credential' },
         select: { password: true },
       });
@@ -109,14 +109,14 @@ export async function unlockSession(input: unknown): Promise<ActionResult<Unlock
     }
 
     if (valid) {
-      await prisma.session.update({
+      await platformPrisma.session.update({
         where: { id: user.sessionId },
         data: { lockedAt: null, unlockFailures: 0 },
       });
       return { unlocked: true, methods: [] };
     }
 
-    const row = await prisma.session.findUnique({
+    const row = await platformPrisma.session.findUnique({
       where: { id: user.sessionId },
       select: { unlockFailures: true },
     });
@@ -126,8 +126,8 @@ export async function unlockSession(input: unknown): Promise<ActionResult<Unlock
     if (methods.length === 0) {
       // Someone is guessing. End this session; whoever comes back has to sign
       // in properly with a username or email and password.
-      await prisma.session.deleteMany({ where: { id: user.sessionId } });
-      await recordAudit({
+      await platformPrisma.session.deleteMany({ where: { id: user.sessionId } });
+      await recordAuditFor(user, {
         action: 'LOGOUT',
         entity: 'User',
         entityId: user.id,
@@ -155,7 +155,7 @@ export async function unlockSession(input: unknown): Promise<ActionResult<Unlock
 /** Confirms the signed-in user's own password before a PIN change. */
 async function verifyOwnPassword(userId: string, password: string): Promise<void> {
   checkRateLimit(`pin-change:${userId}`, RATE_LIMITS.auth);
-  const account = await prisma.account.findFirst({
+  const account = await platformPrisma.account.findFirst({
     where: { userId, providerId: 'credential' },
     select: { password: true },
   });
@@ -189,12 +189,12 @@ export async function setOwnPosPin(input: unknown): Promise<ActionResult<void>> 
     // The same hasher as passwords, so the PIN is never stored in a readable
     // or quickly reversible form.
     const ctx = await auth.$context;
-    await prisma.user.update({
+    await platformPrisma.user.update({
       where: { id: user.id },
       data: { posPinHash: await ctx.password.hash(values.pin) },
     });
 
-    await recordAudit({
+    await recordAuditFor(user, {
       action: 'UPDATE',
       entity: 'User',
       entityId: user.id,
@@ -215,9 +215,9 @@ export async function removeOwnPosPin(input: unknown): Promise<ActionResult<void
     const values = parseInput(removePinSchema, input);
     await verifyOwnPassword(user.id, values.currentPassword);
 
-    await prisma.user.update({ where: { id: user.id }, data: { posPinHash: null } });
+    await platformPrisma.user.update({ where: { id: user.id }, data: { posPinHash: null } });
 
-    await recordAudit({
+    await recordAuditFor(user, {
       action: 'UPDATE',
       entity: 'User',
       entityId: user.id,

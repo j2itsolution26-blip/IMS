@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { Prisma } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
+import { getStoreContext } from '@/lib/tenant/context';
 import { toNum } from '@/lib/decimal';
 import { STORE_TIME_ZONE } from '@/lib/store-time';
 
@@ -61,7 +61,8 @@ export async function getSalesTimeSeries(
   granularity: Granularity,
 ): Promise<TimeSeriesPoint[]> {
   // `granularity` is a closed union, so interpolating it into date_trunc is safe.
-  const rows = await prisma.$queryRawUnsafe<TimeSeriesRow[]>(
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRawUnsafe<TimeSeriesRow[]>(
     `
     SELECT
       date_trunc('${granularity}', ${STORE_LOCAL_TIME}) AT TIME ZONE '${STORE_TIME_ZONE}' AS "bucket",
@@ -72,12 +73,13 @@ export async function getSalesTimeSeries(
         SELECT SUM(si.quantity) FROM sale_items si WHERE si."saleId" = s.id
       )), 0)::text                                           AS "units"
     FROM sales s
-    WHERE s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
+    WHERE s."storeId" = $3 AND s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
     GROUP BY 1
     ORDER BY 1 ASC
     `,
     from,
     to,
+    storeId,
   );
 
   return rows.map((r) => ({
@@ -163,7 +165,7 @@ export async function getSalesBreakdown(
       JOIN sales s ON s.id = si."saleId"
       JOIN products p ON p.id = si."productId"
       ${spec.join}
-      WHERE s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
+      WHERE s."storeId" = $4 AND s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
       GROUP BY 1, 2
       ORDER BY SUM(si.total) DESC
       LIMIT $3
@@ -178,13 +180,14 @@ export async function getSalesBreakdown(
         COUNT(*)::int                                     AS "orders"
       FROM sales s
       ${spec.join}
-      WHERE s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
+      WHERE s."storeId" = $4 AND s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
       GROUP BY 1, 2
       ORDER BY SUM(s.total) DESC
       LIMIT $3
       `;
 
-  const rows = await prisma.$queryRawUnsafe<RawBreakdownRow[]>(sql, from, to, limit);
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRawUnsafe<RawBreakdownRow[]>(sql, from, to, limit, storeId);
   const total = rows.reduce((acc, r) => acc + Number(r.revenue), 0);
 
   return rows.map((r) => {
@@ -203,7 +206,8 @@ export async function getSalesBreakdown(
 
 /** Takings split by payment rail — cash drawer vs GCash vs card. */
 export async function getPaymentMethodBreakdown(from: Date, to: Date) {
-  const rows = await prisma.payment.groupBy({
+  const { db } = await getStoreContext();
+  const rows = await db.payment.groupBy({
     by: ['method'],
     where: { direction: 'INBOUND', createdAt: { gte: from, lte: to } },
     _sum: { amount: true },
@@ -234,13 +238,14 @@ export interface HourlyPoint {
  * across the whole window rather than for one specific day.
  */
 export async function getSalesByHour(from: Date, to: Date): Promise<HourlyPoint[]> {
-  const rows = await prisma.$queryRaw<{ hour: number; revenue: string; orders: number }[]>`
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<{ hour: number; revenue: string; orders: number }[]>`
     SELECT
       EXTRACT(HOUR FROM ${Prisma.raw(STORE_LOCAL_TIME)})::int AS "hour",
       COALESCE(SUM(s.total), 0)::text       AS "revenue",
       COUNT(*)::int                         AS "orders"
     FROM sales s
-    WHERE s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+    WHERE s."storeId" = ${storeId} AND s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
     GROUP BY 1
     ORDER BY 1
   `;
@@ -271,14 +276,15 @@ export interface ReturnedProduct {
 
 /** Products coming back most often — a quality or mis-pricing signal. */
 export async function getMostReturnedProducts(from: Date, to: Date, limit = 10): Promise<ReturnedProduct[]> {
-  const rows = await prisma.$queryRaw<
+  const { db, storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<
     { productId: string; name: string; sku: string; unitsReturned: string; unitsSold: string; refundValue: string }[]
   >`
     WITH returned AS (
       SELECT ri."productId", SUM(ri.quantity) AS units, SUM(ri.total) AS value
       FROM return_items ri
       JOIN returns r ON r.id = ri."returnId"
-      WHERE r.status = 'COMPLETED'
+      WHERE r."storeId" = ${storeId} AND r.status = 'COMPLETED'
         AND r."createdAt" >= ${from} AND r."createdAt" <= ${to}
       GROUP BY ri."productId"
     ),
@@ -286,7 +292,7 @@ export async function getMostReturnedProducts(from: Date, to: Date, limit = 10):
       SELECT si."productId", SUM(si.quantity) AS units
       FROM sale_items si
       JOIN sales s ON s.id = si."saleId"
-      WHERE s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+      WHERE s."storeId" = ${storeId} AND s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
       GROUP BY si."productId"
     )
     SELECT

@@ -9,7 +9,7 @@
  * Run with the dev server already running:  npm run probe
  */
 
-import { prisma } from '../src/lib/prisma';
+import { platformPrisma as prisma } from '../src/lib/prisma';
 import { auth } from '../src/lib/auth';
 import { runAsProvisioning } from '../src/lib/provisioning-context';
 
@@ -68,13 +68,12 @@ async function main() {
   console.log('Preparing probe account…');
   await removeProbeAccount();
 
-  const ownerRole = await prisma.role.findUnique({ where: { slug: 'owner' }, select: { id: true } });
+  const ownerRole = await prisma.role.findFirst({ where: { slug: 'owner', storeId: { not: null } }, orderBy: { createdAt: 'asc' }, select: { id: true, storeId: true } });
   if (!ownerRole) throw new Error('Owner role missing — run npm run db:bootstrap first.');
 
-  await runAsProvisioning(async () =>
+  await runAsProvisioning({ storeId: ownerRole.storeId, roleId: ownerRole.id }, async () =>
     auth.api.signUpEmail({ body: { name: 'Probe Account', email: EMAIL, password: PASSWORD, username: 'probe_account' } }),
   );
-  await prisma.user.update({ where: { email: EMAIL }, data: { roleId: ownerRole.id } });
 
   console.log('Signing in over HTTP…');
   const signIn = await fetch(`${BASE}/api/auth/sign-in/email`, {
