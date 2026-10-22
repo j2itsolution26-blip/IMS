@@ -33,7 +33,7 @@ function amountOf(field: string, value: unknown, { allowZero }: { allowZero: boo
 function refresh() {
   revalidatePath('/pos');
   revalidatePath('/dashboard');
-  revalidatePath('/sales/shifts');
+  revalidatePath('/shifts', 'layout');
 }
 
 const openShiftSchema = z.object({

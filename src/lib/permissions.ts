@@ -177,6 +177,9 @@ export const ROUTE_PERMISSIONS: { prefix: string; permission: PermissionKey }[] 
   { prefix: '/products', permission: 'products.view' },
   { prefix: '/inventory', permission: 'inventory.view' },
   { prefix: '/sales', permission: 'sales.view' },
+  // A cashier may open their own shift's report; the pages check
+  // FINANCIAL_PERMISSION for everything else under /shifts.
+  { prefix: '/shifts', permission: 'pos.view' },
   { prefix: '/returns', permission: 'returns.view' },
   { prefix: '/reports', permission: 'reports.view' },
   { prefix: '/settings/users', permission: 'users.view' },

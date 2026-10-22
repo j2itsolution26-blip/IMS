@@ -13,8 +13,9 @@ import {
   ShoppingCart,
   Tags,
   Users,
+  Wallet,
 } from 'lucide-react';
-import type { PermissionKey } from '@/lib/permissions';
+import { FINANCIAL_PERMISSION, type PermissionKey } from '@/lib/permissions';
 
 export interface NavLink {
   label: string;
@@ -124,6 +125,8 @@ export const NAVIGATION: NavSection[] = [
       },
       { label: 'Reports', href: '/reports', icon: FileBarChart, permission: 'reports.view' },
       { label: 'Sales', href: '/sales', icon: ShoppingCart, permission: 'sales.view' },
+      // Every cashier's drawer — owner only, so it uses the financial key.
+      { label: 'Shift Management', href: '/shifts', icon: Wallet, permission: FINANCIAL_PERMISSION },
       { label: 'Settings', href: '/settings', icon: Settings, permission: 'settings.view', exact: true },
     ],
   },

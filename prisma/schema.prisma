@@ -58,7 +58,10 @@ model User {
   payments             Payment[]
   shifts               CashierShift[] @relation("ShiftCashier")
   closedShifts         CashierShift[] @relation("ShiftClosedBy")
+  reviewedShifts       CashierShift[] @relation("ShiftReviewedBy")
   cashMovements        CashMovement[]
+  shiftAdjustments     ShiftAdjustment[]
+  readNotifications    Notification[] @relation("NotificationReadBy")
   passkeys             Passkey[]
 
   createdAt DateTime @default(now())
@@ -433,18 +436,95 @@ model CashierShift {
   // Closing notes.
   notes String?
 
-  sales     Sale[]
-  payments  Payment[]
-  movements CashMovement[]
+  // Human-facing reference, shown as SH-000123. Assigned by the database.
+  number Int @unique @default(autoincrement())
+
+  // Owner review of a closed shift whose count missed the expected cash by
+  // more than the tolerance. Reviewing records who looked and what they
+  // concluded; it never changes the count or the variance above.
+  reviewStatus ShiftReviewStatus @default(NOT_REQUIRED)
+  reviewedById String?
+  reviewedBy   User?             @relation("ShiftReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+  reviewNote   String?
+
+  sales         Sale[]
+  payments      Payment[]
+  movements     CashMovement[]
+  adjustments   ShiftAdjustment[]
+  notifications Notification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Also: a partial unique index (migration 20261021090000) allows one OPEN
-  // shift per cashier, so concurrent opens cannot create a second.
+  // Also, from the migrations: a partial unique index allows one OPEN shift
+  // per cashier, and a trigger refuses changes to a closed shift's figures.
   @@index([userId, status])
   @@index([status])
+  @@index([closedAt])
+  @@index([reviewStatus])
   @@map("cashier_shifts")
+}
+
+enum ShiftReviewStatus {
+  // Open, or closed within the tolerance.
+  NOT_REQUIRED
+  // Closed short or over; waiting for the owner.
+  PENDING
+  REVIEWED
+}
+
+// A correction to a closed shift's reconciliation, made by the owner — money
+// found later, a miscount confirmed. Signed: positive adds to the counted
+// cash, negative takes from it. Kept beside the original figures rather than
+// rewriting them, and append-only (a trigger refuses updates and deletes).
+model ShiftAdjustment {
+  id      String       @id @default(cuid())
+  shiftId String
+  shift   CashierShift @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  amount  Decimal      @db.Decimal(18, 4)
+  reason  String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@index([shiftId])
+  @@map("shift_adjustments")
+}
+
+// In-app notices for the owner. One shared inbox: anyone holding the
+// financial permission sees them. `dedupeKey` is unique, so a retried request
+// or a repeated poll cannot raise the same notice twice.
+model Notification {
+  id        String           @id @default(cuid())
+  type      NotificationType
+  title     String
+  body      String
+  href      String?
+  dedupeKey String           @unique
+
+  shiftId String?
+  shift   CashierShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  readAt   DateTime?
+  readById String?
+  readBy   User?     @relation("NotificationReadBy", fields: [readById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([readAt, createdAt])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  SHIFT_OPENED
+  SHIFT_CLOSED
+  SHIFT_SHORTAGE
+  SHIFT_OVERAGE
+  SHIFT_OVERDUE
 }
 
 // Cash put into or taken out of a drawer during a shift for anything other
@@ -708,6 +788,11 @@ enum AuditAction {
   RETURN
   SETTINGS_CHANGE
   EXPORT
+  SHIFT_OPEN
+  SHIFT_CLOSE
+  CASH_MOVEMENT
+  SHIFT_REVIEW
+  SHIFT_ADJUSTMENT
 }
 
 // Key/value app configuration. Typed by `type` so the settings UI can render

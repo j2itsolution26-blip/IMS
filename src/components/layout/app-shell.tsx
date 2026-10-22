@@ -10,6 +10,8 @@ import { Sidebar, type UserInfo } from '@/components/layout/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { GlobalSearch } from '@/components/layout/global-search';
 import { LockScreenButton, ScreenLockProvider } from '@/features/auth/screen-lock';
+import { NotificationBell } from '@/features/shifts/notification-bell';
+import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 
 interface AppShellProps {
@@ -79,6 +81,7 @@ export function AppShell({
         Skip to content
       </a>
 
+      <div className="no-print">
       <Sidebar
         permissions={permissions}
         lowStockCount={lowStockCount}
@@ -89,15 +92,16 @@ export function AppShell({
         collapsed={mounted ? collapsed : false}
         onToggleCollapse={handleToggleCollapse}
       />
+      </div>
 
       <div
         className={cn(
-          'flex flex-col min-h-dvh transition-all duration-300 ease-in-out',
+          'flex flex-col min-h-dvh transition-all duration-300 ease-in-out print:!pl-0',
           mounted && collapsed ? 'lg:pl-[4.25rem]' : 'lg:pl-64',
         )}
       >
         {/* Header / Top bar */}
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-2xs sm:gap-3 sm:px-4">
+        <header className="no-print sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-2xs sm:gap-3 sm:px-4">
           <Button
             variant="ghost"
             size="icon"
@@ -120,6 +124,7 @@ export function AppShell({
           <GlobalSearch />
 
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
+            {permissions.includes(FINANCIAL_PERMISSION) && <NotificationBell />}
             <LockScreenButton />
             <ThemeToggle variant="dropdown" />
             {userSlot}

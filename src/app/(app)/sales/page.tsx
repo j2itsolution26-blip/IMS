@@ -104,8 +104,8 @@ export default async function SalesPage({
           <PeriodPicker current={period} allowCustom customFrom={custom?.from} customTo={custom?.to} />
           {canViewProfit && (
             <Button asChild variant="outline" size="lg" className="h-11 rounded-xl">
-              <Link href="/sales/shifts">
-                <Wallet /> Shift history
+              <Link href="/shifts">
+                <Wallet /> Shift Management
               </Link>
             </Button>
           )}

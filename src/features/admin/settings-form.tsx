@@ -35,6 +35,10 @@ const GROUP_META: Record<string, { title: string; description: string }> = {
     title: 'Sales & POS',
     description: 'Defaults applied at the till and the threshold for large-sale alerts.',
   },
+  shifts: {
+    title: 'Shifts & Cash Drawer',
+    description: 'When a drawer count is flagged for your review, and when an open shift counts as left open.',
+  },
   security: {
     title: 'Security',
     description: 'Screen locking for shared counter devices. Signing out is always manual.',

@@ -41,6 +41,11 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   { key: 'pos.receiptFooter', value: 'Thank you for your business!', type: 'STRING', group: 'sales', label: 'Receipt footer', description: 'Message printed at the bottom of every receipt.' },
   { key: 'pos.suggestedOpeningCash', value: '1000', type: 'NUMBER', group: 'sales', label: 'Suggested starting cash (₱)', description: 'Shown as a hint when a cashier opens a shift. The cashier still enters the cash they actually counted. 0 hides the hint.' },
 
+  // Shifts — when a drawer count needs the owner's review, and when an open
+  // shift is flagged as left open.
+  { key: 'shifts.varianceTolerance', value: '0', type: 'NUMBER', group: 'shifts', label: 'Variance tolerance (₱)', description: 'A closed shift that counts short or over by more than this needs your review. 0 flags every peso.' },
+  { key: 'shifts.overdueHours', value: '0', type: 'NUMBER', group: 'shifts', label: 'Flag shifts open longer than (hours)', description: 'Notifies you when a shift has been open this long. 0 turns the notice off.' },
+
   // Security. Auto-lock is off by default: the counter must be ready for the
   // next customer, and the cashier can lock the screen by hand at any time.
   { key: 'security.autoLockMinutes', value: '0', type: 'NUMBER', group: 'security', label: 'Auto-lock screen after (minutes)', description: 'Locks the screen after this many minutes without use. The cashier stays signed in and unlocks with their PIN or password. 0 turns auto-lock off.' },
