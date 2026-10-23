@@ -13,6 +13,7 @@ import {
 } from '@/server/reports/exporters';
 import { getCompanyProfile } from '@/server/services/settings-service';
 import { recordAuditSafe } from '@/server/services/audit-service';
+import { featureDenial } from '@/server/services/entitlements';
 
 export const dynamic = 'force-dynamic';
 // Exports build a whole workbook in memory; the Node runtime is required.
@@ -43,6 +44,9 @@ export async function GET(
   if (!canOpenReport(user, report) || !user.permissions.has('reports.export')) {
     return NextResponse.json({ error: 'You do not have permission to export this report.' }, { status: 403 });
   }
+  // Exports are a plan feature, checked on the server whatever the page shows.
+  const planDenial = await featureDenial('reportExports');
+  if (planDenial) return NextResponse.json({ error: planDenial.error }, { status: planDenial.status });
 
   try {
     checkRateLimit(`export:${user.id}`, RATE_LIMITS.export);

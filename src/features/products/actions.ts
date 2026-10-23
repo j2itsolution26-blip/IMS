@@ -10,6 +10,7 @@ import { diff, recordAudit } from '@/server/services/audit-service';
 import { deleteProductImage, uploadProductImage } from '@/server/services/storage-service';
 import { removeProductBackground } from '@/server/services/background-removal-service';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { consumeMetered, requireFeature, requireWithinLimit, requireWritable } from '@/server/services/entitlements';
 import { productSchema } from '@/features/products/schema';
 import { findProductByBarcode, type BarcodeMatch } from '@/features/products/queries';
 
@@ -64,6 +65,8 @@ export async function createProduct(input: unknown): Promise<ActionResult<{ id: 
   return runAction(async () => {
     const user = await authorize('products.create');
     const values = parseInput(productSchema, input);
+    // Archived products do not count against the plan's product quota.
+    if (values.status !== 'ARCHIVED') await requireWithinLimit('products');
 
     const product = await db.product.create({
       data: {
@@ -106,6 +109,8 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
 
     const before = await db.product.findUnique({ where: { id } });
     if (!before) throw new NotFoundError('Product');
+    // Bringing a product back from the archive counts against the quota again.
+    if (before.status === 'ARCHIVED' && values.status !== 'ARCHIVED') await requireWithinLimit('products');
 
     const updated = await db.product.update({
       where: { id },
@@ -264,7 +269,8 @@ export async function uploadProductImageAction(formData: FormData): Promise<Acti
       throw new ConflictError('No file was received.');
     }
 
-    const { storeId } = await getStoreContext();
+    // Storage is outside the store client, so a read-only store is refused here.
+    const { storeId } = await requireWritable();
     const url = await uploadProductImage(file, sku, storeId);
     return { url };
   });
@@ -283,14 +289,23 @@ export async function removeProductBackgroundAction(
 ): Promise<ActionResult<{ dataUrl: string }>> {
   return runAction(async () => {
     const user = await authorize('products.update');
+    const ctx = await requireFeature('backgroundRemoval');
     // Every call spends paid credits, so a stuck retry loop must not drain them.
     checkRateLimit(`remove-bg:${user.id}`, { limit: 20, windowMs: 60_000 });
 
     const file = formData.get('file');
     if (!(file instanceof File)) throw new ConflictError('No file was received.');
 
-    const result = await removeProductBackground(file);
-    return { dataUrl: `data:${result.contentType};base64,${result.bytes.toString('base64')}` };
+    // Takes one of the month's removals atomically; given back if the
+    // removal itself fails, so a failed call costs the store nothing.
+    const usage = await consumeMetered(ctx, 'backgroundRemovals');
+    try {
+      const result = await removeProductBackground(file);
+      return { dataUrl: `data:${result.contentType};base64,${result.bytes.toString('base64')}` };
+    } catch (error) {
+      await usage.refund().catch((refundError) => console.error('[remove-bg] usage refund failed', refundError));
+      throw error;
+    }
   });
 }
 

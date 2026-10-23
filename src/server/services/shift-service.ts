@@ -2,7 +2,7 @@ import 'server-only';
 
 import type { CashMovementType, PaymentMethod, Prisma, SaleStatus, ShiftReviewStatus, ShiftStatus } from '@prisma/client';
 import type { DbClient } from '@/lib/prisma';
-import { getStoreContext, storeDb } from '@/lib/tenant/context';
+import { getStoreContext, storeDb, storeDbForShiftClose } from '@/lib/tenant/context';
 import { D, money, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { MAX_DRAWER_AMOUNT } from '@/lib/cash-amount';
@@ -235,7 +235,8 @@ async function closeShiftById(input: {
   /** Restricts the close to this cashier's own shift. */
   ownerUserId?: string;
 }): Promise<CloseShiftResult> {
-  const db = await storeDb();
+  // Writable even when the store is read-only: an open drawer can always be closed.
+  const db = await storeDbForShiftClose();
   const actualCash = validDrawerAmount(input.actualCash, 'Counted cash', { allowZero: true });
   const tolerance = readNumber(await getSettings(), 'shifts.varianceTolerance');
 

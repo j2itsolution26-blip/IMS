@@ -69,6 +69,7 @@ const config = [
       'src/features/platform/**',
       'src/features/admin/actions.ts',
       'src/server/services/audit-service.ts',
+      'src/server/services/entitlements.ts',
       'src/app/(auth)/**',
       'src/app/locked/**',
       'src/app/api/health/**',

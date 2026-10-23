@@ -5,7 +5,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { APIError } from 'better-auth/api';
 import { auth } from '@/lib/auth';
-import type { StoreStatus } from '@prisma/client';
+import type { StorePlan, StoreStatus } from '@prisma/client';
 import { platformPrisma } from '@/lib/prisma';
 import type { PermissionKey } from '@/lib/permissions';
 import { ForbiddenError, UnauthorizedError } from '@/lib/errors';
@@ -20,7 +20,14 @@ export interface CurrentUser {
   isActive: boolean;
   role: { id: string; name: string; slug: string };
   /** The store this account works in; `null` for platform administrators. */
-  store: { id: string; name: string; status: StoreStatus } | null;
+  store: {
+    id: string;
+    name: string;
+    status: StoreStatus;
+    plan: StorePlan;
+    trialEndsAt: Date | null;
+    currentPeriodEnd: Date | null;
+  } | null;
   permissions: Set<PermissionKey>;
   /** The Better Auth session this request is running under. */
   sessionId: string;
@@ -80,7 +87,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       image: true,
       isActive: true,
       posPinHash: true,
-      store: { select: { id: true, name: true, status: true } },
+      store: { select: { id: true, name: true, status: true, plan: true, trialEndsAt: true, currentPeriodEnd: true } },
       role: {
         select: {
           id: true,

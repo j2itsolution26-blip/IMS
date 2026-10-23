@@ -24,6 +24,7 @@ import {
 import { slugify } from '@/lib/utils';
 import { SETTING_DEFINITIONS } from '@/lib/settings-definitions';
 import { normalizeUsername, usernameProblem } from '@/lib/username';
+import { requireFeature, requireWithinLimit } from '@/server/services/entitlements';
 
 /**
  * Administration: system settings, user accounts, and role permissions.
@@ -225,7 +226,11 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     // hold. Enforced on the server, not just by filtering the dropdown, so a
     // crafted payload cannot mint a privileged account.
     const role = await loadAssignableRole(admin, values.roleId);
-    const { db, storeId } = await getStoreContext();
+    // The plan's staff quota (an inactive account does not count). Account
+    // creation runs through Better Auth on the platform client, so this is
+    // also where a read-only store is refused. The database trigger holds the
+    // quota if two requests race.
+    const { db, storeId } = await requireWithinLimit('staff', values.isActive ? 1 : 0);
 
     // Checked up front so a duplicate reports against the email field rather
     // than surfacing as a generic failure from inside Better Auth. Emails are
@@ -359,6 +364,9 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
     if (values.isActive !== target.isActive) {
       enforce(canManageAccount(policyActor(admin), subject, 'changeStatus'), 'User');
     }
+
+    // Reactivating an account takes a seat in the plan's staff quota.
+    if (values.isActive && !target.isActive) await requireWithinLimit('staff');
 
     const newRole =
       values.roleId === target.roleId ? target.role : await loadAssignableRole(admin, values.roleId);
@@ -542,6 +550,7 @@ const roleSchema = z.object({
 export async function createRole(input: unknown): Promise<ActionResult<{ id: string }>> {
   return runAction(async () => {
     const admin = await authorize('roles.create');
+    await requireFeature('customRoles');
     const values = parseInput(roleSchema, input);
 
     // Ignore anything not in the catalogue — a tampered payload cannot invent
@@ -593,8 +602,12 @@ export async function updateRolePermissions(
     const admin = await authorize('roles.update');
 
     const db = await storeDb();
-    const role = await db.role.findUnique({ where: { id: roleId }, select: ROLE_POLICY_SELECT });
+    const role = await db.role.findUnique({ where: { id: roleId }, select: { ...ROLE_POLICY_SELECT, isSystem: true } });
     if (!role) throw new NotFoundError('Role');
+    // Built-in roles stay editable on every plan; custom ones need a plan with
+    // custom roles. A store that downgraded keeps its custom roles (and can
+    // still assign or delete them), it just cannot reshape them.
+    if (!role.isSystem) await requireFeature('customRoles');
 
     const valid = permissionKeys.filter((key) => STORE_PERMISSION_KEYS.includes(key as never));
 

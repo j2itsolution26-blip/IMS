@@ -14,6 +14,7 @@
 import { PrismaClient } from '@prisma/client';
 import { ALL_PERMISSIONS, SYSTEM_ADMIN_ROLE_SLUG, SYSTEM_ROLES, resolveRolePermissions } from '../src/lib/permissions';
 import { SETTING_DEFINITIONS } from '../src/lib/settings-definitions';
+import { storedLimits } from '../src/lib/store-access';
 
 const prisma = new PrismaClient();
 
@@ -119,6 +120,12 @@ async function installSettings(storeId: string): Promise<number> {
   return created;
 }
 
+/** Copies the plan's quotas onto the store row, where the quota trigger reads them. */
+async function syncLimits(storeId: string) {
+  const store = await prisma.store.findUniqueOrThrow({ where: { id: storeId }, select: { plan: true, status: true } });
+  await prisma.store.update({ where: { id: storeId }, data: storedLimits(store) });
+}
+
 async function main() {
   console.log('Bootstrapping system reference data…\n');
 
@@ -136,7 +143,8 @@ async function main() {
     await installStoreRoles(store.id, permissionIds);
     await installWarehouse(store.id);
     const created = await installSettings(store.id);
-    console.log(`  store "${store.name}": roles, Main Store warehouse, settings (${created} created)`);
+    await syncLimits(store.id);
+    console.log(`  store "${store.name}": roles, Main Store warehouse, settings (${created} created), plan quotas`);
   }
 
   const [users, products] = await Promise.all([prisma.user.count(), prisma.product.count()]);

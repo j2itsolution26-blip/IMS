@@ -3,6 +3,7 @@ import 'server-only';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { AppError, ValidationError } from '@/lib/errors';
+import { planLimitFromDatabase } from '@/lib/plans';
 
 /**
  * Uniform server-action result. Actions never throw at the client boundary —
@@ -55,6 +56,12 @@ export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T
     }
     if (error instanceof AppError) {
       return fail(error.message, error.code);
+    }
+    // A plan quota the database trigger refused (two requests raced past the
+    // check before the insert).
+    const quota = error instanceof Error ? planLimitFromDatabase(error.message) : null;
+    if (quota) {
+      return fail(quota, 'PLAN_LIMIT');
     }
     if (error instanceof z.ZodError) {
       return fail('Please correct the highlighted fields.', 'VALIDATION_ERROR', error.flatten().fieldErrors as Record<string, string[]>);

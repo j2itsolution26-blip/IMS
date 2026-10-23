@@ -49,6 +49,12 @@ model Store {
   trialEndsAt      DateTime?
   currentPeriodEnd DateTime?
 
+  // The plan's quotas, copied here from src/lib/plans.ts whenever the plan or
+  // status changes, so a database trigger can enforce them atomically. Null
+  // means unlimited.
+  productLimit Int?
+  staffLimit   Int?
+
   members               User[]                 @relation("StoreMembers")
   roles                 Role[]
   categories            Category[]
@@ -68,12 +74,28 @@ model Store {
   returnItems           ReturnItem[]
   auditLogs             AuditLog[]
   settings              Setting[]
+  usage                 StoreUsage[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
   @@map("stores")
+}
+
+// Metered use of a plan feature in one period (e.g. background removals in
+// "2026-10"). Incremented atomically against the plan's quota.
+model StoreUsage {
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  metric  String
+  period  String
+  count   Int    @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  @@id([storeId, metric, period])
+  @@map("store_usage")
 }
 
 enum StorePlan {

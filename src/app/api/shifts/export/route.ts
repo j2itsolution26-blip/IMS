@@ -9,6 +9,7 @@ import type { ReportColumn, ReportResult } from '@/server/reports/registry';
 import { EXPORT_ROW_LIMIT, listShifts } from '@/server/services/shift-service';
 import { getCompanyProfile } from '@/server/services/settings-service';
 import { recordAuditSafe } from '@/server/services/audit-service';
+import { featureDenial } from '@/server/services/entitlements';
 import { resolveShiftQuery, type ShiftSearchParams } from '@/features/shifts/params';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,9 @@ export async function GET(request: NextRequest) {
   if (!user.permissions.has(FINANCIAL_PERMISSION)) {
     return NextResponse.json({ error: 'You do not have permission to export shift records.' }, { status: 403 });
   }
+  // Exports are a plan feature, checked on the server whatever the page shows.
+  const planDenial = await featureDenial('reportExports');
+  if (planDenial) return NextResponse.json({ error: planDenial.error }, { status: planDenial.status });
 
   try {
     checkRateLimit(`export:${user.id}`, RATE_LIMITS.export);

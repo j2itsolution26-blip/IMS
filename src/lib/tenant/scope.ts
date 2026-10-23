@@ -53,6 +53,7 @@ export const MODEL_SCOPES: Record<Prisma.ModelName, ModelScope> = {
   ReturnItem: { kind: 'store' },
   AuditLog: { kind: 'store-or-platform' },
   Setting: { kind: 'store' },
+  StoreUsage: { kind: 'store' },
 };
 
 /** A call that tried to reach outside its store. Always a bug, never user error. */
@@ -318,4 +319,61 @@ export function foreignKeysToVerify(
     ids.add(id);
   }
   return { target: scope.target, ids: [...ids] };
+}
+
+// --- Read-only stores ---------------------------------------------------------
+
+const WRITE_OPERATIONS = new Set([
+  'create',
+  'createMany',
+  'createManyAndReturn',
+  'update',
+  'updateMany',
+  'updateManyAndReturn',
+  'upsert',
+  'delete',
+  'deleteMany',
+]);
+
+/** The text of a raw query (placeholders for its values), however it was passed. */
+function rawSqlText(args: unknown): string {
+  const fromParts = (value: unknown): string | null => {
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value) && value.every((part) => typeof part === 'string')) return value.join(' ? ');
+    if (value && typeof value === 'object') {
+      const sql = value as { sql?: unknown; strings?: unknown };
+      if (Array.isArray(sql.strings)) return sql.strings.join(' ? ');
+      if (typeof sql.sql === 'string') return sql.sql;
+    }
+    return null;
+  };
+  if (Array.isArray(args) && args.length > 0 && !args.every((part) => typeof part === 'string')) {
+    return fromParts(args[0]) ?? '';
+  }
+  return fromParts(args) ?? '';
+}
+
+const RAW_WRITE = /^\s*(insert|update|delete|merge|truncate|alter|drop|create|grant|revoke|copy|call|do)\b/i;
+/** A data-modifying statement inside a CTE (`WITH x AS (DELETE FROM ...)`). */
+const CTE_WRITE = /\b(insert\s+into|update\s+"?\w+"?\s+set|delete\s+from|merge\s+into)\b/i;
+
+/**
+ * Whether a raw query writes: one that starts with a writing statement, or a
+ * CTE (`WITH ...`) that contains one. The app's raw reads are SELECTs and
+ * read-only CTEs.
+ */
+export function isRawWrite(args: unknown): boolean {
+  const sql = rawSqlText(args);
+  if (RAW_WRITE.test(sql)) return true;
+  return /^\s*with\b/i.test(sql) && CTE_WRITE.test(sql);
+}
+
+/**
+ * Whether a read-only store's client refuses this model call. The audit trail
+ * still records what happens (sign-ins, exports): it is append-only and
+ * changes no business data.
+ */
+export function isReadOnlyRefused(model: string, operation: string): boolean {
+  if (!WRITE_OPERATIONS.has(operation)) return false;
+  return !(model === 'AuditLog' && operation === 'create');
 }

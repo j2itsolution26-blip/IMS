@@ -63,3 +63,26 @@ export class RateLimitError extends AppError {
     super(`Too many requests. Try again in ${retryAfterSeconds}s.`, 'RATE_LIMITED', 429);
   }
 }
+
+/** The store's subscription ended more than the grace period ago: view and export only. */
+export class StoreReadOnlyError extends AppError {
+  constructor(
+    message = 'This store is read-only because its subscription has ended. You can still view and export your records; renew to make changes again.',
+  ) {
+    super(message, 'STORE_READ_ONLY', 403);
+  }
+}
+
+/** A feature the store's plan does not include. */
+export class FeatureLockedError extends AppError {
+  constructor(message: string) {
+    super(message, 'FEATURE_LOCKED', 403);
+  }
+}
+
+/** Creating one more of something would go over the store's plan quota. */
+export class PlanLimitError extends AppError {
+  constructor(message: string) {
+    super(message, 'PLAN_LIMIT', 409);
+  }
+}

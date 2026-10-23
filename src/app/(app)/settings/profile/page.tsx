@@ -12,12 +12,16 @@ import { PasskeysManager } from '@/features/auth/passkeys-manager';
 import { passkeyConfig } from '@/lib/auth';
 import { passkeysAvailableAt } from '@/lib/passkey-config';
 import { requestOrigin } from '@/lib/request-origin';
+import { storeAccess } from '@/lib/store-access';
+import { auditHistoryStart } from '@/server/services/entitlements';
 
 export const metadata: Metadata = { title: 'Profile' };
 export const dynamic = 'force-dynamic';
 
 export default async function ProfilePage() {
   const user = await requireUser();
+  // A store sees as much audit history as its plan keeps; platform accounts all of it.
+  const historyStart = user.store ? auditHistoryStart({ access: storeAccess(user.store) }) : null;
 
   const [record, recentActivity, passkeys, origin] = await Promise.all([
     platformPrisma.user.findUnique({
@@ -25,7 +29,7 @@ export default async function ProfilePage() {
       select: { name: true, username: true, email: true, phone: true, lastLoginAt: true, createdAt: true },
     }),
     platformPrisma.auditLog.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, ...(historyStart && { createdAt: { gte: historyStart } }) },
       orderBy: { createdAt: 'desc' },
       take: 10,
       select: { id: true, summary: true, createdAt: true },
