@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ChevronRight, User, Users } from 'lucide-react';
+import { ChevronRight, CreditCard, User, Users } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
 import { storeDb } from '@/lib/tenant/context';
 import { SETTING_DEFINITIONS } from '@/lib/settings-definitions';
@@ -35,6 +35,14 @@ export default async function SettingsPage() {
             icon={Users}
             title="Staff Accounts"
             description="Add staff, set their role, and reset passwords."
+          />
+        )}
+        {userCan(user, 'billing.view') && (
+          <SettingsLink
+            href="/settings/subscription"
+            icon={CreditCard}
+            title="Subscription"
+            description="Your plan, usage and payment history."
           />
         )}
         <SettingsLink

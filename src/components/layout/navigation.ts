@@ -10,6 +10,7 @@ import {
   ScrollText,
   Settings,
   ShieldCheck,
+  Store,
   ShoppingCart,
   Tags,
   Users,
@@ -91,6 +92,7 @@ export const NAVIGATION: NavSection[] = [
     label: 'Platform',
     items: [
       { label: 'Overview', href: '/system-admin', icon: ShieldCheck, permission: 'platform.view', exact: true },
+      { label: 'Stores', href: '/system-admin/stores', icon: Store, permission: 'platform.view' },
       { label: 'Owner accounts', href: '/system-admin/owners', icon: Users, permission: 'platform.view' },
       { label: 'Audit log', href: '/system-admin/audit', icon: ScrollText, permission: 'platform.view' },
     ],

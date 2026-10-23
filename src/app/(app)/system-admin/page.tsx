@@ -21,14 +21,21 @@ export default async function SystemAdminPage() {
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">System administration</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Signed in as {admin.name} — platform maintenance for {stats.storeName}.
+            Signed in as {admin.name} — stores, owner accounts and subscriptions.
           </p>
         </div>
-        <Button asChild size="lg" className="h-11 rounded-xl">
-          <Link href="/system-admin/owners">
-            <Users /> Owner accounts
-          </Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild size="lg" variant="outline" className="h-11 rounded-xl">
+            <Link href="/system-admin/owners">
+              <Users /> Owner accounts
+            </Link>
+          </Button>
+          <Button asChild size="lg" className="h-11 rounded-xl">
+            <Link href="/system-admin/stores">
+              <Store /> Stores
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <section aria-label="Platform summary" className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">

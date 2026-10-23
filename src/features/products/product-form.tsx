@@ -22,6 +22,7 @@ import { formatCurrency } from '@/lib/format';
 import { ProductPhotoField, type PhotoUploadStatus } from '@/components/product-photo-field';
 import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
 import { BarcodeDuplicateNotice } from '@/features/inventory/barcode-duplicate-notice';
+import type { UpgradeInfo } from '@/features/subscription/upgrade-dialog';
 
 export interface ProductFormOptions {
   categories: { id: string; name: string }[];
@@ -32,6 +33,7 @@ export interface ProductFormProps {
   currency: string;
   storageEnabled: boolean;
   backgroundRemovalEnabled?: boolean;
+  backgroundRemovalLock?: UpgradeInfo | null;
   /** Shows the live profit and margin line. Only for users who may see cost and profit. */
   canViewProfit?: boolean;
   /** Present when editing. */
@@ -121,6 +123,7 @@ export function ProductForm({
   currency,
   storageEnabled,
   backgroundRemovalEnabled = false,
+  backgroundRemovalLock = null,
   canViewProfit = false,
   productId,
   defaultValues,
@@ -423,6 +426,7 @@ export function ProductForm({
                 fileNameHint={watch('sku') || watch('name') || 'product'}
                 disabled={!storageEnabled}
                 backgroundRemovalEnabled={backgroundRemovalEnabled}
+                backgroundRemovalLock={backgroundRemovalLock}
               />
 
               {/* `imageUrl` stays an internal value: it is written by the

@@ -5,6 +5,8 @@ import { OWNER_ROLE_SLUG } from '@/lib/permissions';
 import { STORE_ACCOUNT_WHERE, canAssignRole, canManageAccount } from '@/server/services/account-policy';
 import { PageHeader } from '@/components/page-header';
 import { StaffAccountsManager, type StaffRow } from '@/features/admin/staff-accounts-manager';
+import { CapacityNotice } from '@/features/subscription/capacity-notice';
+import { capacityFor } from '@/server/services/plan-ui';
 
 export const metadata: Metadata = { title: 'Staff Accounts' };
 export const dynamic = 'force-dynamic';
@@ -91,6 +93,7 @@ export default async function StaffAccountsPage() {
         description="Manage the people who use your store system."
         breadcrumbs={[{ label: 'Settings', href: '/settings' }, { label: 'Staff Accounts' }]}
       />
+      {userCan(currentUser, 'users.create') && <CapacityNotice capacity={await capacityFor('staff')} noun="active staff accounts" />}
       <StaffAccountsManager
         rows={rows}
         roles={assignableRoles}

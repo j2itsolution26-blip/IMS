@@ -3,6 +3,8 @@ import { AppShell } from '@/components/layout/app-shell';
 import { UserMenu } from '@/components/layout/user-menu';
 import { countActionableStock } from '@/server/analytics/badges';
 import { getSettings, readNumber, readString } from '@/server/services/settings-service';
+import { storeAccess } from '@/lib/store-access';
+import { StoreSuspended, SubscriptionBanner } from '@/features/subscription/subscription-banner';
 
 /**
  * Authenticated shell.
@@ -45,7 +47,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         />
       }
     >
-      {children}
+      {user.store?.status === 'SUSPENDED' ? (
+        // Every store query refuses a suspended store; say why instead of failing each page.
+        <StoreSuspended />
+      ) : (
+        <>
+          {user.store && (
+            <SubscriptionBanner access={storeAccess(user.store)} canManageBilling={userCan(user, 'billing.view')} now={new Date()} />
+          )}
+          {children}
+        </>
+      )}
     </AppShell>
   );
 }

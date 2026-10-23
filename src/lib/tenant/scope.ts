@@ -19,6 +19,8 @@ export type ModelScope =
   | { kind: 'store-or-platform' }
   /** No column of its own; belongs to a store through a relation (`role`, `user`). */
   | { kind: 'via'; relation: string; foreignKey: string; target: string }
+  /** Has a NOT NULL `storeId`; a store reads its own rows but only the platform writes them (subscription payments). */
+  | { kind: 'store-readonly' }
   /** The store itself: a scoped client can only read its own row. Plans and status change on the platform side. */
   | { kind: 'self' }
   /** Shared reference data (the permission catalogue): read-only. */
@@ -54,6 +56,7 @@ export const MODEL_SCOPES: Record<Prisma.ModelName, ModelScope> = {
   AuditLog: { kind: 'store-or-platform' },
   Setting: { kind: 'store' },
   StoreUsage: { kind: 'store' },
+  SubscriptionPayment: { kind: 'store-readonly' },
 };
 
 /** A call that tried to reach outside its store. Always a bug, never user error. */
@@ -106,7 +109,7 @@ const OWNING_RELATIONS: Map<string, Set<string>> = new Map(
 );
 
 function isTagged(scope: ModelScope): boolean {
-  return scope.kind === 'store' || scope.kind === 'store-or-platform';
+  return scope.kind === 'store' || scope.kind === 'store-or-platform' || scope.kind === 'store-readonly';
 }
 
 function scopeOf(model: string): ModelScope {
@@ -256,6 +259,9 @@ export function scopeArgs(model: string, operation: string, args: unknown, store
   if (scope.kind === 'reference') {
     if (READ_OPS.has(operation)) return input;
     throw new StoreScopeError(`${model} is read-only for a store`);
+  }
+  if (scope.kind === 'store-readonly' && !READ_OPS.has(operation)) {
+    throw new StoreScopeError(`${model} is written by the platform only`);
   }
   if (scope.kind === 'self' && !READ_OPS.has(operation)) {
     throw new StoreScopeError(`a store cannot ${operation} its store record`);

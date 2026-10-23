@@ -19,6 +19,7 @@ import { FormField, FormError } from '@/components/form';
 import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
 import { BarcodeDuplicateNotice } from '@/features/inventory/barcode-duplicate-notice';
 import { ProductPhotoField, type PhotoUploadStatus } from '@/components/product-photo-field';
+import type { UpgradeInfo } from '@/features/subscription/upgrade-dialog';
 
 const quickAddSchema = z.object({
   name: z.string().trim().min(2, 'Give the product a name.').max(160),
@@ -63,12 +64,14 @@ export function AddProductDialog({
   currency,
   storageEnabled,
   backgroundRemovalEnabled = false,
+  backgroundRemovalLock = null,
 }: {
   categories: { id: string; name: string }[];
   defaultReorderLevel: number;
   currency: string;
   storageEnabled: boolean;
   backgroundRemovalEnabled?: boolean;
+  backgroundRemovalLock?: UpgradeInfo | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -224,6 +227,7 @@ export function AddProductDialog({
                 fileNameHint={watch('name') || 'product'}
                 disabled={!storageEnabled}
                 backgroundRemovalEnabled={backgroundRemovalEnabled}
+                backgroundRemovalLock={backgroundRemovalLock}
               />
             </div>
 

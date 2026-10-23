@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { requirePermission, userCan } from '@/lib/session';
+import { upgradeInfoFor } from '@/server/services/plan-ui';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { getProduct, getProductFormOptions } from '@/features/products/queries';
 import { getCurrency } from '@/server/services/settings-service';
@@ -14,6 +15,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function EditProductPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission('products.update');
+  const backgroundRemovalLock = await upgradeInfoFor('backgroundRemoval');
   const { id } = await params;
 
   const [product, options, currency] = await Promise.all([
@@ -40,7 +42,8 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
         options={options}
         currency={currency}
         storageEnabled={isStorageConfigured()}
-        backgroundRemovalEnabled={isBackgroundRemovalConfigured()}
+        backgroundRemovalEnabled={isBackgroundRemovalConfigured() && !backgroundRemovalLock}
+        backgroundRemovalLock={isBackgroundRemovalConfigured() ? backgroundRemovalLock : null}
         canViewProfit={userCan(user, FINANCIAL_PERMISSION)}
         defaultValues={{
           name: product.name,

@@ -29,6 +29,7 @@ import { FilterBar, PaginationBar } from '@/components/filter-bar';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PlanGate } from '@/features/subscription/plan-gate';
 
 export const metadata: Metadata = { title: 'Sales' };
 export const dynamic = 'force-dynamic';
@@ -109,7 +110,11 @@ export default async function SalesPage({
               </Link>
             </Button>
           )}
-          {canViewProfit && <ExportMenu />}
+          {canViewProfit && (
+            <PlanGate feature="reportExports" label="Export">
+              <ExportMenu />
+            </PlanGate>
+          )}
           {userCan(user, 'pos.create') && (
             <Button asChild size="lg" className="h-11 rounded-xl">
               <Link href="/pos">

@@ -3,10 +3,10 @@ import 'server-only';
 import { platformPrisma } from '@/lib/prisma';
 import { AppError, FeatureLockedError, PlanLimitError, StoreReadOnlyError } from '@/lib/errors';
 import { FEATURE_LABEL, limitMessage, lowestPlanWith, type Feature, type LimitKey } from '@/lib/plans';
-import { storedLimits } from '@/lib/store-access';
 import { storeParts } from '@/lib/store-time';
 import { getStoreContext, type StoreContext } from '@/lib/tenant/context';
 import { returnUsageUnit, takeUsageUnit } from '@/server/services/usage-counter';
+import { syncLimits } from '@/server/platform/store-setup';
 
 /**
  * What a store's plan allows, checked on the server in every action and API
@@ -152,6 +152,22 @@ export function auditHistoryStart(ctx: { access: Pick<StoreContext['access'], 'p
  * only new ones are refused.
  */
 export async function syncStoreLimits(storeId: string): Promise<void> {
-  const store = await platformPrisma.store.findUniqueOrThrow({ where: { id: storeId }, select: { plan: true, status: true } });
-  await platformPrisma.store.update({ where: { id: storeId }, data: storedLimits(store) });
+  await syncLimits(platformPrisma, storeId);
+}
+
+export interface UsageMeter {
+  key: LimitKey;
+  used: number;
+  /** null = unlimited */
+  limit: number | null;
+}
+
+/**
+ * Every quota with its current use — the same counts the limits are checked
+ * against, so a meter never disagrees with what the store is allowed to do.
+ */
+export async function usageSummary(ctx: StoreContext): Promise<UsageMeter[]> {
+  const keys: LimitKey[] = ['products', 'staff', 'branches', 'backgroundRemovalsPerMonth'];
+  const used = await Promise.all(keys.map((key) => countUsage(ctx, key)));
+  return keys.map((key, i) => ({ key, used: used[i], limit: ctx.access.plan.limits[key] }));
 }

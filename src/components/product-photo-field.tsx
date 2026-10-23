@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { removeProductBackgroundAction, uploadProductImageAction } from '@/features/products/actions';
+import { LockedButton, type UpgradeInfo } from '@/features/subscription/upgrade-dialog';
 import { ProductImage } from '@/components/product-image';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
@@ -205,6 +206,7 @@ export function ProductPhotoField({
   fileNameHint,
   disabled,
   backgroundRemovalEnabled = false,
+  backgroundRemovalLock = null,
 }: {
   value: string;
   onChange: (url: string) => void;
@@ -212,6 +214,8 @@ export function ProductPhotoField({
   fileNameHint: string;
   disabled?: boolean;
   backgroundRemovalEnabled?: boolean;
+  /** Set when the store's plan has no background removal: the feature is shown locked. */
+  backgroundRemovalLock?: UpgradeInfo | null;
 }) {
   const [stage, setStage] = React.useState<Stage>('idle');
   const [error, setError] = React.useState<string | null>(null);
@@ -585,6 +589,16 @@ export function ProductPhotoField({
             <Button type="button" variant="outline" onClick={() => setConfirmingRemove(true)}>
               <Trash2 /> Remove
             </Button>
+          )}
+          {backgroundRemovalLock && (
+            <LockedButton
+              label="Remove backgrounds"
+              icon={<Sparkles />}
+              info={backgroundRemovalLock}
+              variant="ghost"
+              size="sm"
+              className="w-full"
+            />
           )}
         </div>
       )}

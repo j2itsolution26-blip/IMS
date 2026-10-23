@@ -5,6 +5,7 @@ import { ALL_PERMISSIONS, isPlatformPermission } from '@/lib/permissions';
 import { accountTier } from '@/server/services/account-policy';
 import { PageHeader } from '@/components/page-header';
 import { RolesManager, type RoleRow } from '@/features/admin/roles-manager';
+import { upgradeInfoFor } from '@/server/services/plan-ui';
 
 export const metadata: Metadata = { title: 'Roles' };
 export const dynamic = 'force-dynamic';
@@ -66,6 +67,7 @@ export default async function RolesPage() {
           canUpdate: userCan(user, 'roles.update'),
           canDelete: userCan(user, 'roles.delete'),
         }}
+        customRolesLock={await upgradeInfoFor('customRoles')}
       />
     </>
   );

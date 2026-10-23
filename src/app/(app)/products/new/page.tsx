@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { AlertTriangle } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
+import { capacityFor, upgradeInfoFor } from '@/server/services/plan-ui';
+import { CapacityNotice } from '@/features/subscription/capacity-notice';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { getProductFormOptions } from '@/features/products/queries';
 import { getCurrency, getSettings, readNumber } from '@/server/services/settings-service';
@@ -13,6 +15,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function NewProductPage() {
   const user = await requirePermission('products.create');
+  const [backgroundRemovalLock, capacity] = await Promise.all([upgradeInfoFor('backgroundRemoval'), capacityFor('products')]);
 
   const [options, currency, settings] = await Promise.all([getProductFormOptions(), getCurrency(), getSettings()]);
   const defaultLowStockLevel = readNumber(settings, 'inventory.defaultLowStockLevel');
@@ -39,11 +42,14 @@ export default async function NewProductPage() {
         </div>
       )}
 
+      <CapacityNotice capacity={capacity} noun="products" />
+
       <ProductForm
         options={options}
         currency={currency}
         storageEnabled={isStorageConfigured()}
-        backgroundRemovalEnabled={isBackgroundRemovalConfigured()}
+        backgroundRemovalEnabled={isBackgroundRemovalConfigured() && !backgroundRemovalLock}
+        backgroundRemovalLock={isBackgroundRemovalConfigured() ? backgroundRemovalLock : null}
         canViewProfit={userCan(user, FINANCIAL_PERMISSION)}
         defaultValues={{ reorderLevel: defaultLowStockLevel }}
       />

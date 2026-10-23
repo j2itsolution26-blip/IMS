@@ -2,6 +2,7 @@ import 'server-only';
 
 import { platformPrisma } from '@/lib/prisma';
 import { OWNER_ROLE_SLUG, SYSTEM_ADMIN_ROLE_SLUG } from '@/lib/permissions';
+import type { StoreSubscription } from '@/lib/store-access';
 
 /**
  * Reads for the platform administrator.
@@ -133,14 +134,15 @@ export interface AdminAuditEntry {
 }
 
 /**
- * Administrative activity on accounts.
+ * Administrative activity on accounts and subscriptions.
  *
- * Scoped to the `User` entity so this reads as a record of who was given or
- * denied access, rather than a firehose of every stock movement.
+ * Scoped to the `User` entity plus the platform's own subscription entries
+ * (plan, status, trial and payment changes), so this reads as a record of who
+ * was given or denied access, rather than a firehose of every stock movement.
  */
 export async function listAccountAudit(limit = 25): Promise<AdminAuditEntry[]> {
   const rows = await platformPrisma.auditLog.findMany({
-    where: { entity: 'User' },
+    where: { OR: [{ entity: 'User' }, { storeId: null, entity: { in: ['Store', 'SubscriptionPayment'] } }] },
     orderBy: { createdAt: 'desc' },
     take: limit,
     select: {
@@ -159,4 +161,117 @@ export async function listAccountAudit(limit = 25): Promise<AdminAuditEntry[]> {
     actorName: row.user?.name ?? null,
     createdAt: row.createdAt,
   }));
+}
+
+// --- Stores and subscriptions -------------------------------------------------
+
+export interface PlatformStoreRow {
+  id: string;
+  name: string;
+  plan: StoreSubscription['plan'];
+  status: StoreSubscription['status'];
+  trialEndsAt: Date | null;
+  currentPeriodEnd: Date | null;
+  createdAt: Date;
+  ownerName: string | null;
+  ownerUsername: string | null;
+  products: number;
+  staff: number;
+  branches: number;
+}
+
+/**
+ * Every store with its subscription and usage, newest first. Usage uses the
+ * same definitions as the plan limits (non-archived products, active staff
+ * other than the owner, warehouses).
+ */
+export async function listStores(search?: string): Promise<PlatformStoreRow[]> {
+  const term = search?.trim() ? `%${search.trim()}%` : null;
+  return platformPrisma.$queryRaw<PlatformStoreRow[]>`
+    SELECT s.id, s.name, s.plan::text AS plan, s.status::text AS status, s."trialEndsAt", s."currentPeriodEnd", s."createdAt",
+      o.name AS "ownerName", o.username AS "ownerUsername",
+      (SELECT count(*)::int FROM products p WHERE p."storeId" = s.id AND p.status <> 'ARCHIVED') AS products,
+      (SELECT count(*)::int FROM users u WHERE u."storeId" = s.id AND u."isActive" AND u.id IS DISTINCT FROM s."ownerId") AS staff,
+      (SELECT count(*)::int FROM warehouses w WHERE w."storeId" = s.id) AS branches
+    FROM stores s
+    LEFT JOIN users o ON o.id = s."ownerId"
+    WHERE ${term}::text IS NULL OR s.name ILIKE ${term} OR o.name ILIKE ${term} OR o.username ILIKE ${term} OR o.email ILIKE ${term}
+    ORDER BY s."createdAt" DESC
+    LIMIT 500`;
+}
+
+export interface PlatformPayment {
+  id: string;
+  plan: StoreSubscription['plan'];
+  amount: string;
+  currency: string;
+  method: 'GCASH' | 'BANK_TRANSFER' | 'OTHER';
+  reference: string;
+  paidAt: Date;
+  months: number;
+  periodStart: Date;
+  periodEnd: Date;
+  notes: string | null;
+  recordedBy: string;
+  createdAt: Date;
+  voidedAt: Date | null;
+  voidedBy: string | null;
+  voidReason: string | null;
+}
+
+export interface PlatformStoreDetail {
+  store: Omit<PlatformStoreRow, 'products' | 'staff' | 'branches'> & { ownerEmail: string | null; ownerPhone: string | null };
+  usage: { products: number; staff: number; branches: number; backgroundRemovals: number };
+  payments: PlatformPayment[];
+  history: AdminAuditEntry[];
+}
+
+export async function getStoreDetail(storeId: string, period: string): Promise<PlatformStoreDetail | null> {
+  const store = await platformPrisma.store.findUnique({
+    where: { id: storeId },
+    select: {
+      id: true, name: true, plan: true, status: true, trialEndsAt: true, currentPeriodEnd: true, createdAt: true, ownerId: true,
+      owner: { select: { name: true, username: true, email: true, phone: true } },
+    },
+  });
+  if (!store) return null;
+
+  const [products, staff, branches, removals, payments, history] = await Promise.all([
+    platformPrisma.product.count({ where: { storeId, status: { not: 'ARCHIVED' } } }),
+    platformPrisma.user.count({ where: { storeId, isActive: true, ...(store.ownerId ? { id: { not: store.ownerId } } : {}) } }),
+    platformPrisma.warehouse.count({ where: { storeId } }),
+    platformPrisma.storeUsage.findUnique({
+      where: { storeId_metric_period: { storeId, metric: 'backgroundRemovals', period } },
+      select: { count: true },
+    }),
+    platformPrisma.subscriptionPayment.findMany({
+      where: { storeId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: { recordedBy: { select: { name: true } }, voidedBy: { select: { name: true } } },
+    }),
+    // The platform's copy of this store's subscription entries (it names the administrator).
+    platformPrisma.auditLog.findMany({
+      where: { storeId: null, entity: { in: ['Store', 'SubscriptionPayment'] }, changes: { path: ['storeId'], equals: storeId } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { id: true, action: true, summary: true, createdAt: true, user: { select: { name: true } } },
+    }),
+  ]);
+
+  return {
+    store: {
+      id: store.id, name: store.name, plan: store.plan, status: store.status, trialEndsAt: store.trialEndsAt,
+      currentPeriodEnd: store.currentPeriodEnd, createdAt: store.createdAt,
+      ownerName: store.owner?.name ?? null, ownerUsername: store.owner?.username ?? null,
+      ownerEmail: store.owner?.email ?? null, ownerPhone: store.owner?.phone ?? null,
+    },
+    usage: { products, staff, branches, backgroundRemovals: removals?.count ?? 0 },
+    payments: payments.map((p) => ({
+      id: p.id, plan: p.plan, amount: p.amount.toFixed(2), currency: p.currency, method: p.method, reference: p.reference,
+      paidAt: p.paidAt, months: p.months, periodStart: p.periodStart, periodEnd: p.periodEnd, notes: p.notes,
+      recordedBy: p.recordedBy.name, createdAt: p.createdAt, voidedAt: p.voidedAt, voidedBy: p.voidedBy?.name ?? null, voidReason: p.voidReason,
+    })),
+    history: history.map((row) => ({ id: row.id, action: row.action, summary: row.summary, actorName: row.user?.name ?? null, createdAt: row.createdAt })),
+  };
 }

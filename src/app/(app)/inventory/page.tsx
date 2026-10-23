@@ -20,6 +20,8 @@ import { InventorySearchFilter } from '@/features/inventory/inventory-search-fil
 import { InventoryProductList } from '@/features/inventory/inventory-product-list';
 import { ScanReceiveDialog } from '@/features/inventory/scan-receive-dialog';
 import { cn } from '@/lib/utils';
+import { PlanGate } from '@/features/subscription/plan-gate';
+import { upgradeInfoFor } from '@/server/services/plan-ui';
 
 export const metadata: Metadata = { title: 'Stock management' };
 export const dynamic = 'force-dynamic';
@@ -37,6 +39,9 @@ export default async function InventoryPage({
 }) {
   const user = await requirePermission('inventory.view');
   const params = await searchParams;
+  // Exports are a plan feature; the API refuses them too.
+  const exportsInPlan = !(await upgradeInfoFor('reportExports'));
+  const backgroundRemovalLock = await upgradeInfoFor('backgroundRemoval');
 
   const status: StockFilter = (STATUS_FILTERS as readonly string[]).includes(params.status ?? '')
     ? (params.status as StockFilter)
@@ -106,7 +111,8 @@ export default async function InventoryPage({
       defaultReorderLevel={defaultReorderLevel}
       currency={currency}
       storageEnabled={storageEnabled}
-      backgroundRemovalEnabled={isBackgroundRemovalConfigured()}
+      backgroundRemovalEnabled={isBackgroundRemovalConfigured() && !backgroundRemovalLock}
+        backgroundRemovalLock={isBackgroundRemovalConfigured() ? backgroundRemovalLock : null}
     />
   );
 
@@ -132,14 +138,21 @@ export default async function InventoryPage({
               <div className={cn('grid sm:order-1', !canAdjustStock && 'col-start-2 sm:hidden')}>
                 <InventoryMoreMenu
                   showStockTools={canAdjustStock}
-                  exportHref={canExport ? EXPORT_HREF : undefined}
+                  exportHref={canExport && exportsInPlan ? EXPORT_HREF : undefined}
                   className="px-4 sm:px-6"
                 />
               </div>
             )}
             {/* The stock report the Reports section already generates — same
                 figures, same permissions, just reachable from here too. */}
-            {canExport && (
+            {canExport && !exportsInPlan && (
+              <div className="hidden sm:order-3 sm:inline-flex">
+                <PlanGate feature="reportExports" label="Export" size="lg">
+                  {null}
+                </PlanGate>
+              </div>
+            )}
+            {canExport && exportsInPlan && (
               <Button variant="outline" size="lg" className="hidden sm:order-3 sm:inline-flex" asChild>
                 {/* A plain anchor: this returns a file, and client-side routing
                     has no idea what to do with a Content-Disposition. */}

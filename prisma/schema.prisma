@@ -75,6 +75,7 @@ model Store {
   auditLogs             AuditLog[]
   settings              Setting[]
   usage                 StoreUsage[]
+  subscriptionPayments  SubscriptionPayment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -96,6 +97,50 @@ model StoreUsage {
 
   @@id([storeId, metric, period])
   @@map("store_usage")
+}
+
+enum SubscriptionPaymentMethod {
+  GCASH
+  BANK_TRANSFER
+  OTHER
+}
+
+// A subscription payment the platform administrator confirmed by hand (GCash
+// or bank transfer received outside the app). Written only by the platform;
+// a store can read its own. Permanent: a trigger (migration 20261026090000)
+// refuses edits and deletes, except voiding an entry once, with a reason.
+model SubscriptionPayment {
+  id      String @id @default(cuid())
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+
+  plan     StorePlan
+  amount   Decimal                   @db.Decimal(12, 2)
+  currency String                    @default("PHP")
+  method   SubscriptionPaymentMethod
+  // The GCash or bank reference, normalised (trimmed, uppercase, no spaces):
+  // the same transfer can never be recorded twice.
+  reference String
+  paidAt    DateTime
+  // The subscription time this payment bought.
+  months      Int
+  periodStart DateTime
+  periodEnd   DateTime
+  notes       String?
+
+  recordedById String
+  recordedBy   User   @relation("PaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+
+  voidedAt   DateTime?
+  voidedById String?
+  voidedBy   User?     @relation("PaymentVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  voidReason String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([method, reference])
+  @@index([storeId, createdAt])
+  @@map("subscription_payments")
 }
 
 enum StorePlan {
@@ -158,6 +203,8 @@ model User {
   shiftAdjustments     ShiftAdjustment[]
   readNotifications    Notification[]         @relation("NotificationReadBy")
   passkeys             Passkey[]
+  recordedPayments     SubscriptionPayment[]  @relation("PaymentRecordedBy")
+  voidedPayments       SubscriptionPayment[]  @relation("PaymentVoidedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1018,6 +1065,8 @@ enum AuditAction {
   CASH_MOVEMENT
   SHIFT_REVIEW
   SHIFT_ADJUSTMENT
+  SUBSCRIPTION
+  PAYMENT
 }
 
 // Key/value app configuration. Typed by `type` so the settings UI can render

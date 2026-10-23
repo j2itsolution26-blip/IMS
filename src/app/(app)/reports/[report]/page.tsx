@@ -12,6 +12,7 @@ import { Card } from '@/components/ui/card';
 import { ExportMenu } from '@/features/reports/export-menu';
 import { ReportTable } from '@/features/reports/report-table';
 import { formatCurrency } from '@/lib/format';
+import { PlanGate } from '@/features/subscription/plan-gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +57,9 @@ export default async function ReportPage({
           <>
             {report.usesDateRange && <PeriodPicker current={period} />}
             {userCan(user, 'reports.export') && (
-              <ExportMenu reportId={report.id} period={report.usesDateRange ? period : undefined} />
+              <PlanGate feature="reportExports" label="Export">
+                <ExportMenu reportId={report.id} period={report.usesDateRange ? period : undefined} />
+              </PlanGate>
             )}
           </>
         }

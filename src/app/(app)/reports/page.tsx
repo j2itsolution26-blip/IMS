@@ -21,6 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ExportMenu } from '@/features/reports/export-menu';
 import { MoreReportsMenu } from '@/features/reports/more-reports-menu';
 import { ReportsPeriodPicker } from '@/features/reports/reports-period-picker';
+import { PlanGate } from '@/features/subscription/plan-gate';
 
 export const metadata: Metadata = { title: 'Reports' };
 
@@ -112,12 +113,14 @@ export default async function ReportsPage({
             />
             )}
             {canSeeSales && userCan(user, 'reports.export') && (
-              <ExportMenu
-                reportId="sales-summary"
-                period={range.period}
-                from={range.preset ? undefined : asDateInput(range.from)}
-                to={range.preset ? undefined : asDateInput(range.to)}
-              />
+              <PlanGate feature="reportExports" label="Export">
+                <ExportMenu
+                  reportId="sales-summary"
+                  period={range.period}
+                  from={range.preset ? undefined : asDateInput(range.from)}
+                  to={range.preset ? undefined : asDateInput(range.to)}
+                />
+              </PlanGate>
             )}
           </>
         }

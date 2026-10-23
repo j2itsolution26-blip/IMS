@@ -17,6 +17,7 @@ export const RESOURCES = [
   'users',
   'roles',
   'settings',
+  'billing',
   'platform',
 ] as const;
 
@@ -41,6 +42,8 @@ const CATALOGUE: Record<Resource, ResourceSpec> = {
   users: { actions: ['view', 'create', 'update', 'delete'], description: 'User accounts' },
   roles: { actions: ['view', 'create', 'update', 'delete'], description: 'Roles and permissions' },
   settings: { actions: ['view', 'update'], description: 'System settings' },
+  // Granted to every Owner role by migration 20261026090000, not bootstrap.
+  billing: { actions: ['view'], description: 'Subscription plan, usage and payments' },
   platform: {
     actions: ['view', 'manage'],
     description: 'Platform administration — owner accounts and the admin audit trail',
@@ -184,5 +187,6 @@ export const ROUTE_PERMISSIONS: { prefix: string; permission: PermissionKey }[] 
   { prefix: '/reports', permission: 'reports.view' },
   { prefix: '/settings/users', permission: 'users.view' },
   { prefix: '/settings/roles', permission: 'roles.view' },
+  { prefix: '/settings/subscription', permission: 'billing.view' },
   { prefix: '/settings', permission: 'settings.view' },
 ];

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Lock, Plus, ShieldCheck, Trash2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { createRole, deleteRole, updateRolePermissions } from '@/features/admin/actions';
+import { LockedButton, PlanBadge, type UpgradeInfo } from '@/features/subscription/upgrade-dialog';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -51,12 +52,15 @@ export function RolesManager({
   ownRoleId,
   allPermissions,
   permissions: can,
+  customRolesLock = null,
 }: {
   roles: RoleRow[];
   /** The signed-in user's role — read-only here, so nobody widens their own access. */
   ownRoleId: string;
   allPermissions: PermissionMeta[];
   permissions: { canCreate: boolean; canUpdate: boolean; canDelete: boolean };
+  /** Set when the plan has no custom roles: creating and reshaping them is locked (deleting is not). */
+  customRolesLock?: UpgradeInfo | null;
 }) {
   const router = useRouter();
 
@@ -75,7 +79,8 @@ export function RolesManager({
 
   const selected = roles.find((role) => role.id === selectedId) ?? roles[0];
   const isOwner = selected?.slug === 'owner';
-  const editable = can.canUpdate && !isOwner && selected?.id !== ownRoleId;
+  const planLocked = Boolean(customRolesLock) && selected !== undefined && !selected.isSystem;
+  const editable = can.canUpdate && !isOwner && selected?.id !== ownRoleId && !planLocked;
 
   const select = (role: RoleRow) => {
     setSelectedId(role.id);
@@ -176,11 +181,14 @@ export function RolesManager({
     <>
       <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
         <div className="space-y-2">
-          {can.canCreate && (
-            <Button className="w-full" onClick={() => setCreateOpen(true)}>
-              <Plus /> New role
-            </Button>
-          )}
+          {can.canCreate &&
+            (customRolesLock ? (
+              <LockedButton label="New role" icon={<Plus />} info={customRolesLock} variant="default" className="w-full" />
+            ) : (
+              <Button className="w-full" onClick={() => setCreateOpen(true)}>
+                <Plus /> New role
+              </Button>
+            ))}
 
           <ul className="space-y-1.5">
             {roles.map((role) => (
@@ -233,6 +241,13 @@ export function RolesManager({
             </CardHeader>
 
             <CardContent className="space-y-4">
+              {planLocked && customRolesLock && (
+                <p className="flex flex-wrap items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  <PlanBadge planName={customRolesLock.planName} />
+                  This custom role keeps working for the staff who have it. Changing its permissions needs the{' '}
+                  {customRolesLock.planName ?? 'higher'} plan; you can still delete it.
+                </p>
+              )}
               {isOwner && (
                 <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
                   The Owner role always has full access and cannot be restricted. This is deliberate — it is
