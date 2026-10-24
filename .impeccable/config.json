@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "tests/support.test.ts"
+        ],
+        "createdAt": "2026-10-24T12:07:59.790Z",
+        "reason": "Claude: the <img onerror=x> string is a deliberate XSS fixture asserting safeAttachmentName strips markup characters; not rendered UI"
+      }
+    ]
+  }
+}
