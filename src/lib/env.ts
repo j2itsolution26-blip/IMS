@@ -23,6 +23,8 @@ const serverSchema = z.object({
   /** Legacy name for NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY. */
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
   SUPABASE_STORAGE_BUCKET: z.string().min(1).default('product-images'),
+  /** Bearer token Vercel Cron sends to /api/cron/*. Without it the jobs refuse every call. */
+  CRON_SECRET: z.string().min(16).optional(),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 });
 

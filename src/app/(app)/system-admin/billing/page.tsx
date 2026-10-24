@@ -26,6 +26,7 @@ import {
   loadSubscriptionRows,
 } from '@/server/platform/billing-queries';
 import { getBillingConfig } from '@/server/platform/billing-service';
+import { runBillingReminders } from '@/server/platform/billing-reminders';
 import { KpiCard } from '@/components/kpi-card';
 import { Panel, PanelEmpty } from '@/components/panel';
 import { PeriodPicker } from '@/components/period-picker';
@@ -65,6 +66,9 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
   const q = (params.q ?? '').trim().slice(0, 80);
   const offered = params.period === 'custom' || COLLECTED_PERIODS.some((p) => p.value === params.period);
   const { period, range, custom } = resolveRangeFromParams(offered ? params : {}, 'month', now);
+
+  // Raise any reminders owed before reading, in case the daily job did not run. Idempotent.
+  await runBillingReminders(now).catch((error) => console.error('[billing] reminder run failed', error));
 
   const [rows, metrics, pending, notifications, config] = await Promise.all([
     loadSubscriptionRows(now),

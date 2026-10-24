@@ -12,6 +12,7 @@ import { auditHistoryStart, usageSummary } from '@/server/services/entitlements'
 import { BILLING_LABEL, INTERVAL_LABEL, LIFECYCLE_LABEL, billingSnapshot } from '@/lib/billing';
 import { getBillingConfig } from '@/server/platform/billing-service';
 import { BillingPanel } from '@/features/billing/billing-panel';
+import { runBillingRemindersForStore } from '@/server/platform/billing-reminders';
 import { Badge } from '@/components/ui/badge';
 
 export const metadata: Metadata = { title: 'Subscription & Billing' };
@@ -28,6 +29,10 @@ export default async function SubscriptionPage() {
   const store = user.store!;
   const now = new Date();
   const { access } = ctx;
+
+  // Raise any reminder this store is owed before reading, so the bell and this
+  // page agree even if the daily job did not run. Idempotent.
+  await runBillingRemindersForStore(store.id, now).catch((error) => console.error('[billing] reminder check failed', error));
 
   const historyStart = auditHistoryStart(ctx, now);
   const [meters, payments, history, invoices, config] = await Promise.all([

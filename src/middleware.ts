@@ -30,7 +30,10 @@ const SESSION_COOKIES = ['better-auth.session_token', '__Secure-better-auth.sess
 //
 // `/setup` is the first-time setup page; it decides on the server whether
 // setup is still open and otherwise redirects to sign-in.
-const PUBLIC_PATHS = ['/sign-in', '/sign-up', '/setup', '/api/auth', '/api/health', '/api/session'];
+//
+// `/api/cron` is called by Vercel Cron, which has no session. Each route there
+// refuses any request without the CRON_SECRET bearer token.
+const PUBLIC_PATHS = ['/sign-in', '/sign-up', '/setup', '/api/auth', '/api/health', '/api/session', '/api/cron'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
