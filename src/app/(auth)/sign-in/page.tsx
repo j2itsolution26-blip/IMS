@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { Lock } from 'lucide-react';
-import { isSetupRequired } from '@/server/platform/setup-service';
+import { getSetupStatus } from '@/server/platform/setup-service';
 import { SignInForm } from '@/features/auth/sign-in-form';
 import { InstallAppLink } from '@/features/pwa/install-app-link';
 import { passkeyConfig } from '@/lib/auth';
@@ -12,17 +12,15 @@ export const metadata: Metadata = { title: 'Sign in' };
 export const dynamic = 'force-dynamic';
 
 /**
- * Whether first-time setup is still open (no completed setup, no account).
- * Until it is done there is nothing to sign in to, so this page sends people
- * to /setup. `false` when the database cannot be reached: the ordinary form
- * shows and the sign-in attempt itself surfaces the real error.
+ * Whether this page should hand over to /setup: setup is still open, or the
+ * database has no tables yet (a new database before its migrations), in which
+ * case /setup explains what to run instead of showing a login nobody can
+ * pass. If the database cannot be reached at all the ordinary form shows, and
+ * the sign-in attempt itself reports it.
  */
 async function setupPending(): Promise<boolean> {
-  try {
-    return await isSetupRequired();
-  } catch {
-    return false;
-  }
+  const status = await getSetupStatus();
+  return status === 'required' || status === 'needs-migrations';
 }
 
 export default async function SignInPage({

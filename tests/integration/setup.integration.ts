@@ -210,6 +210,27 @@ if (!URL_ENV) {
     });
   });
 
+  describe('a database without its tables', () => {
+    test('is reported as needing migrations, not as closed or unreachable', async () => {
+      assert.equal(await setup.getSetupStatus(), 'required');
+      // Simulates a new database before `prisma migrate deploy` on this dedicated test database.
+      await platform.$executeRawUnsafe('ALTER TABLE installation RENAME TO installation_hidden_for_test');
+      try {
+        assert.equal(await setup.getSetupStatus(), 'needs-migrations');
+        await assert.rejects(setup.completeSetup(valid()));
+        assert.equal(await platform.user.count(), 0, 'nothing created');
+      } finally {
+        await platform.$executeRawUnsafe('ALTER TABLE installation_hidden_for_test RENAME TO installation');
+      }
+      assert.equal(await setup.getSetupStatus(), 'required');
+    });
+
+    test('after setup the status is closed', async () => {
+      await setup.completeSetup(valid());
+      assert.equal(await setup.getSetupStatus(), 'closed');
+    });
+  });
+
   describe('claims and keys', () => {
     test('a request that died mid-setup blocks others for 5 minutes, then can be taken over', async () => {
       await platform.installation.create({ data: { id: 1, status: 'IN_PROGRESS', claimToken: 'fresh', claimedAt: new Date() } });

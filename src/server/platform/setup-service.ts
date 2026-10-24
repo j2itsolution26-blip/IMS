@@ -8,6 +8,7 @@ import { runAsProvisioning } from '@/lib/provisioning-context';
 import { getRequestContext } from '@/lib/session';
 import { ConflictError, ForbiddenError, ValidationError } from '@/lib/errors';
 import { installPermissionCatalogue, installPlatformRole } from '@/server/platform/store-setup';
+import { classifySetupError, errorCode, type SetupStatus } from '@/lib/setup-status';
 
 /**
  * First-time setup: creating the installation's initial System Administrator.
@@ -38,6 +39,23 @@ export async function isSetupRequired(): Promise<boolean> {
     platformPrisma.user.count(),
   ]);
   return installation?.status !== 'COMPLETED' && users === 0;
+}
+
+/**
+ * Setup's state for the pages, with a database problem told apart from a
+ * closed setup: a brand-new database whose migrations have not been applied
+ * must say so, not look like an ordinary login. Failures are logged with
+ * their error code only — never the message, which can carry connection
+ * details.
+ */
+export async function getSetupStatus(): Promise<SetupStatus> {
+  try {
+    return (await isSetupRequired()) ? 'required' : 'closed';
+  } catch (error) {
+    const status = classifySetupError(error);
+    console.error(`[setup] status check failed: ${status} (${errorCode(error)})`);
+    return status;
+  }
 }
 
 /** Whether the deployment requires a setup key (the key itself never leaves the server). */

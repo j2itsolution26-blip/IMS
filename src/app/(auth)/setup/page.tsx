@@ -1,8 +1,9 @@
+import type * as React from 'react';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ShieldCheck } from 'lucide-react';
 import { SetupForm } from '@/features/setup/setup-form';
-import { isSetupKeyRequired, isSetupRequired } from '@/server/platform/setup-service';
+import { getSetupStatus, isSetupKeyRequired } from '@/server/platform/setup-service';
 
 export const metadata: Metadata = { title: 'First-time setup' };
 export const dynamic = 'force-dynamic';
@@ -16,35 +17,74 @@ export const dynamic = 'force-dynamic';
  * action that creates the account. Once setup is done this page only
  * redirects to sign-in.
  */
-export default async function SetupPage() {
-  let required: boolean;
-  try {
-    required = await isSetupRequired();
-  } catch {
-    return (
-      <div className="space-y-6">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-bold tracking-tight">Database not reachable</h1>
-          <p className="text-sm text-muted-foreground">The application could not connect to PostgreSQL.</p>
+function Code({ children }: { children: React.ReactNode }) {
+  return <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{children}</code>;
+}
+
+function Problem({ title, lead, children }: { title: string; lead: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <div className="mb-1 flex items-center gap-2 text-warning">
+          <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+          <span className="text-xs font-semibold uppercase tracking-wide">Setup can&apos;t start yet</span>
         </div>
-        <div className="rounded-xl border bg-muted/30 p-4">
-          <p className="mb-2 text-sm font-medium">Check that:</p>
-          <ul className="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
-            <li>
-              <code className="rounded bg-muted px-1.5 py-0.5 text-xs">DATABASE_URL</code> and{' '}
-              <code className="rounded bg-muted px-1.5 py-0.5 text-xs">DIRECT_URL</code> are set.
-            </li>
-            <li>
-              Migrations have been applied — run{' '}
-              <code className="rounded bg-muted px-1.5 py-0.5 text-xs">npm run db:deploy</code>.
-            </li>
-          </ul>
-        </div>
+        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+        <p className="text-sm text-muted-foreground">{lead}</p>
       </div>
+      <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">{children}</div>
+    </div>
+  );
+}
+
+export default async function SetupPage() {
+  const status = await getSetupStatus();
+
+  if (status === 'closed') redirect('/sign-in');
+
+  if (status === 'needs-migrations') {
+    return (
+      <Problem
+        title="The database needs its tables"
+        lead="This database is reachable, but its tables have not been created yet (or are out of date). A new database starts like this: deploying the app does not create them."
+      >
+        <ol className="list-decimal space-y-2 pl-5">
+          <li>
+            On your computer, in the project folder, make sure <Code>DATABASE_URL</Code> and <Code>DIRECT_URL</Code> in{' '}
+            <Code>.env</Code> point at <strong>this</strong> database.
+          </li>
+          <li>
+            Run <Code>npx prisma migrate deploy</Code>, then <Code>npx prisma migrate status</Code> — it should say the
+            schema is up to date.
+          </li>
+          <li>Reload this page. Setup will start; nothing needs to be created by hand.</li>
+        </ol>
+      </Problem>
     );
   }
 
-  if (!required) redirect('/sign-in');
+  if (status === 'unreachable') {
+    return (
+      <Problem title="Database not reachable" lead="The application could not connect to PostgreSQL.">
+        <ul className="list-disc space-y-1.5 pl-5">
+          <li>
+            Check that <Code>DATABASE_URL</Code> and <Code>DIRECT_URL</Code> are set for this deployment and point at a
+            running database.
+          </li>
+          <li>On Vercel, change them under Settings → Environment Variables, then redeploy.</li>
+          <li>If the database was just created or resumed, wait a minute and reload.</li>
+        </ul>
+      </Problem>
+    );
+  }
+
+  if (status === 'failed') {
+    return (
+      <Problem title="Setup could not check the database" lead="Something unexpected went wrong. The details are in the server log.">
+        <p>Reload the page. If it keeps happening, check the deployment&apos;s logs for a line starting with <Code>[setup]</Code>.</p>
+      </Problem>
+    );
+  }
 
   return (
     <div className="space-y-8">

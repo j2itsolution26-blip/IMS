@@ -67,3 +67,25 @@ test('bootstrap no longer creates a store or any account on an empty database', 
   assert.ok(!/store\.create\(/.test(bootstrap));
   assert.ok(!/user\.create|signUpEmail/.test(bootstrap));
 });
+
+test('a database without its tables is told apart from one that cannot be reached', async () => {
+  const { classifySetupError, errorCode } = await import('@/lib/setup-status');
+  const prismaError = (code: string, message = 'x', meta?: Record<string, unknown>) => Object.assign(new Error(message), { code, meta });
+
+  assert.equal(classifySetupError(prismaError('P2021', 'The table `public.installation` does not exist')), 'needs-migrations');
+  assert.equal(classifySetupError(prismaError('P2022')), 'needs-migrations');
+  assert.equal(classifySetupError(prismaError('P2010', 'Raw query failed', { code: '42P01' })), 'needs-migrations');
+  assert.equal(classifySetupError(new Error('ERROR: relation "installation" does not exist')), 'needs-migrations');
+
+  assert.equal(classifySetupError(prismaError('P1001', "Can't reach database server")), 'unreachable');
+  assert.equal(classifySetupError(prismaError('P1017', 'Server has closed the connection.')), 'unreachable');
+  assert.equal(classifySetupError(Object.assign(new Error('init'), { name: 'PrismaClientInitializationError' })), 'unreachable');
+
+  assert.equal(classifySetupError(new Error('something else')), 'failed');
+  assert.equal(classifySetupError(null), 'failed');
+
+  // Only the code is ever logged, never a message that could hold a connection string.
+  const leaky = prismaError('P1001', 'postgresql://user:secret@host/db unreachable');
+  assert.equal(errorCode(leaky), 'P1001');
+  assert.ok(!errorCode(leaky).includes('secret'));
+});
