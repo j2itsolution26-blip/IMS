@@ -71,6 +71,11 @@ const config = [
       'src/server/services/audit-service.ts',
       'src/server/services/entitlements.ts',
       'src/server/platform/**',
+      // Support works for suspended and read-only stores and for the public
+      // Help page, so it cannot use the store client; every query there is
+      // confined to the session's requester (MODEL_SCOPES denies the tables
+      // to store clients).
+      'src/server/support/**',
       'src/app/(auth)/**',
       'src/app/locked/**',
       'src/app/api/health/**',

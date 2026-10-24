@@ -3,6 +3,7 @@ import { AlertTriangle, Ban, Clock } from 'lucide-react';
 import type { StoreAccess } from '@/lib/store-access';
 import { accessHeadline, shouldWarn } from '@/lib/subscription';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 
 /**
  * A strip above every page while the store needs attention: the trial's last
@@ -35,7 +36,7 @@ export function SubscriptionBanner({ access, canManageBilling, now }: { access: 
 }
 
 /** Shown instead of any page while the store is suspended. Its records are untouched. */
-export function StoreSuspended() {
+export function StoreSuspended({ canContactSupport = false }: { canContactSupport?: boolean }) {
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
       <div role="alert" className="w-full max-w-md rounded-card border bg-card p-6 text-center shadow-card">
@@ -47,6 +48,11 @@ export function StoreSuspended() {
           The platform administrator has suspended this store, so it cannot be used for now. No records have been
           removed. Contact support to restore access.
         </p>
+        {canContactSupport && (
+          <Button asChild className="mt-4">
+            <Link href="/support/new?category=BILLING">Contact support</Link>
+          </Button>
+        )}
       </div>
     </div>
   );

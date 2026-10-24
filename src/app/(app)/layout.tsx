@@ -5,6 +5,9 @@ import { countActionableStock } from '@/server/analytics/badges';
 import { getSettings, readNumber, readString } from '@/server/services/settings-service';
 import { storeAccess } from '@/lib/store-access';
 import { StoreSuspended, SubscriptionBanner } from '@/features/subscription/subscription-banner';
+import { SuspendedGate } from '@/features/support/suspended-gate';
+import { countMyUnreadReplies } from '@/server/support/support-service';
+import { countAwaitingAdmin } from '@/server/support/support-admin-service';
 
 /**
  * Authenticated shell.
@@ -16,15 +19,22 @@ import { StoreSuspended, SubscriptionBanner } from '@/features/subscription/subs
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
 
-  const [lowStockCount, settings] = await Promise.all([
+  const [lowStockCount, settings, supportCount] = await Promise.all([
     countActionableStock().catch(() => 0),
     getSettings(),
+    // Administrators: tickets awaiting an answer. Store accounts: replies they have not read.
+    userCan(user, 'platform.view')
+      ? countAwaitingAdmin().catch(() => 0)
+      : userCan(user, 'support.create')
+        ? countMyUnreadReplies(user.id).catch(() => 0)
+        : 0,
   ]);
 
   return (
     <AppShell
       permissions={Array.from(user.permissions)}
       lowStockCount={lowStockCount}
+      supportCount={supportCount}
       companyName={readString(settings, 'company.name') || 'Store'}
       user={{
         name: user.name,
@@ -48,8 +58,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       }
     >
       {user.store?.status === 'SUSPENDED' ? (
-        // Every store query refuses a suspended store; say why instead of failing each page.
-        <StoreSuspended />
+        // Every store query refuses a suspended store; say why instead of
+        // failing each page. Support is the exception (it never uses the
+        // store client), decided on the client so it follows navigation.
+        <SuspendedGate notice={<StoreSuspended canContactSupport={userCan(user, 'support.create')} />}>
+          {children}
+        </SuspendedGate>
       ) : (
         <>
           {user.store && (

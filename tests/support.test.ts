@@ -164,3 +164,79 @@ test('every built-in store role can contact support; the platform role uses its 
   }
   assert.ok(ROUTE_PERMISSIONS.some((route) => route.prefix === '/support' && route.permission === 'support.create'));
 });
+
+// ---------------------------------------------------------------------------
+// Attachments, abuse rules and navigation
+// ---------------------------------------------------------------------------
+
+import { checkAttachmentLimits, detectImageType, safeAttachmentName, SUPPORT_MAX_TOTAL_BYTES } from '@/lib/support-files';
+import { checkFormToken, isHoneypotTripped, FORM_TOKEN_MAX_AGE_MS, FORM_TOKEN_MIN_AGE_MS } from '@/lib/support-abuse-rules';
+import { NAVIGATION, navBadgeCount, visibleNavigation, type NavLink } from '@/components/layout/navigation';
+import { isSupportPath } from '@/lib/support';
+
+const bytes = (...values: number[]) => new Uint8Array(values);
+
+test('attachments: the type comes from the bytes, never the name', () => {
+  assert.equal(detectImageType(bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0)), 'image/png');
+  assert.equal(detectImageType(bytes(0xff, 0xd8, 0xff, 0xe0)), 'image/jpeg');
+  assert.equal(detectImageType(bytes(0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50)), 'image/webp');
+  // An SVG, an HTML page and a Windows executable renamed to .png are all refused.
+  assert.equal(detectImageType(new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>')), null);
+  assert.equal(detectImageType(new TextEncoder().encode('<!doctype html>')), null);
+  assert.equal(detectImageType(bytes(0x4d, 0x5a, 0x90, 0x00)), null);
+  assert.equal(detectImageType(bytes()), null);
+});
+
+test('attachments: names are cleaned and take the real extension', () => {
+  assert.equal(safeAttachmentName('../../etc/passwd', 'image/png'), 'passwd.png');
+  assert.equal(safeAttachmentName('C:\\Users\\me\\shot "1".exe', 'image/jpeg'), 'shot 1.jpg');
+  assert.equal(safeAttachmentName('<img onerror=x>.png', 'image/png'), 'img onerror=x.png');
+  assert.equal(safeAttachmentName('', 'image/webp'), 'screenshot.webp');
+  assert.ok(safeAttachmentName('a'.repeat(500), 'image/png').length <= 84);
+});
+
+test('attachments: count and total size limits', () => {
+  assert.equal(checkAttachmentLimits([{ name: 'a', size: 10 }], 1), null);
+  assert.match(checkAttachmentLimits([{ name: 'a', size: 10 }, { name: 'b', size: 10 }], 1) ?? '', /one screenshot/);
+  assert.match(checkAttachmentLimits([{ name: 'a', size: SUPPORT_MAX_TOTAL_BYTES }, { name: 'b', size: 1 }], 3) ?? '', /5 MB/);
+  assert.match(checkAttachmentLimits([{ name: 'a', size: 0 }], 3) ?? '', /empty/);
+});
+
+test('public form: a believable form age and an empty honeypot', () => {
+  const now = 1_000_000_000;
+  assert.equal(checkFormToken(now - 10_000, now, FORM_TOKEN_MIN_AGE_MS, FORM_TOKEN_MAX_AGE_MS), true);
+  assert.equal(checkFormToken(now - 500, now, FORM_TOKEN_MIN_AGE_MS, FORM_TOKEN_MAX_AGE_MS), false, 'sent too fast');
+  assert.equal(checkFormToken(now - FORM_TOKEN_MAX_AGE_MS - 1, now, FORM_TOKEN_MIN_AGE_MS, FORM_TOKEN_MAX_AGE_MS), false, 'stale');
+  assert.equal(checkFormToken(Number.NaN, now, FORM_TOKEN_MIN_AGE_MS, FORM_TOKEN_MAX_AGE_MS), false);
+  assert.equal(isHoneypotTripped(''), false);
+  assert.equal(isHoneypotTripped(null), false);
+  assert.equal(isHoneypotTripped('http://spam.example'), true);
+});
+
+test('navigation: store roles see Support, administrators see the Support inbox, never the other way round', () => {
+  const labels = (granted: string[]) =>
+    visibleNavigation(NAVIGATION, new Set(granted)).flatMap((section) => section.items).map((item) => item.label);
+  for (const role of SYSTEM_ROLES) {
+    const shown = labels(resolveRolePermissions(role));
+    if (role.slug === 'system-admin') {
+      assert.ok(shown.includes('Support inbox'));
+      assert.ok(!shown.includes('Support'));
+    } else {
+      assert.ok(shown.includes('Support'), `${role.slug} sees Support`);
+      assert.ok(!shown.includes('Support inbox'), `${role.slug} never sees the inbox`);
+    }
+  }
+  const support = NAVIGATION.flatMap((s) => s.items).find((item) => item.label === 'Support') as NavLink;
+  assert.equal(navBadgeCount(support, { lowStock: 4, support: 2 }), 2);
+  assert.equal(navBadgeCount({ ...support, badge: undefined }, { lowStock: 4, support: 2 }), 0);
+});
+
+test('a suspended store can still reach its support pages, and only those', () => {
+  assert.ok(isSupportPath('/support'));
+  assert.ok(isSupportPath('/support/SUP-000001'));
+  assert.ok(isSupportPath('/support/new?category=BILLING'));
+  assert.ok(!isSupportPath('/supporter'));
+  assert.ok(!isSupportPath('/system-admin/support'));
+  assert.ok(!isSupportPath('/dashboard'));
+  assert.ok(!isSupportPath(null));
+});

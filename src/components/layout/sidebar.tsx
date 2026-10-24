@@ -29,7 +29,9 @@ import {
   NAVIGATION,
   isNavGroup,
   isNavLinkActive,
+  navBadgeCount,
   visibleNavigation,
+  type NavBadgeCounts,
   type NavGroup,
   type NavLink,
 } from '@/components/layout/navigation';
@@ -45,6 +47,7 @@ export interface UserInfo {
 interface SidebarProps {
   permissions: string[];
   lowStockCount: number;
+  supportCount: number;
   companyName: string;
   user?: UserInfo;
   open: boolean;
@@ -56,6 +59,7 @@ interface SidebarProps {
 export function Sidebar({
   permissions,
   lowStockCount,
+  supportCount,
   companyName,
   user,
   open,
@@ -65,6 +69,7 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const granted = React.useMemo(() => new Set(permissions), [permissions]);
+  const counts = React.useMemo(() => ({ lowStock: lowStockCount, support: supportCount }), [lowStockCount, supportCount]);
 
   // Escape key handler to close mobile navigation drawer
   React.useEffect(() => {
@@ -181,7 +186,7 @@ export function Sidebar({
                       group={item}
                       pathname={pathname}
                       collapsed={collapsed}
-                      lowStockCount={lowStockCount}
+                      counts={counts}
                       onNavigate={onClose}
                     />
                   ) : (
@@ -190,7 +195,7 @@ export function Sidebar({
                       link={item}
                       active={isNavLinkActive(item, pathname)}
                       collapsed={collapsed}
-                      count={item.badge === 'lowStock' ? lowStockCount : 0}
+                      count={navBadgeCount(item, counts)}
                       onNavigate={onClose}
                     />
                   ),
@@ -382,13 +387,13 @@ function NavGroupItem({
   group,
   pathname,
   collapsed,
-  lowStockCount,
+  counts,
   onNavigate,
 }: {
   group: NavGroup;
   pathname: string;
   collapsed: boolean;
-  lowStockCount: number;
+  counts: NavBadgeCounts;
   onNavigate: () => void;
 }) {
   const listId = React.useId();
@@ -400,7 +405,7 @@ function NavGroupItem({
     if (childActive) setExpanded(true);
   }, [childActive]);
 
-  const countFor = (link: NavLink) => (link.badge === 'lowStock' ? lowStockCount : 0);
+  const countFor = (link: NavLink) => navBadgeCount(link, counts);
   const groupCount = group.children.reduce((sum, child) => sum + countFor(child), 0);
 
   const expandable = (

@@ -18,6 +18,8 @@ import { cn } from '@/lib/utils';
 interface AppShellProps {
   permissions: string[];
   lowStockCount: number;
+  /** Unread support replies (store accounts) or tickets awaiting an answer (administrators). */
+  supportCount: number;
   companyName: string;
   user?: UserInfo;
   userSlot: React.ReactNode;
@@ -37,6 +39,7 @@ const COLLAPSED_STORAGE_KEY = 'ims-sidebar-collapsed';
 export function AppShell({
   permissions,
   lowStockCount,
+  supportCount,
   companyName,
   user,
   userSlot,
@@ -86,6 +89,7 @@ export function AppShell({
       <Sidebar
         permissions={permissions}
         lowStockCount={lowStockCount}
+        supportCount={supportCount}
         companyName={companyName}
         user={user}
         open={sidebarOpen}

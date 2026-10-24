@@ -18,11 +18,11 @@ test('a cashier lands on the cashier dashboard', () => {
   assert.equal(resolveDashboardVariant(permissionsOf('owner')), 'owner');
 });
 
-test('the cashier sidebar reads Dashboard, POS, Products, Inventory, Reports, Sales — and nothing of the owner', () => {
+test('the cashier sidebar reads Dashboard, POS, Products, Inventory, Reports, Sales, then Support — and nothing of the owner', () => {
   const items = visibleNavigation(NAVIGATION, permissionsOf('cashier')).flatMap((section) => section.items);
   assert.deepEqual(
     items.map((item) => item.label),
-    ['Dashboard', 'POS', 'Products', 'Inventory', 'Reports', 'Sales'],
+    ['Dashboard', 'POS', 'Products', 'Inventory', 'Reports', 'Sales', 'Support'],
   );
   const hrefs = items.flatMap((item) => (isNavGroup(item) ? item.children : [item]).map((link) => link.href));
   for (const href of hrefs) {

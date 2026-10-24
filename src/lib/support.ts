@@ -288,3 +288,9 @@ export function parseAdminInboxQuery(params: Record<string, unknown>): AdminInbo
 }
 
 export const SUPPORT_PAGE_SIZE = 20;
+
+/** The requester's support pages: the one place a suspended store's accounts can still go. */
+export function isSupportPath(pathname: string | null): boolean {
+  const path = pathname?.split('?')[0] ?? '';
+  return path === '/support' || path.startsWith('/support/');
+}

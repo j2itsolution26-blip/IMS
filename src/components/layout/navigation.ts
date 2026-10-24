@@ -2,6 +2,8 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Boxes,
   CreditCard,
+  Inbox,
+  LifeBuoy,
   FileBarChart,
   LayoutDashboard,
   List,
@@ -19,13 +21,21 @@ import {
 } from 'lucide-react';
 import { FINANCIAL_PERMISSION, type PermissionKey } from '@/lib/permissions';
 
+export type NavBadge = 'lowStock' | 'support';
+export type NavBadgeCounts = Record<NavBadge, number>;
+
+/** The count a link shows; zero shows nothing. */
+export function navBadgeCount(link: NavLink, counts: NavBadgeCounts): number {
+  return link.badge ? counts[link.badge] : 0;
+}
+
 export interface NavLink {
   label: string;
   href: string;
   icon: LucideIcon;
   permission: PermissionKey;
-  /** Renders the live low-stock count next to the item. */
-  badge?: 'lowStock';
+  /** Renders a live count next to the item: low stock, or support (unread replies / tickets awaiting an answer). */
+  badge?: NavBadge;
   /** Exact match only — stops `/settings` lighting up while on `/settings/users`. */
   exact?: boolean;
   /** Paths that light the item up instead of `href` (each matches its sub-paths too). */
@@ -95,6 +105,7 @@ export const NAVIGATION: NavSection[] = [
       { label: 'Overview', href: '/system-admin', icon: ShieldCheck, permission: 'platform.view', exact: true },
       { label: 'Stores', href: '/system-admin/stores', icon: Store, permission: 'platform.view' },
       { label: 'Billing', href: '/system-admin/billing', icon: CreditCard, permission: 'platform.view' },
+      { label: 'Support inbox', href: '/system-admin/support', icon: Inbox, permission: 'platform.view', badge: 'support' },
       { label: 'Owner accounts', href: '/system-admin/owners', icon: Users, permission: 'platform.view' },
       { label: 'Audit log', href: '/system-admin/audit', icon: ScrollText, permission: 'platform.view' },
     ],
@@ -133,5 +144,11 @@ export const NAVIGATION: NavSection[] = [
       { label: 'Shift Management', href: '/shifts', icon: Wallet, permission: FINANCIAL_PERMISSION },
       { label: 'Settings', href: '/settings', icon: Settings, permission: 'settings.view', exact: true },
     ],
+  },
+  {
+    // Every store role holds support.create; the badge counts replies the
+    // account has not read yet.
+    label: 'Help',
+    items: [{ label: 'Support', href: '/support', icon: LifeBuoy, permission: 'support.create', badge: 'support' }],
   },
 ];
