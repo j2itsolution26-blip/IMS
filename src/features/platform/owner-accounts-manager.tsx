@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { KeyRound, ShieldCheck, ShieldX, UserPlus } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, ShieldCheck, ShieldX, UserPlus, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PlatformAccount } from '@/features/platform/queries';
 import { createOwnerAccount, resetOwnerPassword, setOwnerActive } from '@/features/platform/actions';
@@ -22,6 +22,10 @@ import { EmptyState } from '@/components/empty-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatDateTime } from '@/lib/format';
 import { USERNAME_HINT } from '@/lib/username';
+import { generatePassword } from '@/lib/password';
+
+/** Longer than the 10-character minimum: a generated password is never typed from memory. */
+const GENERATED_PASSWORD_LENGTH = 16;
 
 type Dialogs = { kind: 'create' } | { kind: 'reset' | 'toggle'; account: PlatformAccount } | null;
 
@@ -45,11 +49,31 @@ export function OwnerAccountsManager({
 
   const [form, setForm] = React.useState({ name: '', username: '', email: '', password: '', phone: '' });
   const [password, setPassword] = React.useState('');
+  const [showPassword, setShowPassword] = React.useState(false);
+  // Whether the field holds a freshly generated password, or generation failed.
+  const [generation, setGeneration] = React.useState<'idle' | 'generated' | 'failed'>('idle');
 
   const close = () => {
     setDialog(null);
     setForm({ name: '', username: '', email: '', password: '', phone: '' });
     setPassword('');
+    setShowPassword(false);
+    setGeneration('idle');
+  };
+
+  const onGeneratePassword = () => {
+    try {
+      // Web Crypto only (see generatePassword). If it is unavailable this
+      // throws, and the field is left as it was rather than filled from an
+      // insecure source.
+      const generated = generatePassword(GENERATED_PASSWORD_LENGTH);
+      setForm((current) => ({ ...current, password: generated }));
+      // Revealed so the admin can pass it on; the eye button hides it again.
+      setShowPassword(true);
+      setGeneration('generated');
+    } catch {
+      setGeneration('failed');
+    }
   };
 
   const onCreate = async () => {
@@ -229,15 +253,58 @@ export function OwnerAccountsManager({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="owner-password">Temporary password</Label>
-              <Input
-                id="owner-password"
-                type="password"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-              />
-              <p className="text-xs text-muted-foreground">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="relative min-w-0 flex-1">
+                  <Input
+                    id="owner-password"
+                    type={showPassword ? 'text' : 'password'}
+                    // Stops the browser filling in the admin's own saved password.
+                    autoComplete="new-password"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    className="pr-10 font-mono"
+                    aria-describedby="owner-password-hint owner-password-status"
+                    value={form.password}
+                    onChange={(e) => {
+                      setForm({ ...form, password: e.target.value });
+                      setGeneration('idle');
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((shown) => !shown)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
+                    aria-controls="owner-password"
+                    className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="h-4 w-4" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
+                <Button type="button" variant="outline" className="shrink-0" onClick={onGeneratePassword} disabled={busy}>
+                  <Wand2 /> Generate
+                </Button>
+              </div>
+              <p id="owner-password-hint" className="text-xs text-muted-foreground">
                 At least 10 characters with upper and lower case, a number and a symbol. The owner can
                 change it from Settings once signed in.
+              </p>
+              {/* Announces the outcome, never the password itself. */}
+              <p id="owner-password-status" role="status" aria-live="polite" className="text-xs font-medium">
+                {generation === 'generated' && (
+                  <span className="text-success-text">
+                    New password generated. Copy it for the owner before you create the account.
+                  </span>
+                )}
+                {generation === 'failed' && (
+                  <span className="text-destructive-text">
+                    This browser can&apos;t generate a secure password. Type one in instead.
+                  </span>
+                )}
               </p>
             </div>
           </div>
