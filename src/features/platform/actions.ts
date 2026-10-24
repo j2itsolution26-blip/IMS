@@ -63,8 +63,12 @@ export async function createOwnerAccount(input: unknown): Promise<ActionResult<{
       select: { id: true },
     });
     if (!store) {
+      // Two different dead ends: no store at all, or every store taken.
+      const anyStore = await platformPrisma.store.count();
       throw new ConflictError(
-        'Every store already has an owner. Reset their password or reactivate them instead.',
+        anyStore === 0
+          ? 'There is no store yet. Create one from Stores; its owner is set up with it.'
+          : 'Every store already has an owner. Create a new store from Stores, or reset or reactivate the existing owner.',
       );
     }
     const role = await platformPrisma.role.findUnique({

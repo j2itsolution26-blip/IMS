@@ -1,8 +1,9 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, KeyRound, ShieldCheck, ShieldX, UserPlus, Wand2 } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, ShieldCheck, ShieldX, Store, UserPlus, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PlatformAccount } from '@/features/platform/queries';
 import { createOwnerAccount, resetOwnerPassword, setOwnerActive } from '@/features/platform/actions';
@@ -134,7 +135,22 @@ export function OwnerAccountsManager({
       </div>
 
       <div className="overflow-hidden rounded-card border bg-card shadow-card">
-        {accounts.length === 0 ? (
+        {accounts.length === 0 && storesAwaitingOwner === 0 ? (
+          // An owner belongs to a store, and with no store waiting for one the
+          // server would refuse the form — so point to where owners are made.
+          <EmptyState
+            icon={Store}
+            title="No stores yet"
+            description="Each owner is set up together with their store. Create a store to add its owner."
+            action={
+              <Button asChild>
+                <Link href="/system-admin/stores">
+                  <Store /> Go to Stores
+                </Link>
+              </Button>
+            }
+          />
+        ) : accounts.length === 0 ? (
           <EmptyState
             icon={UserPlus}
             title="No owner account"
