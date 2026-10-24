@@ -30,7 +30,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ThemeToggle } from '@/components/theme-toggle';
 import {
   NAVIGATION,
   isNavGroup,
@@ -300,13 +299,9 @@ export function Sidebar({
             </DropdownMenu>
           )}
 
-          {/* Theme switcher control in expanded view */}
-          <div className={cn(collapsed ? 'lg:hidden' : 'block')}>
-            <ThemeToggle variant="segmented" />
-          </div>
-
-          {/* Collapse/Expand Toggle button (desktop only) */}
-          <div className="hidden lg:flex items-center justify-between pt-1 border-t border-sidebar-border/60">
+          {/* Collapse/Expand Toggle button (desktop only). The theme lives in
+              the header's single control, not here. */}
+          <div className="hidden lg:flex items-center justify-between">
             <Button
               variant="ghost"
               size="sm"

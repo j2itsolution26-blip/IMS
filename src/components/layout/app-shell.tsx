@@ -129,7 +129,7 @@ export function AppShell({
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
             {permissions.includes(FINANCIAL_PERMISSION) && <NotificationBell />}
             <LockScreenButton />
-            <ThemeToggle variant="dropdown" />
+            <ThemeToggle />
             {userSlot}
           </div>
         </header>
