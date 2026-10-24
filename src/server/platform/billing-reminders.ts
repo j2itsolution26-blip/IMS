@@ -2,37 +2,70 @@ import 'server-only';
 
 import { platformPrisma } from '@/lib/prisma';
 import { reminderFor } from '@/lib/billing';
+import { storeAccess } from '@/lib/store-access';
+import { formatDate } from '@/lib/format';
+import { platformNotificationKey } from '@/lib/notifications';
+import { raisePlatformNotification } from '@/server/platform/platform-notification-service';
 
 /**
- * Raises the billing reminders each store is owed (see `reminderFor`).
+ * Raises the billing reminders each store is owed (see `reminderFor`), and
+ * tells administrators about trials ending soon or ended, invoices overdue,
+ * and stores entering their grace period.
  *
- * Idempotent: every reminder has a key unique to its event and window, and
- * the notification tables refuse a second row with the same key, so this can
- * run from the daily job, on page loads, or both, without duplicates. An
- * audit entry is written only for a reminder actually raised now.
+ * Idempotent: every notification has a key unique to its event and window,
+ * and the notification tables refuse a second row with the same key, so this
+ * can run from the daily job, on page loads, or both, without duplicates. An
+ * audit entry is written only for a notice actually raised now.
  *
- * Reminders inform; they never create an invoice or a debt.
+ * Nothing here creates an invoice or a debt: reminders inform.
  */
 
 interface StoreForReminders {
   id: string;
   name: string;
+  plan: 'BASIC' | 'BUSINESS' | 'ENTERPRISE';
   status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED';
   trialEndsAt: Date | null;
+  currentPeriodEnd: Date | null;
   invoices: { id: string; number: string; dueAt: Date; payments: { id: string }[] }[];
 }
 
 const STORE_SELECT = {
   id: true,
   name: true,
+  plan: true,
   status: true,
   trialEndsAt: true,
+  currentPeriodEnd: true,
   invoices: {
     where: { status: 'OPEN' as const },
     take: 1,
     select: { id: true, number: true, dueAt: true, payments: { where: { status: 'PENDING' as const }, select: { id: true } } },
   },
 };
+
+type Tx = Parameters<Parameters<typeof platformPrisma.$transaction>[0]>[0];
+
+/** One owner notice plus its audit entry, only when it is new. */
+async function noticeOwner(tx: Tx, store: StoreForReminders, key: string, title: string, body: string): Promise<boolean> {
+  const raised = await tx.notification.createMany({
+    data: [{ storeId: store.id, type: 'BILLING_REMINDER', title, body, href: '/settings/subscription', dedupeKey: `billing:${key}` }],
+    skipDuplicates: true,
+  });
+  if (raised.count === 0) return false;
+  await tx.auditLog.create({
+    data: {
+      storeId: store.id,
+      userId: null,
+      action: 'SUBSCRIPTION',
+      entity: 'Store',
+      entityId: store.id,
+      summary: `Billing reminder sent: ${title}`,
+      changes: { reminder: key },
+    },
+  });
+  return true;
+}
 
 async function remindStore(store: StoreForReminders, now: Date): Promise<boolean> {
   if (store.status === 'SUSPENDED') return false;
@@ -43,53 +76,77 @@ async function remindStore(store: StoreForReminders, now: Date): Promise<boolean
     hasPendingPayment: (invoice?.payments.length ?? 0) > 0,
     now,
   });
-  if (!reminder) return false;
+  const access = storeAccess(store, now);
 
   return platformPrisma.$transaction(async (tx) => {
-    const raised = await tx.notification.createMany({
-      data: [
-        {
-          storeId: store.id,
-          type: 'BILLING_REMINDER',
-          title: reminder.title,
-          body: reminder.body,
-          href: '/settings/subscription',
-          dedupeKey: `billing:${reminder.key}`,
-        },
-      ],
-      skipDuplicates: true,
-    });
-    if (raised.count === 0) return false;
+    let raised = false;
 
-    await tx.auditLog.create({
-      data: {
-        storeId: store.id,
-        userId: null,
-        action: 'SUBSCRIPTION',
-        entity: 'Store',
-        entityId: store.id,
-        summary: `Billing reminder sent: ${reminder.title}`,
-        changes: { reminder: reminder.key },
-      },
-    });
-
-    // The administrator hears about overdue invoices and ended trials too.
-    if (reminder.key.includes(':overdue-') || reminder.key.endsWith(':ended')) {
-      await tx.platformNotification.createMany({
-        data: [
+    if (reminder && (await noticeOwner(tx, store, reminder.key, reminder.title, reminder.body))) {
+      raised = true;
+      const href = `/system-admin/stores/${store.id}`;
+      if (reminder.key.includes(':overdue-')) {
+        await raisePlatformNotification(
+          { kind: 'INVOICE_OVERDUE', title: `${store.name}: ${reminder.title.toLowerCase()}`, body: reminder.body, href, storeId: store.id, dedupeKey: `billing:${store.id}:${reminder.key}` },
+          { db: tx },
+        );
+      } else if (reminder.key.endsWith(':ended')) {
+        await raisePlatformNotification(
           {
-            kind: reminder.key.includes(':overdue-') ? 'INVOICE_OVERDUE' : 'TRIAL_ENDED',
-            title: `${store.name}: ${reminder.title.toLowerCase()}`,
-            body: reminder.body,
-            href: `/system-admin/stores/${store.id}`,
+            kind: 'TRIAL_ENDED',
+            title: `${store.name}: trial ended`,
+            // A trial ending is not a debt: say what is true.
+            body: 'No paid plan has been chosen. Nothing is owed unless the owner chooses one.',
+            href,
             storeId: store.id,
             dedupeKey: `billing:${store.id}:${reminder.key}`,
           },
-        ],
-        skipDuplicates: true,
-      });
+          { db: tx },
+        );
+      } else if (reminder.key.endsWith(':3d') && store.trialEndsAt) {
+        await raisePlatformNotification(
+          {
+            kind: 'TRIAL_ENDING',
+            title: `${store.name}: trial ends ${formatDate(store.trialEndsAt)}`,
+            body: invoice ? 'The owner has already chosen a plan.' : 'No paid plan chosen yet.',
+            href,
+            storeId: store.id,
+            dedupeKey: platformNotificationKey.trialEnding(store.id, store.trialEndsAt),
+          },
+          { db: tx },
+        );
+      }
     }
-    return true;
+
+    // First time this store is seen in its grace period, for this ending.
+    if (access.state === 'GRACE' && access.endsAt && access.graceEndsAt) {
+      const wasTrial = store.status === 'TRIAL';
+      const createdAdmin = await raisePlatformNotification(
+        {
+          kind: 'GRACE_STARTED',
+          title: `${store.name}: grace period started`,
+          body: `${wasTrial ? 'Trial' : 'Paid period'} ended ${formatDate(access.endsAt)}; read-only from ${formatDate(access.graceEndsAt)} unless renewed.`,
+          href: `/system-admin/stores/${store.id}`,
+          storeId: store.id,
+          dedupeKey: platformNotificationKey.graceStarted(store.id, access.endsAt),
+        },
+        { db: tx },
+      );
+      // A paid period ending has no trial reminder of its own, so the owner
+      // hears it here. Informational: it states access, not money owed.
+      if (!wasTrial && !invoice) {
+        const ownerNoticed = await noticeOwner(
+          tx,
+          store,
+          `period:${access.endsAt.toISOString()}:grace`,
+          'Your plan has ended',
+          `Everything keeps working until ${formatDate(access.graceEndsAt)}, then your store becomes read-only. Choose a plan to renew.`,
+        );
+        raised = raised || ownerNoticed;
+      }
+      raised = raised || createdAdmin;
+    }
+
+    return raised;
   });
 }
 

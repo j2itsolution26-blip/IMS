@@ -285,8 +285,11 @@ model Invoice {
   @@map("invoices")
 }
 
-// Notifications for the platform administrator (no store). Deduplicated by
+// Notifications for platform administrators (no store). Deduplicated by
 // key, so a scheduled job or page load can raise the same event safely.
+// Every administrator is a recipient; whether each has read it is kept per
+// administrator in platform_notification_reads (readAt/readById here are
+// unused since migration 20261030090000 and kept only for history).
 model PlatformNotification {
   id        String    @id @default(cuid())
   kind      String
@@ -299,8 +302,25 @@ model PlatformNotification {
   readById  String?
   createdAt DateTime  @default(now())
 
+  reads PlatformNotificationRead[]
+
   @@index([readAt, createdAt])
+  @@index([createdAt])
   @@map("platform_notifications")
+}
+
+// One administrator has read one platform notification. Written only for
+// the signed-in administrator, so nobody can change another's read state.
+model PlatformNotificationRead {
+  notificationId String
+  notification   PlatformNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                 @relation("PlatformNotificationReads", fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime             @default(now())
+
+  @@id([notificationId, userId])
+  @@index([userId])
+  @@map("platform_notification_reads")
 }
 
 enum StorePlan {
@@ -375,6 +395,7 @@ model User {
   rejectedPayments     SubscriptionPayment[]  @relation("PaymentRejectedBy")
   acceptedInvoices     Invoice[]              @relation("InvoiceAcceptedBy")
   voidedInvoices       Invoice[]              @relation("InvoiceVoidedBy")
+  platformReads        PlatformNotificationRead[] @relation("PlatformNotificationReads")
   completedSetup       Installation[]         @relation("InstallationCompletedBy")
 
   createdAt DateTime @default(now())

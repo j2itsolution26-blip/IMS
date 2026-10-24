@@ -65,6 +65,7 @@ export const MODEL_SCOPES: Record<Prisma.ModelName, ModelScope> = {
   BillingTerms: { kind: 'denied' },
   PlatformSetting: { kind: 'denied' },
   PlatformNotification: { kind: 'denied' },
+  PlatformNotificationRead: { kind: 'denied' },
   Installation: { kind: 'denied' },
 };
 

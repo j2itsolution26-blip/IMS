@@ -16,6 +16,8 @@ import {
   type UnlockMethod,
 } from '@/lib/pos-pin';
 import { recordAuditFor } from '@/server/services/audit-service';
+import { raisePlatformNotification } from '@/server/platform/platform-notification-service';
+import { platformNotificationKey } from '@/lib/notifications';
 
 /**
  * POS screen lock.
@@ -134,6 +136,15 @@ export async function unlockSession(input: unknown): Promise<ActionResult<Unlock
         summary: `Session revoked after ${failures} wrong unlock attempts on the lock screen`,
         userId: user.id,
       });
+      // Someone may be guessing at a signed-in device: administrators hear of it.
+      await raisePlatformNotification({
+        kind: 'SESSION_LOCKOUT',
+        title: `Lock-screen lockout: @${user.username}`,
+        body: `${failures} wrong unlock attempts${user.store ? ` at ${user.store.name}` : ''}. The session was signed out.`,
+        href: '/system-admin/audit',
+        storeId: user.store?.id ?? null,
+        dedupeKey: platformNotificationKey.lockout(user.sessionId),
+      }).catch((error) => console.error('[lock] could not notify a lockout', error));
       return { unlocked: false, methods, message: 'Too many wrong attempts. Please sign in again.' };
     }
 

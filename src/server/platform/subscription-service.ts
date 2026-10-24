@@ -15,6 +15,8 @@ import { MAX_TRIAL_EXTENSION_DAYS, PAYMENT_METHOD_LABEL, STATUS_LABEL, newTrial,
 import { formatDate } from '@/lib/format';
 import { slugify } from '@/lib/utils';
 import { permissionIds, setUpStore, syncLimits } from '@/server/platform/store-setup';
+import { raisePlatformNotification } from '@/server/platform/platform-notification-service';
+import { platformNotificationKey } from '@/lib/notifications';
 
 /**
  * Subscription changes made by the platform administrator: creating a store
@@ -141,6 +143,21 @@ export async function setStoreStatus(actor: Actor, input: { storeId: string; sta
     await tx.store.update({ where: { id: store.id }, data: { status: input.status } });
     await syncLimits(tx, store.id);
     const after = { ...store, status: input.status };
+    // Suspending, and lifting a suspension, are worth every administrator knowing.
+    if (input.status === 'SUSPENDED' || store.status === 'SUSPENDED') {
+      const suspended = input.status === 'SUSPENDED';
+      await raisePlatformNotification(
+        {
+          kind: suspended ? 'STORE_SUSPENDED' : 'STORE_RESTORED',
+          title: suspended ? `${store.name} suspended` : `${store.name} restored`,
+          body: `${STATUS_LABEL[store.status]} → ${STATUS_LABEL[input.status]}: ${input.reason}`,
+          href: `/system-admin/stores/${store.id}`,
+          storeId: store.id,
+          dedupeKey: platformNotificationKey.statusChanged(store.id, input.status, new Date()),
+        },
+        { db: tx, readBy: actor.id },
+      );
+    }
     await audit(tx, actor, store, {
       action: 'SUBSCRIPTION',
       entity: 'Store',
@@ -231,6 +248,18 @@ export async function recordManualPayment(actor: Actor, input: ManualPaymentInpu
       // earlier invoice no longer describes the period in force.
       await tx.store.update({ where: { id: store.id }, data: { plan: input.plan, status: 'ACTIVE', currentPeriodEnd: period.end, billingInterval: null } });
       await syncLimits(tx, store.id);
+      const renewal = store.status === 'ACTIVE' && store.currentPeriodEnd !== null && store.currentPeriodEnd.getTime() > now.getTime();
+      await raisePlatformNotification(
+        {
+          kind: renewal ? 'SUBSCRIPTION_RENEWED' : 'PAYMENT_VERIFIED',
+          title: renewal ? `${store.name} renewed ${PLANS[input.plan].name}` : `${store.name}: payment recorded`,
+          body: `₱${input.amount.toFixed(2)} by ${PAYMENT_METHOD_LABEL[input.method]}; paid until ${formatDate(period.end)}.`,
+          href: `/system-admin/stores/${store.id}`,
+          storeId: store.id,
+          dedupeKey: renewal ? platformNotificationKey.renewed(payment.id) : platformNotificationKey.paymentVerified(payment.id),
+        },
+        { db: tx, readBy: actor.id },
+      );
 
       const after = { ...store, plan: input.plan, status: 'ACTIVE' as const, currentPeriodEnd: period.end };
       await audit(tx, actor, store, {
@@ -385,6 +414,17 @@ export async function createStore(actor: Actor, input: NewStoreInput, now = new 
       summary: `Store created with owner @${input.owner.username} (temporary password, must be changed at first sign-in); ${PLANS[trial.plan].name} trial until ${formatDate(trial.trialEndsAt)}`,
       changes: { after: { plan: trial.plan, status: trial.status, trialEndsAt: iso(trial.trialEndsAt) }, ownerId, ownerMustChangePassword: true },
     });
+    await raisePlatformNotification(
+      {
+        kind: 'STORE_CREATED',
+        title: `Store created: ${store.name}`,
+        body: `Owner @${input.owner.username}; ${PLANS[trial.plan].name} trial until ${formatDate(trial.trialEndsAt)}.`,
+        href: `/system-admin/stores/${store.id}`,
+        storeId: store.id,
+        dedupeKey: platformNotificationKey.storeCreated(store.id),
+      },
+      { db: tx, readBy: actor.id },
+    );
   }, TX);
 
   return { storeId: store.id, ownerId };

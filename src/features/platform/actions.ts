@@ -12,6 +12,8 @@ import { runAsProvisioning } from '@/lib/provisioning-context';
 import { recordPlatformAudit } from '@/server/services/audit-service';
 import { OWNER_ROLE_SLUG } from '@/lib/permissions';
 import { normalizeUsername, usernameProblem } from '@/lib/username';
+import { raisePlatformNotification } from '@/server/platform/platform-notification-service';
+import { platformNotificationKey } from '@/lib/notifications';
 
 /**
  * Platform administration.
@@ -144,6 +146,17 @@ export async function createOwnerAccount(input: unknown): Promise<ActionResult<{
       summary: `Created owner account @${values.username} (${values.email}) with a temporary password; must be changed at first sign-in`,
       userId: admin.id,
     });
+    await raisePlatformNotification(
+      {
+        kind: 'OWNER_CREATED',
+        title: `Owner account created: @${values.username}`,
+        body: `${values.name} now owns the store that was waiting for an owner, and must change the temporary password at first sign-in.`,
+        href: '/system-admin/owners',
+        storeId: store.id,
+        dedupeKey: platformNotificationKey.ownerCreated(userId),
+      },
+      { readBy: admin.id },
+    );
 
     revalidatePath('/system-admin');
     revalidatePath('/system-admin/owners');

@@ -87,14 +87,26 @@ export interface NotificationView {
   read: boolean;
 }
 
-export async function listNotifications(limit = 20): Promise<{ items: NotificationView[]; unread: number }> {
+/** The store's notices, newest first; optionally unread only, and paged for the full list. */
+export async function listNotifications(
+  limit = 20,
+  options: { unreadOnly?: boolean; skip?: number } = {},
+): Promise<{ items: NotificationView[]; unread: number; total: number }> {
   const db = await storeDb();
-  const [rows, unread] = await Promise.all([
-    db.notification.findMany({ orderBy: { createdAt: 'desc' }, take: Math.min(50, Math.max(1, limit)) }),
+  const where = options.unreadOnly ? { readAt: null } : {};
+  const [rows, unread, total] = await Promise.all([
+    db.notification.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(100, Math.max(1, limit)),
+      skip: Math.max(0, options.skip ?? 0),
+    }),
     db.notification.count({ where: { readAt: null } }),
+    db.notification.count({ where }),
   ]);
   return {
     unread,
+    total,
     items: rows.map((row) => ({
       id: row.id,
       type: row.type,

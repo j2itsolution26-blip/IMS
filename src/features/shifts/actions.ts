@@ -9,12 +9,6 @@ import { ValidationError } from '@/lib/errors';
 import { parseCashAmount } from '@/lib/cash-amount';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { addShiftAdjustment, reviewShift } from '@/server/services/shift-service';
-import {
-  listNotifications,
-  markNotificationsRead,
-  syncOverdueShiftNotifications,
-  type NotificationView,
-} from '@/server/services/notification-service';
 
 /**
  * Owner actions on shifts and the owner's notifications. Every one checks the
@@ -68,20 +62,3 @@ export async function addShiftAdjustmentAction(input: unknown): Promise<ActionRe
   });
 }
 
-export async function listNotificationsAction(): Promise<ActionResult<{ items: NotificationView[]; unread: number }>> {
-  return runAction(async () => {
-    await owner('read');
-    await syncOverdueShiftNotifications();
-    return listNotifications(20);
-  });
-}
-
-const markReadSchema = z.object({ ids: z.array(z.string().min(1).max(64)).max(50).optional() });
-
-export async function markNotificationsReadAction(input: unknown): Promise<ActionResult<void>> {
-  return runAction(async () => {
-    const user = await owner('mutation');
-    const values = parseInput(markReadSchema, input);
-    await markNotificationsRead(user.id, values.ids);
-  });
-}

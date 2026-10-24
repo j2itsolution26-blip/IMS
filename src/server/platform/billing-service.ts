@@ -11,6 +11,8 @@ import { PAYMENT_METHOD_LABEL, normalizeReference } from '@/lib/subscription';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { syncLimits } from '@/server/platform/store-setup';
 import { TX, audit, iso, lockStore, snapshot, type Actor, type Tx } from '@/server/platform/subscription-service';
+import { raisePlatformNotification, type NewPlatformNotification } from '@/server/platform/platform-notification-service';
+import { platformNotificationKey } from '@/lib/notifications';
 
 /**
  * Subscription billing: the platform's price list, terms and payment
@@ -160,8 +162,8 @@ async function ownerAudit(
   });
 }
 
-async function notifyAdmin(tx: Tx, item: { kind: string; title: string; body: string; href: string; storeId: string; dedupeKey: string }) {
-  await tx.platformNotification.createMany({ data: [item], skipDuplicates: true });
+async function notifyAdmin(tx: Tx, item: NewPlatformNotification, readBy?: string) {
+  await raisePlatformNotification(item, { db: tx, readBy });
 }
 
 async function notifyStore(
@@ -411,6 +413,8 @@ export async function verifyPayment(actor: Actor, input: { paymentId: string }, 
     if (store.status === 'SUSPENDED') throw new ConflictError('This store is suspended. Reactivate it before verifying a payment.');
 
     const before = snapshot(store);
+    // A renewal extends a paid period still running; otherwise this starts one.
+    const renewal = store.status === 'ACTIVE' && store.currentPeriodEnd !== null && store.currentPeriodEnd.getTime() > now.getTime();
     const periodEnd =
       store.currentPeriodEnd && store.currentPeriodEnd.getTime() > payment.invoice.periodEnd.getTime()
         ? store.currentPeriodEnd
@@ -444,6 +448,19 @@ export async function verifyPayment(actor: Actor, input: { paymentId: string }, 
       body: `Thank you. ${PLANS[payment.invoice.plan].name} is active until ${formatDate(periodEnd)}.`,
       dedupeKey: `payment:${payment.id}:verified`,
     });
+    // Already read for the administrator who verified it; others still see it.
+    await notifyAdmin(
+      tx,
+      {
+        kind: renewal ? 'SUBSCRIPTION_RENEWED' : 'PAYMENT_VERIFIED',
+        title: renewal ? `${store.name} renewed ${PLANS[payment.invoice.plan].name}` : `${store.name}: payment verified`,
+        body: `${money(payment.amount)} for invoice ${payment.invoice.number}; active until ${formatDate(periodEnd)}.`,
+        href: `/system-admin/stores/${store.id}`,
+        storeId: store.id,
+        dedupeKey: renewal ? platformNotificationKey.renewed(payment.id) : platformNotificationKey.paymentVerified(payment.id),
+      },
+      actor.id,
+    );
   }, TX);
 }
 
@@ -480,6 +497,18 @@ export async function rejectPayment(actor: Actor, input: { paymentId: string; re
       body: `${reason} Your invoice is still open; pay and submit the reference again.`,
       dedupeKey: `payment:${payment.id}:rejected`,
     });
+    await notifyAdmin(
+      tx,
+      {
+        kind: 'PAYMENT_REJECTED',
+        title: `${store.name}: payment rejected`,
+        body: `${PAYMENT_METHOD_LABEL[payment.method]} ${money(payment.amount)}, reference ${payment.reference}: ${reason}`,
+        href: `/system-admin/stores/${store.id}`,
+        storeId: store.id,
+        dedupeKey: platformNotificationKey.paymentRejected(payment.id),
+      },
+      actor.id,
+    );
   }, TX);
 }
 

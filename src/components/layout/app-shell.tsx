@@ -10,7 +10,7 @@ import { Sidebar, type UserInfo } from '@/components/layout/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { GlobalSearch } from '@/components/layout/global-search';
 import { LockScreenButton, ScreenLockProvider } from '@/features/auth/screen-lock';
-import { NotificationBell } from '@/features/shifts/notification-bell';
+import { NotificationBell } from '@/features/notifications/notification-bell';
 import { OfflineBanner } from '@/features/pwa/offline-banner';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
@@ -127,7 +127,14 @@ export function AppShell({
           <GlobalSearch />
 
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
-            {permissions.includes(FINANCIAL_PERMISSION) && <NotificationBell />}
+            {/* Administrators get platform notifications; store owners their store's.
+                The server decides which from the account, never from this choice. */}
+            {permissions.includes('platform.view') ? (
+              <NotificationBell viewAllHref="/system-admin/notifications" />
+            ) : permissions.includes(FINANCIAL_PERMISSION) ? (
+              // Shift alerts are time-sensitive, so the owner's bell checks more often.
+              <NotificationBell viewAllHref="/notifications" pollMs={60_000} />
+            ) : null}
             <LockScreenButton />
             <ThemeToggle />
             {userSlot}

@@ -26,6 +26,8 @@ import {
   verifyPayment,
   voidInvoice,
 } from '@/server/platform/billing-service';
+import { raisePlatformNotification } from '@/server/platform/platform-notification-service';
+import { platformNotificationKey } from '@/lib/notifications';
 
 /**
  * Subscription administration: only a platform administrator holding
@@ -54,6 +56,14 @@ async function denied(user: CurrentUser, attempt: string) {
     changes: { denied: true, attempt },
     userId: user.id,
   }).catch((error) => console.error('[platform] could not audit a denied attempt', error));
+  await raisePlatformNotification({
+    kind: 'ACCESS_DENIED',
+    title: `Denied: ${user.name} tried to ${attempt}`,
+    body: `@${user.username} does not hold platform permission. The attempt was refused and audited.`,
+    href: '/system-admin/audit',
+    storeId: user.store?.id ?? null,
+    dedupeKey: platformNotificationKey.accessDenied(user.id, attempt, new Date()),
+  }).catch((error) => console.error('[platform] could not notify a denied attempt', error));
 }
 
 function refresh(storeId?: string) {
