@@ -18,6 +18,10 @@ const TONE: Record<NotificationView['type'], string> = {
   SHIFT_SHORTAGE: 'bg-destructive',
   SHIFT_OVERAGE: 'bg-warning',
   SHIFT_OVERDUE: 'bg-warning',
+  BILLING_REMINDER: 'bg-warning',
+  INVOICE_CREATED: 'bg-primary',
+  PAYMENT_VERIFIED: 'bg-success',
+  PAYMENT_REJECTED: 'bg-destructive',
 };
 
 /**

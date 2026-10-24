@@ -57,6 +57,14 @@ export const MODEL_SCOPES: Record<Prisma.ModelName, ModelScope> = {
   Setting: { kind: 'store' },
   StoreUsage: { kind: 'store' },
   SubscriptionPayment: { kind: 'store-readonly' },
+  // A store reads its own invoices; only the billing service writes them.
+  Invoice: { kind: 'store-readonly' },
+  // Platform billing configuration and the administrator's notifications:
+  // the billing service reads prices and terms deliberately, never a store client.
+  PlanPrice: { kind: 'denied' },
+  BillingTerms: { kind: 'denied' },
+  PlatformSetting: { kind: 'denied' },
+  PlatformNotification: { kind: 'denied' },
   Installation: { kind: 'denied' },
 };
 

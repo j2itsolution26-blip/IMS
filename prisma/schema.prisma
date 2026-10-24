@@ -48,6 +48,9 @@ model Store {
   status           StoreStatus @default(TRIAL)
   trialEndsAt      DateTime?
   currentPeriodEnd DateTime?
+  // The interval of the paid period in force, set when a payment for an
+  // invoice is verified. Null during a trial or for legacy manual payments.
+  billingInterval  BillingInterval?
 
   // The plan's quotas, copied here from src/lib/plans.ts whenever the plan or
   // status changes, so a database trigger can enforce them atomically. Null
@@ -76,6 +79,7 @@ model Store {
   settings              Setting[]
   usage                 StoreUsage[]
   subscriptionPayments  SubscriptionPayment[]
+  invoices              Invoice[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -158,11 +162,145 @@ model SubscriptionPayment {
   voidedBy   User?     @relation("PaymentVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
   voidReason String?
 
+  // Owner-submitted payments start PENDING; only the platform administrator
+  // verifies or rejects them, once (enforced by trigger, migration
+  // 20261029090000). Payments the administrator records directly are
+  // VERIFIED from the start. Only VERIFIED, non-void payments are revenue.
+  status       SubscriptionPaymentStatus @default(VERIFIED)
+  invoiceId    String?
+  invoice      Invoice?                  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  verifiedAt   DateTime?
+  verifiedById String?
+  verifiedBy   User?                     @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id], onDelete: Restrict)
+  rejectedAt   DateTime?
+  rejectedById String?
+  rejectedBy   User?                     @relation("PaymentRejectedBy", fields: [rejectedById], references: [id], onDelete: Restrict)
+  rejectReason String?
+
   createdAt DateTime @default(now())
 
   @@unique([method, reference])
+  @@index([status])
+  @@index([invoiceId])
   @@index([storeId, createdAt])
   @@map("subscription_payments")
+}
+
+enum SubscriptionPaymentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum BillingInterval {
+  MONTHLY
+  ANNUAL
+}
+
+enum InvoiceStatus {
+  OPEN
+  PAID
+  VOID
+}
+
+// What a plan costs per billing interval. Set only by the platform
+// administrator; there is no price until one is entered here. An invoice
+// copies the amount, so changing a price never rewrites an issued invoice.
+model PlanPrice {
+  id          String          @id @default(cuid())
+  plan        StorePlan
+  interval    BillingInterval
+  amount      Decimal         @db.Decimal(12, 2)
+  currency    String          @default("PHP")
+  updatedById String?
+  updatedAt   DateTime        @updatedAt
+  createdAt   DateTime        @default(now())
+
+  @@unique([plan, interval])
+  @@map("plan_prices")
+}
+
+// Billing terms an owner accepts when choosing a paid plan. Versions are
+// append-only; the newest is current. Each invoice keeps the version and a
+// copy of the text that was accepted.
+model BillingTerms {
+  id          String   @id @default(cuid())
+  version     Int      @unique
+  body        String
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@map("billing_terms")
+}
+
+// Platform-wide settings (e.g. payment instructions shown to owners). Not
+// store data: stores never read this table directly.
+model PlatformSetting {
+  key         String   @id
+  value       String
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("platform_settings")
+}
+
+// A payment obligation an owner agreed to by choosing a plan and accepting
+// the billing terms. Amount, plan, period and terms are copied at that moment
+// and cannot change (trigger, migration 20261029090000); the status moves
+// once, OPEN -> PAID (a verified payment) or OPEN -> VOID (with a reason).
+// At most one OPEN invoice per store (partial unique index).
+model Invoice {
+  id      String @id @default(cuid())
+  number  String @unique
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+
+  plan        StorePlan
+  interval    BillingInterval
+  amount      Decimal         @db.Decimal(12, 2)
+  currency    String          @default("PHP")
+  periodStart DateTime
+  periodEnd   DateTime
+  dueAt       DateTime
+
+  termsVersion Int
+  termsBody    String
+  acceptedById String
+  acceptedBy   User     @relation("InvoiceAcceptedBy", fields: [acceptedById], references: [id], onDelete: Restrict)
+  acceptedAt   DateTime
+
+  status     InvoiceStatus @default(OPEN)
+  paidAt     DateTime?
+  voidedAt   DateTime?
+  voidedById String?
+  voidedBy   User?         @relation("InvoiceVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  voidReason String?
+
+  payments SubscriptionPayment[]
+
+  createdAt DateTime @default(now())
+
+  @@index([storeId, createdAt])
+  @@index([status, dueAt])
+  @@map("invoices")
+}
+
+// Notifications for the platform administrator (no store). Deduplicated by
+// key, so a scheduled job or page load can raise the same event safely.
+model PlatformNotification {
+  id        String    @id @default(cuid())
+  kind      String
+  title     String
+  body      String
+  href      String?
+  storeId   String?
+  dedupeKey String    @unique
+  readAt    DateTime?
+  readById  String?
+  createdAt DateTime  @default(now())
+
+  @@index([readAt, createdAt])
+  @@map("platform_notifications")
 }
 
 enum StorePlan {
@@ -233,6 +371,10 @@ model User {
   passkeys             Passkey[]
   recordedPayments     SubscriptionPayment[]  @relation("PaymentRecordedBy")
   voidedPayments       SubscriptionPayment[]  @relation("PaymentVoidedBy")
+  verifiedPayments     SubscriptionPayment[]  @relation("PaymentVerifiedBy")
+  rejectedPayments     SubscriptionPayment[]  @relation("PaymentRejectedBy")
+  acceptedInvoices     Invoice[]              @relation("InvoiceAcceptedBy")
+  voidedInvoices       Invoice[]              @relation("InvoiceVoidedBy")
   completedSetup       Installation[]         @relation("InstallationCompletedBy")
 
   createdAt DateTime @default(now())
@@ -770,6 +912,10 @@ model Notification {
 }
 
 enum NotificationType {
+  BILLING_REMINDER
+  INVOICE_CREATED
+  PAYMENT_VERIFIED
+  PAYMENT_REJECTED
   SHIFT_OPENED
   SHIFT_CLOSED
   SHIFT_SHORTAGE

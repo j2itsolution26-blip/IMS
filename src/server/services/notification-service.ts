@@ -3,7 +3,7 @@ import 'server-only';
 import type { NotificationType } from '@prisma/client';
 import type { DbClient } from '@/lib/prisma';
 import { storeDb } from '@/lib/tenant/context';
-import { isOverdue, notificationKey, shiftReference } from '@/lib/shift-review';
+import { isOverdue, notificationKey, shiftReference, type ShiftNotificationType } from '@/lib/shift-review';
 import { getSettings, readNumber } from '@/server/services/settings-service';
 
 /**
@@ -24,6 +24,8 @@ export interface NewNotification {
   body: string;
   href?: string | null;
   shiftId?: string | null;
+  /** Overrides the default key; billing reminders pass one per event and window. */
+  dedupeKey?: string;
 }
 
 export async function raiseNotifications(items: NewNotification[], db?: Db): Promise<void> {
@@ -36,7 +38,11 @@ export async function raiseNotifications(items: NewNotification[], db?: Db): Pro
       body: item.body,
       href: item.href ?? null,
       shiftId: item.shiftId ?? null,
-      dedupeKey: item.shiftId ? notificationKey(item.type, item.shiftId) : `${item.type.toLowerCase()}:${crypto.randomUUID()}`,
+      dedupeKey:
+        item.dedupeKey ??
+        (item.shiftId
+          ? notificationKey(item.type as ShiftNotificationType, item.shiftId)
+          : `${item.type.toLowerCase()}:${crypto.randomUUID()}`),
     })),
     skipDuplicates: true,
   });

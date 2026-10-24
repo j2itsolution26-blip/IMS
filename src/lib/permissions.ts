@@ -43,7 +43,7 @@ const CATALOGUE: Record<Resource, ResourceSpec> = {
   roles: { actions: ['view', 'create', 'update', 'delete'], description: 'Roles and permissions' },
   settings: { actions: ['view', 'update'], description: 'System settings' },
   // Granted to every Owner role by migration 20261026090000, not bootstrap.
-  billing: { actions: ['view'], description: 'Subscription plan, usage and payments' },
+  billing: { actions: ['view', 'manage'], description: 'Subscription plan, usage and payments' },
   platform: {
     actions: ['view', 'manage'],
     description: 'Platform administration — owner accounts and the admin audit trail',

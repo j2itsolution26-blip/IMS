@@ -218,10 +218,16 @@ export async function recordManualPayment(actor: Actor, input: ManualPaymentInpu
           periodEnd: period.end,
           notes: input.notes?.trim() || null,
           recordedById: actor.id,
+          // Money the administrator confirmed receiving: verified by them, now.
+          status: 'VERIFIED',
+          verifiedAt: now,
+          verifiedById: actor.id,
         },
         select: { id: true },
       });
-      await tx.store.update({ where: { id: store.id }, data: { plan: input.plan, status: 'ACTIVE', currentPeriodEnd: period.end } });
+      // A manual payment buys months, not an interval; any interval from an
+      // earlier invoice no longer describes the period in force.
+      await tx.store.update({ where: { id: store.id }, data: { plan: input.plan, status: 'ACTIVE', currentPeriodEnd: period.end, billingInterval: null } });
       await syncLimits(tx, store.id);
 
       const after = { ...store, plan: input.plan, status: 'ACTIVE' as const, currentPeriodEnd: period.end };
