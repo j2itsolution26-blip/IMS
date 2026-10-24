@@ -3,9 +3,9 @@
 import * as React from 'react';
 import { KeyRound, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
-import { authClient } from '@/lib/auth-client';
 import { passwordChangeProblems, type PasswordChangeProblems } from '@/lib/password-change';
 import { changeTemporaryPassword } from '@/features/auth/password-change-actions';
+import { SignOutDialog } from '@/features/auth/sign-out';
 import { PasswordChecklist, PasswordInput } from '@/components/password-field';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -27,7 +27,7 @@ export function ChangePasswordView({ name, username }: { name: string; username:
   const [formError, setFormError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [done, setDone] = React.useState(false);
-  const [signingOut, setSigningOut] = React.useState(false);
+  const [signOutOpen, setSignOutOpen] = React.useState(false);
 
   const set = (field: Field) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setValues((current) => ({ ...current, [field]: event.target.value }));
@@ -65,14 +65,6 @@ export function ChangePasswordView({ name, username }: { name: string; username:
     window.location.assign('/dashboard');
   };
 
-  const onSignOut = async () => {
-    setSigningOut(true);
-    try {
-      await authClient.signOut();
-    } finally {
-      window.location.assign('/sign-in');
-    }
-  };
 
   return (
     <main className="flex min-h-dvh items-center justify-center bg-background p-4">
@@ -129,7 +121,7 @@ export function ChangePasswordView({ name, username }: { name: string; username:
             </p>
           )}
 
-          <Button type="submit" size="lg" className="w-full" loading={busy || done} disabled={signingOut}>
+          <Button type="submit" size="lg" className="w-full" loading={busy || done}>
             {done ? 'Password updated — continuing…' : 'Update Password & Continue'}
           </Button>
         </form>
@@ -137,13 +129,14 @@ export function ChangePasswordView({ name, username }: { name: string; username:
         <div className="flex justify-center">
           <button
             type="button"
-            onClick={onSignOut}
-            disabled={signingOut || busy}
+            onClick={() => setSignOutOpen(true)}
+            disabled={busy || done}
             className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
-            <LogOut className="h-3.5 w-3.5" aria-hidden="true" /> {signingOut ? 'Signing out…' : 'Sign out'}
+            <LogOut className="h-3.5 w-3.5" aria-hidden="true" /> Sign out
           </button>
         </div>
+        <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
       </div>
     </main>
   );

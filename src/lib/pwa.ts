@@ -34,3 +34,18 @@ export function detectInstallPlatform(userAgent: string, maxTouchPoints = 0): In
   if (/Macintosh/i.test(userAgent) && /Safari\//i.test(userAgent)) return 'desktop-safari';
   return 'other';
 }
+
+/**
+ * Whether an "Install app" action leads anywhere: not once installed, and not
+ * on desktop Firefox, which cannot install web apps, unless the browser has
+ * nonetheless offered its own prompt. Elsewhere the dialog either shows the
+ * browser's prompt or the steps for that browser.
+ */
+export function installActionAvailable(
+  state: { installed: boolean; canPrompt: boolean } | null,
+  platform: InstallPlatform | null,
+): boolean {
+  if (!state || state.installed) return false;
+  if (state.canPrompt) return true;
+  return platform !== null && platform !== 'desktop-firefox';
+}

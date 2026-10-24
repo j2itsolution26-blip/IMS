@@ -18,3 +18,8 @@ test('theme state has one source: the root provider, following the device in Sys
   assert.match(toggle, /useTheme\(\)/);
   for (const value of ['light', 'dark', 'system']) assert.match(toggle, new RegExp(`value: '${value}'`));
 });
+
+test('the account menu holds no second theme control', () => {
+  const menu = read('src/components/layout/user-menu.tsx');
+  assert.doesNotMatch(menu, /ThemeToggle|useTheme|setTheme/);
+});

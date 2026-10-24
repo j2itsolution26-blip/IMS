@@ -8,13 +8,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
-  LogOut,
-  Settings as SettingsIcon,
-  User as UserIcon,
-  Users,
   X,
 } from 'lucide-react';
-import { toast } from 'sonner';
 import { cn, initials } from '@/lib/utils';
 import { APP_NAME } from '@/lib/brand';
 import { BrandMark } from '@/components/brand';
@@ -38,7 +33,7 @@ import {
   type NavGroup,
   type NavLink,
 } from '@/components/layout/navigation';
-import { authClient } from '@/lib/auth-client';
+import { AccountMenu } from '@/components/layout/user-menu';
 
 export interface UserInfo {
   name: string;
@@ -69,7 +64,6 @@ export function Sidebar({
   onToggleCollapse,
 }: SidebarProps) {
   const pathname = usePathname();
-  const [signingOut, setSigningOut] = React.useState(false);
   const granted = React.useMemo(() => new Set(permissions), [permissions]);
 
   // Escape key handler to close mobile navigation drawer
@@ -86,17 +80,6 @@ export function Sidebar({
 
   // Filter sections by user permissions (empty groups and sections are completely omitted)
   const sections = React.useMemo(() => visibleNavigation(NAVIGATION, granted), [granted]);
-
-  const handleSignOut = async () => {
-    setSigningOut(true);
-    try {
-      await authClient.signOut();
-      window.location.href = '/sign-in';
-    } catch {
-      toast.error('Could not sign out. Please try again.');
-      setSigningOut(false);
-    }
-  };
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -221,82 +204,52 @@ export function Sidebar({
         <div className="border-t border-sidebar-border p-2 space-y-2 shrink-0">
           {/* User info card — opens the account menu */}
           {user && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={`Account menu for ${user.name}`}
-                  className={cn(
-                    'flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/5 p-2 text-left transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    collapsed ? 'lg:justify-center lg:p-1.5 lg:border-none lg:bg-transparent' : 'justify-between',
-                  )}
-                >
-                  <span className="flex items-center gap-2.5 min-w-0">
-                    <Avatar className="h-8 w-8 border border-sidebar-accent/30 shrink-0">
-                      {user.image && <AvatarImage src={user.image} alt="" />}
-                      <AvatarFallback>{initials(user.name)}</AvatarFallback>
-                    </Avatar>
+            <AccountMenu
+              user={user}
+              canManageSettings={granted.has('settings.view')}
+              canManageStaff={granted.has('users.view')}
+              side="top"
+              align="start"
+              onNavigate={onClose}
+            >
+              <button
+                type="button"
+                aria-label={`Account menu for ${user.name}`}
+                className={cn(
+                  'flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/5 p-2 text-left transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  collapsed ? 'lg:justify-center lg:p-1.5 lg:border-none lg:bg-transparent' : 'justify-between',
+                )}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <Avatar className="h-8 w-8 border border-sidebar-accent/30 shrink-0">
+                    {user.image && <AvatarImage src={user.image} alt="" />}
+                    <AvatarFallback>{initials(user.name)}</AvatarFallback>
+                  </Avatar>
 
-                    <span
-                      className={cn(
-                        'flex flex-col min-w-0 transition-opacity duration-200',
-                        collapsed ? 'lg:hidden' : 'flex',
-                      )}
-                    >
-                      <span className="truncate text-xs font-semibold text-sidebar-foreground leading-tight">
-                        {user.name}
-                      </span>
-                      <span className="mt-0.5 inline-block w-fit rounded-full bg-sidebar-accent/15 px-1.5 py-px text-[10px] font-medium text-sidebar-accent">
-                        {user.roleName}
-                      </span>
+                  <span
+                    className={cn(
+                      'flex flex-col min-w-0 transition-opacity duration-200',
+                      collapsed ? 'lg:hidden' : 'flex',
+                    )}
+                  >
+                    <span className="truncate text-xs font-semibold text-sidebar-foreground leading-tight">
+                      {user.name}
+                    </span>
+                    <span className="mt-0.5 inline-block w-fit rounded-full bg-sidebar-accent/15 px-1.5 py-px text-[10px] font-medium text-sidebar-accent">
+                      {user.roleName}
                     </span>
                   </span>
+                </span>
 
-                  <ChevronsUpDown
-                    className={cn(
-                      'h-3.5 w-3.5 shrink-0 text-sidebar-muted-foreground',
-                      collapsed ? 'lg:hidden' : 'block',
-                    )}
-                    aria-hidden="true"
-                  />
-                </button>
-              </DropdownMenuTrigger>
-
-              <DropdownMenuContent side="top" align="start" className="w-56">
-                <DropdownMenuItem asChild>
-                  <Link href="/settings/profile" onClick={onClose}>
-                    <UserIcon /> Profile
-                  </Link>
-                </DropdownMenuItem>
-
-                {granted.has('users.view') && (
-                  <DropdownMenuItem asChild>
-                    <Link href="/settings/users" onClick={onClose}>
-                      <Users /> Staff Accounts
-                    </Link>
-                  </DropdownMenuItem>
-                )}
-
-                {granted.has('settings.view') && (
-                  <DropdownMenuItem asChild>
-                    <Link href="/settings" onClick={onClose}>
-                      <SettingsIcon /> Settings
-                    </Link>
-                  </DropdownMenuItem>
-                )}
-
-                <DropdownMenuItem
-                  destructive
-                  disabled={signingOut}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void handleSignOut();
-                  }}
-                >
-                  <LogOut /> {signingOut ? 'Signing out…' : 'Log Out'}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                <ChevronsUpDown
+                  className={cn(
+                    'h-3.5 w-3.5 shrink-0 text-sidebar-muted-foreground',
+                    collapsed ? 'lg:hidden' : 'block',
+                  )}
+                  aria-hidden="true"
+                />
+              </button>
+            </AccountMenu>
           )}
 
           {/* Collapse/Expand Toggle button (desktop only). The theme lives in

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, type LucideIcon } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -22,6 +22,8 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   destructive = true,
   loading = false,
+  loadingLabel = 'Working…',
+  icon: Icon = AlertTriangle,
   onConfirm,
 }: {
   open: boolean;
@@ -32,6 +34,10 @@ export function ConfirmDialog({
   cancelLabel?: string;
   destructive?: boolean;
   loading?: boolean;
+  /** Shown on the confirm button while `loading`. */
+  loadingLabel?: string;
+  /** Badge icon beside the title on destructive dialogs. */
+  icon?: LucideIcon;
   onConfirm: () => void | Promise<void>;
 }) {
   return (
@@ -42,7 +48,7 @@ export function ConfirmDialog({
           <div className="flex gap-3">
             {destructive && (
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive-text">
-                <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                <Icon className="h-4 w-4" aria-hidden="true" />
               </span>
             )}
             <div className="min-w-0 flex-1">
@@ -63,9 +69,10 @@ export function ConfirmDialog({
               type="button"
               onClick={() => void onConfirm()}
               disabled={loading}
+              aria-busy={loading || undefined}
               className={cn(buttonVariants({ variant: destructive ? 'destructive' : 'default' }))}
             >
-              {loading ? 'Working…' : confirmLabel}
+              {loading ? loadingLabel : confirmLabel}
             </button>
           </div>
         </AlertDialog.Content>
