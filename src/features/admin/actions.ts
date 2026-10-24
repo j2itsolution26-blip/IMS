@@ -22,7 +22,12 @@ import {
   type PolicyDecision,
 } from '@/server/services/account-policy';
 import { slugify } from '@/lib/utils';
-import { SETTING_DEFINITIONS } from '@/lib/settings-definitions';
+import {
+  SETTING_DEFINITIONS,
+  settingProblem,
+  settingRow,
+  type SettingDefinition,
+} from '@/lib/settings-definitions';
 import { normalizeUsername, usernameProblem } from '@/lib/username';
 import { requireFeature, requireWithinLimit } from '@/server/services/entitlements';
 
@@ -49,8 +54,15 @@ export async function updateSettings(input: unknown): Promise<ActionResult<numbe
     const user = await authorize('settings.update');
     const values = parseInput(settingsSchema, input);
 
-    const changed: string[] = [];
     const { db, storeId } = await getStoreContext();
+    const stored = await db.setting.findMany({ where: { key: { in: Object.keys(values) } } });
+    const current = new Map(stored.map((row) => [row.key, row.value]));
+
+    // Every value is checked before anything is written, so one bad field
+    // cannot leave a save half-applied. Only changed values are checked: a
+    // value stored before a rule existed does not block saving other fields.
+    const updates: { definition: SettingDefinition; value: string }[] = [];
+    const fieldErrors: Record<string, string[]> = {};
 
     for (const [key, rawValue] of Object.entries(values)) {
       const definition = DEFINITION_BY_KEY.get(key);
@@ -59,23 +71,35 @@ export async function updateSettings(input: unknown): Promise<ActionResult<numbe
       if (!definition) continue;
 
       const value = rawValue.trim();
+      if (current.has(key) && current.get(key) === value) continue;
 
-      if (definition.type === 'NUMBER' && value !== '' && !Number.isFinite(Number(value))) {
-        throw new ValidationError(`${definition.label} must be a number.`, { [key]: ['Enter a number.'] });
+      const problem = settingProblem(definition, value);
+      if (problem) {
+        fieldErrors[key] = [problem];
+        continue;
       }
-      if (definition.type === 'BOOLEAN' && value !== 'true' && value !== 'false') {
-        throw new ValidationError(`${definition.label} must be true or false.`);
-      }
+      updates.push({ definition, value });
+    }
 
-      const existing = await db.setting.findFirst({ where: { key } });
-      if (existing?.value === value) continue;
+    const invalid = Object.keys(fieldErrors);
+    if (invalid.length > 0) {
+      const first = DEFINITION_BY_KEY.get(invalid[0])!;
+      throw new ValidationError(
+        invalid.length === 1
+          ? `${first.label}: ${fieldErrors[invalid[0]][0]}`
+          : `${invalid.length} settings need attention. Nothing was saved.`,
+        fieldErrors,
+      );
+    }
 
+    const changed: string[] = [];
+    for (const { definition, value } of updates) {
       await db.setting.upsert({
-        where: { storeId_key: { storeId, key } },
-        create: { ...definition, value },
+        where: { storeId_key: { storeId, key: definition.key } },
+        create: { ...settingRow(definition), value },
         update: { value },
       });
-      changed.push(key);
+      changed.push(definition.key);
     }
 
     if (changed.length > 0) {

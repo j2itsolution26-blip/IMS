@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { ALL_PERMISSIONS, SYSTEM_ADMIN_ROLE_SLUG, SYSTEM_ROLES, resolveRolePermissions } from '../../lib/permissions';
-import { SETTING_DEFINITIONS } from '../../lib/settings-definitions';
+import { SETTING_DEFINITIONS, settingRow } from '../../lib/settings-definitions';
 import { storedLimits } from '../../lib/store-access';
 
 /**
@@ -103,7 +103,7 @@ export async function installSettings(db: Db, storeId: string): Promise<number> 
     const where = { storeId_key: { storeId, key: definition.key } };
     const existing = await db.setting.findUnique({ where, select: { id: true } });
     if (!existing) {
-      await db.setting.create({ data: { ...definition, storeId } });
+      await db.setting.create({ data: { ...settingRow(definition), storeId } });
       created += 1;
       continue;
     }
