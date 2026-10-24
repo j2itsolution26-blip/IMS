@@ -56,6 +56,8 @@ export const PLATFORM_NOTIFICATION_KINDS = {
   STORE_RESTORED: { label: 'Store restored', tone: 'success' },
   ACCESS_DENIED: { label: 'Denied admin action', tone: 'destructive' },
   SESSION_LOCKOUT: { label: 'Lock-screen lockout', tone: 'destructive' },
+  SUPPORT_TICKET_CREATED: { label: 'New support ticket', tone: 'primary' },
+  SUPPORT_USER_REPLIED: { label: 'Support reply from user', tone: 'warning' },
 } as const;
 
 export type PlatformNotificationKind = keyof typeof PLATFORM_NOTIFICATION_KINDS;
@@ -82,6 +84,8 @@ export const platformNotificationKey = {
   statusChanged: (storeId: string, status: string, at: Date) => `store:${storeId}:status:${status}:${at.toISOString()}`,
   accessDenied: (userId: string, attempt: string, at: Date) => `denied:${userId}:${attempt}:${at.toISOString().slice(0, 16)}`,
   lockout: (sessionId: string) => `session:${sessionId}:lockout`,
+  supportTicketCreated: (ticketId: string) => `support:${ticketId}:created`,
+  supportUserReplied: (messageId: string) => `support-message:${messageId}:user-replied`,
 };
 
 /** What the bell and the notification pages render, for either audience. */
@@ -105,6 +109,7 @@ const STORE_TYPE_TONE: Record<string, NotificationTone> = {
   INVOICE_CREATED: 'primary',
   PAYMENT_VERIFIED: 'success',
   PAYMENT_REJECTED: 'destructive',
+  SUPPORT_REPLY: 'primary',
 };
 
 export function storeTypeTone(type: string): NotificationTone {

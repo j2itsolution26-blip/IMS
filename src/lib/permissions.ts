@@ -18,6 +18,7 @@ export const RESOURCES = [
   'roles',
   'settings',
   'billing',
+  'support',
   'platform',
 ] as const;
 
@@ -44,6 +45,8 @@ const CATALOGUE: Record<Resource, ResourceSpec> = {
   settings: { actions: ['view', 'update'], description: 'System settings' },
   // Granted to every Owner role by migration 20261026090000, not bootstrap.
   billing: { actions: ['view', 'manage'], description: 'Subscription plan, usage and payments' },
+  // Granted to every built-in store role by migration 20261031090000.
+  support: { actions: ['create'], description: 'Contact support and follow your own tickets' },
   platform: {
     actions: ['view', 'manage'],
     description: 'Platform administration — owner accounts and the admin audit trail',
@@ -125,6 +128,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       'sales.view',
       'sales.create',
       'reports.view',
+      'support.create',
     ],
   },
   {
@@ -144,6 +148,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       'inventory.update',
       'inventory.export',
       'reports.view',
+      'support.create',
     ],
   },
 ];
@@ -188,5 +193,6 @@ export const ROUTE_PERMISSIONS: { prefix: string; permission: PermissionKey }[] 
   { prefix: '/settings/users', permission: 'users.view' },
   { prefix: '/settings/roles', permission: 'roles.view' },
   { prefix: '/settings/subscription', permission: 'billing.view' },
+  { prefix: '/support', permission: 'support.create' },
   { prefix: '/settings', permission: 'settings.view' },
 ];

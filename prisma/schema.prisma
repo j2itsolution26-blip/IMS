@@ -80,6 +80,7 @@ model Store {
   usage                 StoreUsage[]
   subscriptionPayments  SubscriptionPayment[]
   invoices              Invoice[]
+  supportTickets        SupportTicket[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -323,6 +324,165 @@ model PlatformNotificationRead {
   @@map("platform_notification_reads")
 }
 
+// ---------------------------------------------------------------------------
+// Customer support
+// ---------------------------------------------------------------------------
+
+// A concern sent to the platform administrators, by a signed-in account (APP)
+// or from the public Help page by someone who cannot sign in (PUBLIC).
+//
+// Reached only through src/server/support — never through a store client
+// (MODEL_SCOPES marks these models denied), because support has to work for a
+// suspended or read-only store too. The requester and store are always taken
+// from the server session; a trigger (migration 20261031090000) keeps the
+// store equal to the requester's, and the number, requester, store and source
+// fixed once written.
+model SupportTicket {
+  id     String @id @default(cuid())
+  // SUP-000123, from a database sequence, so two submissions at the same
+  // instant can never share a number.
+  number String @unique @default(dbgenerated("('SUP-'::text || lpad((nextval('support_ticket_number_seq'::regclass))::text, 6, '0'::text))"))
+
+  source SupportSource
+
+  // Empty for public submissions, and if the account is later deleted.
+  requesterId   String?
+  requester     User?   @relation("SupportRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+  storeId       String?
+  store         Store?  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  // Copied at submission, so the ticket still says who wrote it.
+  requesterName String
+  // Where a public requester asked to be answered. Empty for APP tickets.
+  replyEmail    String?
+
+  category SupportCategory
+  subject  String
+  status   SupportStatus   @default(NEW)
+  priority SupportPriority @default(NORMAL)
+
+  assignedToId String?
+  assignedTo   User?   @relation("SupportAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  // One per form submission, so a double click or a retried request stores
+  // the ticket once.
+  submissionKey String  @unique
+  // Keyed hash of the submitter's IP, for abuse limits only. Never the IP.
+  ipHash        String?
+
+  lastActivityAt       DateTime  @default(now())
+  lastAdminReplyAt     DateTime?
+  lastRequesterReplyAt DateTime?
+  // When the requester last opened the conversation; a newer admin reply is unread.
+  requesterReadAt      DateTime?
+  resolvedAt           DateTime?
+  closedAt             DateTime?
+
+  messages    SupportMessage[]
+  attachments SupportAttachment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, lastActivityAt])
+  @@index([category])
+  @@index([storeId])
+  @@index([requesterId, lastActivityAt])
+  @@index([assignedToId])
+  @@index([createdAt])
+  @@index([replyEmail, createdAt])
+  @@index([ipHash, createdAt])
+  @@map("support_tickets")
+}
+
+// One entry in a ticket's conversation. Append-only (trigger). INTERNAL
+// entries are administrator notes and are never returned to the requester;
+// SYSTEM entries record status changes and other events.
+model SupportMessage {
+  id         String            @id @default(cuid())
+  ticketId   String
+  ticket     SupportTicket     @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  authorId   String?
+  author     User?             @relation("SupportMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  authorKind SupportAuthorKind
+  visibility SupportVisibility @default(PUBLIC)
+  // Plain text. Rendered as text, never as HTML.
+  body       String
+
+  attachments SupportAttachment[]
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+  @@map("support_messages")
+}
+
+// A screenshot attached to a message. The file lives in a private bucket and
+// is only ever handed out as a short-lived signed URL, after the same check
+// that guards the conversation.
+model SupportAttachment {
+  id           String         @id @default(cuid())
+  ticketId     String
+  ticket       SupportTicket  @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  messageId    String
+  message      SupportMessage @relation(fields: [messageId], references: [id], onDelete: Restrict)
+  // Path inside the private bucket; a random name, never the uploaded one.
+  storagePath  String         @unique
+  originalName String
+  // Taken from the file's own bytes, not from the browser.
+  mimeType     String
+  sizeBytes    Int
+  uploadedById String?
+  uploadedBy   User?          @relation("SupportAttachmentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([messageId])
+  @@map("support_attachments")
+}
+
+enum SupportSource {
+  PUBLIC
+  APP
+}
+
+enum SupportCategory {
+  TECHNICAL_ISSUE
+  BUG_REPORT
+  FEATURE_REQUEST
+  BILLING
+  ACCOUNT_LOGIN
+  INSTALLATION
+  GENERAL
+}
+
+enum SupportStatus {
+  NEW
+  OPEN
+  IN_PROGRESS
+  WAITING_FOR_USER
+  RESOLVED
+  CLOSED
+}
+
+enum SupportPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum SupportAuthorKind {
+  REQUESTER
+  ADMIN
+  SYSTEM
+}
+
+enum SupportVisibility {
+  PUBLIC
+  INTERNAL
+}
+
 enum StorePlan {
   BASIC
   BUSINESS
@@ -397,6 +557,10 @@ model User {
   voidedInvoices       Invoice[]              @relation("InvoiceVoidedBy")
   platformReads        PlatformNotificationRead[] @relation("PlatformNotificationReads")
   completedSetup       Installation[]         @relation("InstallationCompletedBy")
+  supportTickets       SupportTicket[]        @relation("SupportRequester")
+  assignedSupport      SupportTicket[]        @relation("SupportAssignee")
+  supportMessages      SupportMessage[]       @relation("SupportMessageAuthor")
+  supportAttachments   SupportAttachment[]    @relation("SupportAttachmentUploader")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -937,6 +1101,7 @@ enum NotificationType {
   INVOICE_CREATED
   PAYMENT_VERIFIED
   PAYMENT_REJECTED
+  SUPPORT_REPLY
   SHIFT_OPENED
   SHIFT_CLOSED
   SHIFT_SHORTAGE

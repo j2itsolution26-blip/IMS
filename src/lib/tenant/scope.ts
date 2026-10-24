@@ -67,6 +67,12 @@ export const MODEL_SCOPES: Record<Prisma.ModelName, ModelScope> = {
   PlatformNotification: { kind: 'denied' },
   PlatformNotificationRead: { kind: 'denied' },
   Installation: { kind: 'denied' },
+  // Support has to work for a suspended or read-only store, so it never goes
+  // through a store client: src/server/support reaches these with the
+  // platform client and confines every query to the signed-in requester.
+  SupportTicket: { kind: 'denied' },
+  SupportMessage: { kind: 'denied' },
+  SupportAttachment: { kind: 'denied' },
 };
 
 /** A call that tried to reach outside its store. Always a bug, never user error. */
