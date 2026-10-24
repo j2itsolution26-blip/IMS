@@ -28,13 +28,15 @@ export interface FieldLayout {
   /** `currency` is the saved currency symbol, e.g. ₱. */
   prefix?: 'currency';
   suffix?: string;
-  inputType?: 'text' | 'tel' | 'url';
+  inputType?: 'text' | 'tel';
   autoComplete?: string;
   placeholder?: string;
   /** Upper-cases as the user types (currency codes). */
   uppercase?: boolean;
   /** Shows a live "12 / 300" counter for long free text. */
   counter?: boolean;
+  /** A dedicated control instead of a text input. `logo` uploads and saves on its own. */
+  control?: 'logo';
 }
 
 export interface SectionLayout {
@@ -57,7 +59,7 @@ export const SETTINGS_SECTIONS: SectionLayout[] = [
       { key: 'company.name', autoComplete: 'organization' },
       { key: 'company.phone', inputType: 'tel', autoComplete: 'tel', width: 'medium' },
       { key: 'company.address', full: true, autoComplete: 'street-address' },
-      { key: 'company.logoUrl', full: true, inputType: 'url', placeholder: 'https://' },
+      { key: 'company.logoUrl', full: true, control: 'logo' },
       { key: 'company.gcashNumber', inputType: 'tel', width: 'medium', placeholder: '09XX XXX XXXX' },
       { key: 'company.gcashName' },
     ],
@@ -131,4 +133,16 @@ export function currencySymbol(code: string, locale = DEFAULT_LOCALE): string {
   } catch {
     return code;
   }
+}
+
+/** Logo formats and size, mirroring the storage service, which checks again on the server. */
+export const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const LOGO_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Why `file` cannot be used as a logo, or null when it can. */
+export function logoFileProblem(file: { type: string; size: number }): string | null {
+  if (!LOGO_TYPES.includes(file.type)) return 'Choose a PNG, JPG or WEBP image.';
+  if (file.size === 0) return 'That file is empty.';
+  if (file.size > LOGO_MAX_BYTES) return 'The logo must be 5 MB or smaller.';
+  return null;
 }

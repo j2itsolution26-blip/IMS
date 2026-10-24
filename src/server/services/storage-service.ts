@@ -262,19 +262,23 @@ async function ensureBucket(supabase: SupabaseClient): Promise<void> {
   bucketReady = true;
 }
 
-export async function uploadProductImage(file: File, productSku: string, storeId: string): Promise<string> {
-  if (file.size === 0) throw new ValidationError('The selected file is empty.', { image: ['File is empty.'] });
+/** Rejects anything but a non-empty JPG, PNG or WEBP of at most 5 MB. */
+function assertImageFile(file: File, field: string): void {
+  if (file.size === 0) throw new ValidationError('The selected file is empty.', { [field]: ['File is empty.'] });
   if (file.size > MAX_BYTES) {
-    throw new ValidationError('Image must be 5 MB or smaller.', { image: ['Image must be 5 MB or smaller.'] });
+    throw new ValidationError('Image must be 5 MB or smaller.', { [field]: ['Image must be 5 MB or smaller.'] });
   }
   if (!ALLOWED_MIME.has(file.type)) {
     throw new ValidationError(
       `Image must be a JPG, PNG, or WEBP file${file.type ? ` (received ${file.type})` : ''}.`,
-      { image: ['Unsupported image format.'] },
+      { [field]: ['Unsupported image format.'] },
     );
   }
+}
 
-  const supabase = getClient();
+export async function uploadProductImage(file: File, productSku: string, storeId: string): Promise<string> {
+  assertImageFile(file, 'image');
+
   const extension = EXTENSION_BY_MIME[file.type];
   const safeSku = productSku.replace(/[^a-zA-Z0-9._-]/g, '-').toLowerCase().slice(0, 40);
 
@@ -283,7 +287,23 @@ export async function uploadProductImage(file: File, productSku: string, storeId
   // the second one. The SKU is kept only as a human-readable prefix — never as
   // the sole filename, so a user-supplied name can never determine the path.
   // Each store's files live under its own folder, so a delete can be held to it.
-  const path = `${storeFolder(storeId)}products/${safeSku}-${randomUUID()}.${extension}`;
+  return uploadImage(file, `${storeFolder(storeId)}products/${safeSku}-${randomUUID()}.${extension}`);
+}
+
+/**
+ * Uploads a store's logo under its own folder and returns the public URL.
+ * Same bucket, formats and size limit as product photos; SVG stays excluded.
+ * UUID-named, so a replacement never reuses — or overwrites — the old file.
+ */
+export async function uploadStoreLogo(file: File, storeId: string): Promise<string> {
+  assertImageFile(file, 'logo');
+  const extension = EXTENSION_BY_MIME[file.type];
+  return uploadImage(file, `${storeFolder(storeId)}branding/logo-${randomUUID()}.${extension}`);
+}
+
+/** Uploads an already-validated image to `path`, retrying transport failures. */
+async function uploadImage(file: File, path: string): Promise<string> {
+  const supabase = getClient();
   const body = await file.arrayBuffer();
 
   try {
@@ -359,6 +379,11 @@ export type DeleteImageResult =
  * are UUID-named, so a replacement never reuses the old URL.
  */
 export async function deleteProductImage(publicUrl: string, storeId: string): Promise<DeleteImageResult> {
+  return deleteStoredImage(publicUrl, storeId);
+}
+
+/** Removes any image this store uploaded (a product photo or the logo). See `deleteProductImage`. */
+export async function deleteStoredImage(publicUrl: string, storeId: string): Promise<DeleteImageResult> {
   if (!publicUrl) return { status: 'skipped', reason: 'no image to remove' };
   if (!isStorageConfigured()) return { status: 'skipped', reason: 'storage not configured' };
 

@@ -39,7 +39,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   { key: 'company.name', value: 'My Store', type: 'STRING', group: 'company', label: 'Store name', description: 'Shown on receipts, reports, and the sidebar.', rules: { required: true, maxLength: 120 } },
   { key: 'company.address', value: '', type: 'STRING', group: 'company', label: 'Address', description: 'Printed under the store name on receipts.', rules: { maxLength: 300 } },
   { key: 'company.phone', value: '', type: 'STRING', group: 'company', label: 'Contact number', description: 'Contact number printed on receipts.', rules: { maxLength: 40 } },
-  { key: 'company.logoUrl', value: '', type: 'STRING', group: 'company', label: 'Store logo', description: 'Shown on receipts and the sidebar.', rules: { maxLength: 2000, url: true } },
+  { key: 'company.logoUrl', value: '', type: 'STRING', group: 'company', label: 'Store logo', description: 'Saved with your store information.', rules: { maxLength: 2000, url: true } },
   { key: 'company.gcashNumber', value: '', type: 'STRING', group: 'company', label: 'GCash number', description: 'Shown to the cashier at checkout so the customer knows where to send a GCash payment.', rules: { maxLength: 40 } },
   { key: 'company.gcashName', value: '', type: 'STRING', group: 'company', label: 'GCash account name', description: 'The name registered to that GCash number.', rules: { maxLength: 120 } },
 

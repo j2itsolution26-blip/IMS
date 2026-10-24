@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SETTING_DEFINITIONS, settingProblem, settingRow } from '@/lib/settings-definitions';
-import { SETTINGS_SECTIONS, changedKeys, currencySymbol } from '@/features/admin/settings-sections';
+import { SETTINGS_SECTIONS, changedKeys, currencySymbol, logoFileProblem } from '@/features/admin/settings-sections';
 
 /**
  * The setting rules shared by the settings form and `updateSettings`, and the
@@ -81,4 +81,13 @@ test('changedKeys lists only values that differ from what is saved', () => {
 test('currencySymbol writes pesos as ₱ and falls back to the code', () => {
   assert.equal(currencySymbol('PHP'), '₱');
   assert.equal(currencySymbol('not-a-code'), 'not-a-code');
+});
+
+test('logo files: PNG, JPG or WEBP, not empty, at most 5 MB', () => {
+  assert.equal(logoFileProblem({ type: 'image/png', size: 2048 }), null);
+  assert.equal(logoFileProblem({ type: 'image/webp', size: 5 * 1024 * 1024 }), null);
+  assert.ok(logoFileProblem({ type: 'image/svg+xml', size: 2048 }), 'SVG can carry script');
+  assert.ok(logoFileProblem({ type: 'image/gif', size: 2048 }));
+  assert.ok(logoFileProblem({ type: 'image/png', size: 0 }));
+  assert.ok(logoFileProblem({ type: 'image/jpeg', size: 5 * 1024 * 1024 + 1 }));
 });

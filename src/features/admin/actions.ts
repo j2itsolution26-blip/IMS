@@ -29,7 +29,9 @@ import {
   type SettingDefinition,
 } from '@/lib/settings-definitions';
 import { normalizeUsername, usernameProblem } from '@/lib/username';
-import { requireFeature, requireWithinLimit } from '@/server/services/entitlements';
+import { requireFeature, requireWithinLimit, requireWritable } from '@/server/services/entitlements';
+import { deleteStoredImage, uploadStoreLogo } from '@/server/services/storage-service';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 /**
  * Administration: system settings, user accounts, and role permissions.
@@ -114,6 +116,63 @@ export async function updateSettings(input: unknown): Promise<ActionResult<numbe
     revalidatePath('/settings');
     revalidatePath('/dashboard');
     return changed.length;
+  });
+}
+
+// --- Store logo -------------------------------------------------------------
+
+const LOGO_KEY = 'company.logoUrl';
+
+/**
+ * Stores `url` as the logo and removes the previous file. The old file goes
+ * only after the new value is saved, so a failure at any step leaves the
+ * store with a working logo.
+ */
+async function replaceLogo(userId: string, url: string, summary: string): Promise<void> {
+  const { db, storeId } = await getStoreContext();
+  const definition = DEFINITION_BY_KEY.get(LOGO_KEY)!;
+  const previous = (await db.setting.findFirst({ where: { key: LOGO_KEY } }))?.value ?? '';
+
+  try {
+    await db.setting.upsert({
+      where: { storeId_key: { storeId, key: LOGO_KEY } },
+      create: { ...settingRow(definition), value: url },
+      update: { value: url },
+    });
+  } catch (error) {
+    // Not saved, so nothing refers to the new upload; do not leave it behind.
+    if (url) await deleteStoredImage(url, storeId);
+    throw error;
+  }
+  await recordAudit({ action: 'SETTINGS_CHANGE', entity: 'Setting', summary, userId });
+
+  // Only this store's own uploads are ever removed; a pasted external URL is skipped.
+  if (previous && previous !== url) await deleteStoredImage(previous, storeId);
+
+  revalidatePath('/settings');
+}
+
+export async function uploadStoreLogoAction(formData: FormData): Promise<ActionResult<{ url: string }>> {
+  return runAction(async () => {
+    const user = await authorize('settings.update');
+    checkRateLimit(`store-logo:${user.id}`, { limit: 10, windowMs: 60_000 });
+
+    const file = formData.get('file');
+    if (!(file instanceof File)) throw new ConflictError('No file was received.');
+
+    // Storage is outside the store client, so a read-only store is refused here.
+    const { storeId } = await requireWritable();
+    const url = await uploadStoreLogo(file, storeId);
+    await replaceLogo(user.id, url, 'Updated the store logo');
+    return { url };
+  });
+}
+
+export async function removeStoreLogoAction(): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const user = await authorize('settings.update');
+    await requireWritable();
+    await replaceLogo(user.id, '', 'Removed the store logo');
   });
 }
 

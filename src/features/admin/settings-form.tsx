@@ -14,6 +14,7 @@ import {
   type SectionLayout,
 } from '@/features/admin/settings-sections';
 import { SettingsActionBar } from '@/features/admin/settings-action-bar';
+import { StoreLogoField } from '@/features/admin/store-logo-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/misc';
@@ -30,6 +31,8 @@ import { cn } from '@/lib/utils';
  */
 
 type Errors = Record<string, string>;
+
+const LOGO_KEY = 'company.logoUrl';
 
 const WIDTH: Record<NonNullable<FieldLayout['width']>, string> = {
   short: 'sm:max-w-[12rem]',
@@ -102,6 +105,14 @@ export function SettingsForm({
     if (first) document.getElementById(first)?.focus();
   };
 
+  // The logo is stored by its own action; both copies follow, so it never
+  // counts as an unsaved change.
+  const onLogoStored = (url: string) => {
+    setSaved((current) => ({ ...current, [LOGO_KEY]: url }));
+    setDraft((current) => ({ ...current, [LOGO_KEY]: url }));
+    router.refresh();
+  };
+
   const reset = () => {
     setDraft(saved);
     setErrors({});
@@ -172,6 +183,19 @@ export function SettingsForm({
           {section.fields.map((field) => {
             const definition = byKey.get(field.key);
             if (!definition) return null;
+            if (field.control === 'logo') {
+              return (
+                <StoreLogoField
+                  key={field.key}
+                  id={field.key}
+                  label={field.label ?? definition.label}
+                  description={definition.description}
+                  url={saved[field.key] ?? ''}
+                  disabled={!canEdit || saving}
+                  onStored={onLogoStored}
+                />
+              );
+            }
             return (
               <SettingField
                 key={field.key}
