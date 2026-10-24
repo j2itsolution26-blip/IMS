@@ -14,6 +14,7 @@ import {
 import { getCompanyProfile } from '@/server/services/settings-service';
 import { recordAuditSafe } from '@/server/services/audit-service';
 import { featureDenial } from '@/server/services/entitlements';
+import { MUST_CHANGE_PASSWORD_MESSAGE } from '@/lib/password-change';
 
 export const dynamic = 'force-dynamic';
 // Exports build a whole workbook in memory; the Node runtime is required.
@@ -35,6 +36,9 @@ export async function GET(
 ) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (user.mustChangePassword) {
+    return NextResponse.json({ error: MUST_CHANGE_PASSWORD_MESSAGE }, { status: 403 });
+  }
   if (user.isLocked) return NextResponse.json({ error: LOCKED_MESSAGE }, { status: 403 });
 
   const { report: reportId } = await params;

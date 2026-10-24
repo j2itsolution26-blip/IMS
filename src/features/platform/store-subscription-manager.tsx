@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Ban, CalendarPlus, CreditCard, Layers, PlayCircle, Plus, ShieldAlert, Undo2 } from 'lucide-react';
+import { Ban, CalendarPlus, CreditCard, Layers, PlayCircle, Plus, ShieldAlert, Undo2, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,8 @@ import { USERNAME_HINT } from '@/lib/username';
 import { PLANS, PLAN_ORDER, type PlanId } from '@/lib/plans';
 import { MAX_TRIAL_EXTENSION_DAYS, PAYMENT_METHOD_LABEL, PAYMENT_MONTHS, STATUS_LABEL, TRIAL_DAYS } from '@/lib/subscription';
 import type { ActionResult } from '@/lib/action';
+import { generatePassword } from '@/lib/password';
+import { PasswordChecklist, PasswordInput } from '@/components/password-field';
 import {
   changePlanAction,
   createStoreAction,
@@ -102,11 +104,17 @@ function FormAlert({ message }: { message: string | null }) {
 
 const EMPTY_STORE = { storeName: '', name: '', username: '', email: '', password: '', phone: '' };
 
+/** Longer than the 10-character minimum: nobody types a generated password from memory. */
+const GENERATED_PASSWORD_LENGTH = 16;
+
 export function CreateStoreButton() {
   const [open, setOpen] = React.useState(false);
   const [form, setForm] = React.useState(EMPTY_STORE);
   const [similar, setSimilar] = React.useState<string | null>(null);
   const [allowSimilar, setAllowSimilar] = React.useState(false);
+  const [showPassword, setShowPassword] = React.useState(false);
+  // Whether the field holds a freshly generated password, or generation failed.
+  const [generation, setGeneration] = React.useState<'idle' | 'generated' | 'failed'>('idle');
   const { busy, errors, formError, run, reset } = useAction();
 
   const close = (next: boolean) => {
@@ -115,7 +123,22 @@ export function CreateStoreButton() {
       setForm(EMPTY_STORE);
       setSimilar(null);
       setAllowSimilar(false);
+      setShowPassword(false);
+      setGeneration('idle');
       reset();
+    }
+  };
+
+  const onGeneratePassword = () => {
+    try {
+      // Web Crypto only (see generatePassword). If it is unavailable this
+      // throws and the field is left alone, never filled from an insecure source.
+      const generated = generatePassword(GENERATED_PASSWORD_LENGTH);
+      setForm((current) => ({ ...current, password: generated }));
+      setShowPassword(true);
+      setGeneration('generated');
+    } catch {
+      setGeneration('failed');
     }
   };
   const set = (key: keyof typeof EMPTY_STORE) => (event: React.ChangeEvent<HTMLInputElement>) =>
@@ -160,9 +183,46 @@ export function CreateStoreButton() {
               <Field id="owner-email" label="Email" error={err('email')}>
                 <Input id="owner-email" type="email" value={form.email} onChange={set('email')} aria-invalid={Boolean(err('email'))} />
               </Field>
-              <Field id="owner-password" label="Starting password" error={err('password')} hint="At least 10 characters with upper and lower case, a number and a symbol.">
-                <Input id="owner-password" type="password" value={form.password} onChange={set('password')} autoComplete="new-password" aria-invalid={Boolean(err('password'))} />
-              </Field>
+              <div className="space-y-1.5">
+                <Label htmlFor="owner-password">Temporary password</Label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <PasswordInput
+                    id="owner-password"
+                    value={form.password}
+                    onChange={(event) => {
+                      set('password')(event);
+                      setGeneration('idle');
+                    }}
+                    revealed={showPassword}
+                    onRevealedChange={setShowPassword}
+                    // Stops the browser filling in the administrator's own saved password.
+                    autoComplete="new-password"
+                    aria-invalid={Boolean(err('password'))}
+                    aria-describedby="owner-password-hint owner-password-rules owner-password-status"
+                  />
+                  <Button type="button" variant="outline" className="shrink-0" onClick={onGeneratePassword} disabled={busy}>
+                    <Wand2 /> Generate
+                  </Button>
+                </div>
+                {err('password') && (
+                  <p id="owner-password-error" className="text-xs text-destructive-text">
+                    {err('password')}
+                  </p>
+                )}
+                <p id="owner-password-hint" className="text-xs text-muted-foreground">
+                  The owner must change this password when signing in for the first time.
+                </p>
+                <PasswordChecklist id="owner-password-rules" password={form.password} />
+                {/* Announces the outcome, never the password itself. */}
+                <p id="owner-password-status" role="status" aria-live="polite" className="text-xs font-medium">
+                  {generation === 'generated' && (
+                    <span className="text-success-text">New password generated. Copy it for the owner before you create the store.</span>
+                  )}
+                  {generation === 'failed' && (
+                    <span className="text-destructive-text">This browser can&apos;t generate a secure password. Type one in instead.</span>
+                  )}
+                </p>
+              </div>
               <Field id="owner-phone" label="Phone (optional)" error={err('phone')} hint="Used to spot a business signing up for a second trial.">
                 <Input id="owner-phone" value={form.phone} onChange={set('phone')} />
               </Field>

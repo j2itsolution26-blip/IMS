@@ -2,7 +2,7 @@ import 'server-only';
 
 import { cache } from 'react';
 import type { PrismaClient } from '@prisma/client';
-import { getCurrentUser } from '@/lib/session';
+import { assertPasswordSettled, getCurrentUser } from '@/lib/session';
 import { ForbiddenError, UnauthorizedError } from '@/lib/errors';
 import { storeAccess, type StoreAccess } from '@/lib/store-access';
 import { storeClient } from '@/lib/tenant/client';
@@ -31,6 +31,10 @@ export const SUSPENDED_MESSAGE = 'This store has been suspended. Contact support
 export const getStoreContext = cache(async (): Promise<StoreContext> => {
   const user = await getCurrentUser();
   if (!user) throw new UnauthorizedError();
+  // Every store query passes through here, so this one check keeps an account
+  // with a pending password change away from all store data, whichever page,
+  // action or route asked.
+  assertPasswordSettled(user);
   if (!user.store) throw new ForbiddenError('This account does not belong to a store.');
   if (user.store.status === 'SUSPENDED') throw new ForbiddenError(SUSPENDED_MESSAGE);
   const access = storeAccess(user.store);

@@ -306,8 +306,8 @@ export function OwnerAccountsManager({
                 </Button>
               </div>
               <p id="owner-password-hint" className="text-xs text-muted-foreground">
-                At least 10 characters with upper and lower case, a number and a symbol. The owner can
-                change it from Settings once signed in.
+                At least 10 characters with upper and lower case, a number and a symbol. The owner must
+                change it when signing in for the first time.
               </p>
               {/* Announces the outcome, never the password itself. */}
               <p id="owner-password-status" role="status" aria-live="polite" className="text-xs font-medium">
@@ -353,8 +353,10 @@ export function OwnerAccountsManager({
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
               autoFocus
             />
+            <p className="text-xs text-muted-foreground">The owner must change it at their next sign-in.</p>
           </div>
 
           <DialogFooter>

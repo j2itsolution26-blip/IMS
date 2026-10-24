@@ -11,6 +11,7 @@ import { getCompanyProfile } from '@/server/services/settings-service';
 import { recordAuditSafe } from '@/server/services/audit-service';
 import { featureDenial } from '@/server/services/entitlements';
 import { resolveShiftQuery, type ShiftSearchParams } from '@/features/shifts/params';
+import { MUST_CHANGE_PASSWORD_MESSAGE } from '@/lib/password-change';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -31,6 +32,9 @@ const text = (key: string, label: string): ReportColumn => ({ key, label, format
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (user.mustChangePassword) {
+    return NextResponse.json({ error: MUST_CHANGE_PASSWORD_MESSAGE }, { status: 403 });
+  }
   if (user.isLocked) return NextResponse.json({ error: LOCKED_MESSAGE }, { status: 403 });
   if (!user.permissions.has(FINANCIAL_PERMISSION)) {
     return NextResponse.json({ error: 'You do not have permission to export shift records.' }, { status: 403 });

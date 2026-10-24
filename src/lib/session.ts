@@ -10,6 +10,7 @@ import { platformPrisma } from '@/lib/prisma';
 import type { PermissionKey } from '@/lib/permissions';
 import { ForbiddenError, UnauthorizedError } from '@/lib/errors';
 import { isSafeReturnPath } from '@/lib/safe-path';
+import { CHANGE_PASSWORD_PATH, MUST_CHANGE_PASSWORD_MESSAGE } from '@/lib/password-change';
 
 export interface CurrentUser {
   id: string;
@@ -35,6 +36,11 @@ export interface CurrentUser {
   isLocked: boolean;
   /** Whether the lock screen can offer PIN entry (the hash never leaves the server). */
   hasPin: boolean;
+  /**
+   * True while the account still uses a password an administrator chose.
+   * Nothing but the password change is allowed until it is cleared.
+   */
+  mustChangePassword: boolean;
 }
 
 /** Message for any action attempted while the screen is locked. */
@@ -87,6 +93,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       image: true,
       isActive: true,
       posPinHash: true,
+      mustChangePassword: true,
       store: { select: { id: true, name: true, status: true, plan: true, trialEndsAt: true, currentPeriodEnd: true } },
       role: {
         select: {
@@ -121,6 +128,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     sessionId: session.session.id,
     isLocked: sessionRow.lockedAt !== null,
     hasPin: user.posPinHash !== null,
+    mustChangePassword: user.mustChangePassword,
   };
 });
 
@@ -147,6 +155,10 @@ export function userCanAny(user: CurrentUser | null, permissions: PermissionKey[
 export async function requireUser(): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user) redirect('/api/session/reset');
+  // An administrator-chosen password must be replaced before anything else
+  // renders — checked from the database on every request, so no URL, cookie
+  // or client state can skip it.
+  if (user.mustChangePassword) redirect(CHANGE_PASSWORD_PATH);
   // A locked session is still signed in, but no page renders for it. A screen
   // locked mid-shift is covered client-side without navigating (so the POS
   // cart survives); this catches a refresh or a newly opened page.
@@ -171,6 +183,7 @@ export async function requirePermission(permission: PermissionKey): Promise<Curr
 export async function authorize(permission: PermissionKey): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user) throw new UnauthorizedError();
+  assertPasswordSettled(user);
   if (user.isLocked) throw new ForbiddenError(LOCKED_MESSAGE);
   if (!user.permissions.has(permission)) {
     throw new ForbiddenError(`You do not have permission to ${permission.replace('.', ' ')}.`);
@@ -185,7 +198,27 @@ export async function authorize(permission: PermissionKey): Promise<CurrentUser>
 export async function authenticate(): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user) throw new UnauthorizedError();
+  assertPasswordSettled(user);
   if (user.isLocked) throw new ForbiddenError(LOCKED_MESSAGE);
+  return user;
+}
+
+/**
+ * Refuses an account whose administrator-chosen password has not been
+ * replaced yet. Every guard calls this; the change-password action is the
+ * only code that deliberately does not.
+ */
+export function assertPasswordSettled(user: CurrentUser): void {
+  if (user.mustChangePassword) throw new ForbiddenError(MUST_CHANGE_PASSWORD_MESSAGE);
+}
+
+/**
+ * For the mandatory password change only: a signed-in user, whether or not
+ * the change is pending. Never use it to reach store data or other accounts.
+ */
+export async function authenticateForPasswordChange(): Promise<CurrentUser> {
+  const user = await getCurrentUser();
+  if (!user) throw new UnauthorizedError();
   return user;
 }
 

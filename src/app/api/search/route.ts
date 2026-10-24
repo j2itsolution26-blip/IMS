@@ -6,6 +6,7 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { RateLimitError } from '@/lib/errors';
 import { formatDate } from '@/lib/format';
 import { salesScopeUserId } from '@/lib/sales-scope';
+import { MUST_CHANGE_PASSWORD_MESSAGE } from '@/lib/password-change';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +29,9 @@ export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (user.mustChangePassword) {
+    return NextResponse.json({ error: MUST_CHANGE_PASSWORD_MESSAGE }, { status: 403 });
   }
   if (user.isLocked) {
     return NextResponse.json({ error: LOCKED_MESSAGE }, { status: 403 });

@@ -21,7 +21,7 @@ export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const user = await getCurrentUser();
-  if (!user || user.isLocked || !userCan(user, 'sales.view')) return { title: 'Sale' };
+  if (!user || user.isLocked || user.mustChangePassword || !userCan(user, 'sales.view')) return { title: 'Sale' };
   const { id } = await params;
   const sale = await getSale(id);
   // Same rule as the page: another cashier's invoice number is not named.

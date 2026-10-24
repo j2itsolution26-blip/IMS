@@ -348,7 +348,8 @@ export async function createStore(actor: Actor, input: NewStoreInput, now = new 
       where: { storeId_slug: { storeId: store.id, slug: OWNER_ROLE_SLUG } },
       select: { id: true },
     });
-    const created = await runAsProvisioning({ storeId: store.id, roleId: role.id }, () =>
+    // The administrator chose this password, so the owner replaces it at first sign-in.
+    const created = await runAsProvisioning({ storeId: store.id, roleId: role.id, mustChangePassword: true }, () =>
       auth.api.signUpEmail({
         body: { name: input.owner.name, email, password: input.owner.password, username: input.owner.username },
       }),
@@ -373,8 +374,8 @@ export async function createStore(actor: Actor, input: NewStoreInput, now = new 
       action: 'CREATE',
       entity: 'Store',
       entityId: store.id,
-      summary: `Store created with owner @${input.owner.username}; ${PLANS[trial.plan].name} trial until ${formatDate(trial.trialEndsAt)}`,
-      changes: { after: { plan: trial.plan, status: trial.status, trialEndsAt: iso(trial.trialEndsAt) }, ownerId },
+      summary: `Store created with owner @${input.owner.username} (temporary password, must be changed at first sign-in); ${PLANS[trial.plan].name} trial until ${formatDate(trial.trialEndsAt)}`,
+      changes: { after: { plan: trial.plan, status: trial.status, trialEndsAt: iso(trial.trialEndsAt) }, ownerId, ownerMustChangePassword: true },
     });
   }, TX);
 

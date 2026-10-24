@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { getCurrentUser, type CurrentUser } from '@/lib/session';
+import { assertPasswordSettled, getCurrentUser, type CurrentUser } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ForbiddenError, UnauthorizedError } from '@/lib/errors';
 import { LOCKED_MESSAGE } from '@/lib/session';
@@ -29,6 +29,7 @@ import {
 async function requireManager(attempt: string): Promise<Actor> {
   const user = await getCurrentUser();
   if (!user) throw new UnauthorizedError();
+  assertPasswordSettled(user);
   if (user.isLocked) throw new ForbiddenError(LOCKED_MESSAGE);
   if (!user.permissions.has('platform.manage')) {
     await denied(user, attempt);

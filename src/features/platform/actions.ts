@@ -102,7 +102,7 @@ export async function createOwnerAccount(input: unknown): Promise<ActionResult<{
     // own cookie must survive this call.
     let created: Awaited<ReturnType<typeof auth.api.signUpEmail>>;
     try {
-      created = await runAsProvisioning({ storeId: store.id, roleId: role.id }, async () =>
+      created = await runAsProvisioning({ storeId: store.id, roleId: role.id, mustChangePassword: true }, async () =>
         auth.api.signUpEmail({
           body: {
             name: values.name,
@@ -141,7 +141,7 @@ export async function createOwnerAccount(input: unknown): Promise<ActionResult<{
       action: 'CREATE',
       entity: 'User',
       entityId: userId,
-      summary: `Created owner account @${values.username} (${values.email})`,
+      summary: `Created owner account @${values.username} (${values.email}) with a temporary password; must be changed at first sign-in`,
       userId: admin.id,
     });
 
@@ -212,17 +212,26 @@ export async function resetOwnerPassword(id: string, input: unknown): Promise<Ac
     // produced by exactly the code path sign-in verifies against.
     const ctx = await auth.$context;
     const hash = await ctx.password.hash(values.password);
-    await ctx.internalAdapter.updatePassword(id, hash);
 
-    // The old password is gone, so sessions opened with it should be too.
-    await platformPrisma.session.deleteMany({ where: { userId: id } });
+    // One transaction: the new hash, the requirement to replace it (the admin
+    // knows this password), and the end of every session opened with the old
+    // one. The owner is never left with the new password but no requirement.
+    await platformPrisma.$transaction(async (tx) => {
+      const updated = await tx.account.updateMany({
+        where: { userId: id, providerId: 'credential' },
+        data: { password: hash },
+      });
+      if (updated.count === 0) throw new ConflictError('This owner has no password sign-in to reset.');
+      await tx.user.update({ where: { id }, data: { mustChangePassword: true } });
+      await tx.session.deleteMany({ where: { userId: id } });
+    });
 
     await recordPlatformAudit({
       action: 'UPDATE',
       entity: 'User',
       entityId: id,
       // The new password is never written to the trail.
-      summary: `Reset password for owner account ${target.email}`,
+      summary: `Reset password for owner account ${target.email}; must be changed at next sign-in`,
       userId: admin.id,
     });
 

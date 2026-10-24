@@ -29,13 +29,26 @@ export interface ProvisioningTarget {
   roleId: string;
   /** First-time setup: refuse unless this is the very first account of the installation. */
   firstAccountOnly?: boolean;
+  /**
+   * The password was chosen by an administrator, so the new account must
+   * replace it at first sign-in. Written in the same INSERT as the account.
+   */
+  mustChangePassword?: boolean;
 }
 
 const storage = new AsyncLocalStorage<ProvisioningTarget>();
 
 export function runAsProvisioning<T>(target: ProvisioningTarget, fn: () => Promise<T>): Promise<T> {
   if (!target.roleId || target.storeId === undefined) throw new Error('runAsProvisioning needs a store (or null) and a role.');
-  return storage.run({ storeId: target.storeId, roleId: target.roleId, firstAccountOnly: target.firstAccountOnly === true }, fn);
+  return storage.run(
+    {
+      storeId: target.storeId,
+      roleId: target.roleId,
+      firstAccountOnly: target.firstAccountOnly === true,
+      mustChangePassword: target.mustChangePassword === true,
+    },
+    fn,
+  );
 }
 
 /** The store and role an authorised provisioning call asked for, or null for a public sign-up. */

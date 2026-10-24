@@ -207,6 +207,12 @@ model User {
   // Hash of the POS lock-screen PIN (same hasher as passwords). Optional: with
   // no PIN the lock screen asks for the account password.
   posPinHash      String?
+  // Set by the server when an administrator chose this account's password
+  // (a new store owner, or an owner password reset). While true, every page,
+  // action and store query is refused except changing the password — see
+  // `getCurrentUser`. Cleared only by that change, in the same transaction
+  // that stores the new hash. Never accepted from client input.
+  mustChangePassword Boolean @default(false)
 
   roleId String
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)

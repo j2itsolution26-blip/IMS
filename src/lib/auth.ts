@@ -6,7 +6,8 @@ import { platformPrisma } from '@/lib/prisma';
 import { getAppUrl, getTrustedOrigins } from '@/lib/env';
 import { provisioningTarget } from '@/lib/provisioning-context';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password';
-import { APIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
+import { MUST_CHANGE_PASSWORD_MESSAGE, isBlockedWhileRestricted } from '@/lib/password-change';
 import { APP_NAME } from '@/lib/brand';
 import { resolvePasskeyConfig } from '@/lib/passkey-config';
 import { passkeyPlugin } from '@/lib/passkey-plugin';
@@ -37,7 +38,7 @@ const INVALID_CREDENTIALS = 'Invalid username/email or password.';
  * System Administrator role has none). There is no public sign-up: a request
  * to Better Auth's sign-up endpoint from a browser is always refused.
  */
-async function resolveNewAccount(): Promise<{ roleId: string; storeId: string | null }> {
+async function resolveNewAccount(): Promise<{ roleId: string; storeId: string | null; mustChangePassword: boolean }> {
   const target = provisioningTarget();
   if (!target) {
     throw new APIError('FORBIDDEN', {
@@ -54,7 +55,7 @@ async function resolveNewAccount(): Promise<{ roleId: string; storeId: string | 
   if (target.firstAccountOnly && (await platformPrisma.user.count()) > 0) {
     throw new APIError('FORBIDDEN', { message: 'Setup has already been completed. Please sign in.' });
   }
-  return { roleId: target.roleId, storeId: target.storeId };
+  return { roleId: target.roleId, storeId: target.storeId, mustChangePassword: target.mustChangePassword === true };
 }
 
 export const auth = betterAuth({
@@ -120,6 +121,9 @@ export const auth = betterAuth({
       isActive: { type: 'boolean', required: false, defaultValue: true, input: false },
       phone: { type: 'string', required: false, input: true },
       lastLoginAt: { type: 'date', required: false, input: false },
+      // Set only by trusted server code when an administrator chose the
+      // password; `input: false` keeps it out of every public payload.
+      mustChangePassword: { type: 'boolean', required: false, defaultValue: false, input: false },
     },
   },
 
@@ -141,8 +145,10 @@ export const auth = betterAuth({
             throw new APIError('BAD_REQUEST', { message: 'Choose a valid username.' });
           }
 
-          const { roleId, storeId } = await resolveNewAccount();
-          return { data: { ...user, roleId, storeId } };
+          // The flag comes only from the server-side caller's provisioning
+          // target, overriding anything in `user`.
+          const { roleId, storeId, mustChangePassword } = await resolveNewAccount();
+          return { data: { ...user, roleId, storeId, mustChangePassword } };
         },
         // A store's first owner becomes its owner of record.
         after: async (user) => {
@@ -201,6 +207,26 @@ export const auth = betterAuth({
         },
       },
     },
+  },
+
+  hooks: {
+    // While an administrator-chosen password is still in use, the built-in
+    // password, profile and passkey endpoints are refused: the password is
+    // changed through our own action, which clears the flag atomically, so
+    // these must not become a way around it. Read from the database, never
+    // from anything the client sends.
+    before: createAuthMiddleware(async (ctx) => {
+      if (!isBlockedWhileRestricted(ctx.path)) return;
+      const session = await getSessionFromCtx(ctx);
+      if (!session?.user?.id) return;
+      const user = await platformPrisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { mustChangePassword: true },
+      });
+      if (user?.mustChangePassword) {
+        throw new APIError('FORBIDDEN', { message: MUST_CHANGE_PASSWORD_MESSAGE });
+      }
+    }),
   },
 
   plugins: [
