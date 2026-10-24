@@ -403,7 +403,7 @@ export async function listCameras(): Promise<{ deviceId: string; label: string }
 
 const ERROR_CONTENT: Record<CameraFailure, { icon: React.ReactNode; title: string; body?: string }> = {
   denied: {
-    icon: <ShieldAlert className="h-8 w-8 text-destructive" aria-hidden="true" />,
+    icon: <ShieldAlert className="h-8 w-8 text-destructive-text" aria-hidden="true" />,
     title: 'Camera access was denied.',
     body: 'Allow camera access in your browser settings to scan barcodes.',
   },
@@ -412,7 +412,7 @@ const ERROR_CONTENT: Record<CameraFailure, { icon: React.ReactNode; title: strin
     title: 'No camera was found on this device.',
   },
   'in-use': {
-    icon: <CameraOff className="h-8 w-8 text-warning" aria-hidden="true" />,
+    icon: <CameraOff className="h-8 w-8 text-warning-text" aria-hidden="true" />,
     title: 'The camera is currently being used by another application.',
     body: 'Close the other app or tab using the camera, then try again.',
   },
@@ -421,11 +421,11 @@ const ERROR_CONTENT: Record<CameraFailure, { icon: React.ReactNode; title: strin
     title: 'Barcode scanning is not supported by this browser.',
   },
   insecure: {
-    icon: <ShieldAlert className="h-8 w-8 text-warning" aria-hidden="true" />,
+    icon: <ShieldAlert className="h-8 w-8 text-warning-text" aria-hidden="true" />,
     title: 'Barcode scanning needs a secure (HTTPS) connection.',
   },
   error: {
-    icon: <VideoOff className="h-8 w-8 text-destructive" aria-hidden="true" />,
+    icon: <VideoOff className="h-8 w-8 text-destructive-text" aria-hidden="true" />,
     title: 'Couldn’t start the camera.',
     body: 'Something went wrong getting the camera going.',
   },

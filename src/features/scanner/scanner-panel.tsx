@@ -682,9 +682,9 @@ function AimingOverlay({ hold, flash }: { hold: string | null; flash: 'ok' | 'ba
 }
 
 const TONE_ICON: Record<ScanFeedback['tone'], React.ReactNode> = {
-  success: <CheckCircle2 className="h-4 w-4 text-success" />,
-  warning: <AlertTriangle className="h-4 w-4 text-warning" />,
-  error: <XCircle className="h-4 w-4 text-destructive" />,
+  success: <CheckCircle2 className="h-4 w-4 text-success-text" />,
+  warning: <AlertTriangle className="h-4 w-4 text-warning-text" />,
+  error: <XCircle className="h-4 w-4 text-destructive-text" />,
 };
 
 function FeedbackLine({

@@ -137,9 +137,9 @@ export default async function MovementsPage({
                       <TableCell>
                         <span className="flex items-center gap-1.5 whitespace-nowrap text-sm">
                           {inbound ? (
-                            <ArrowDownLeft className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+                            <ArrowDownLeft className="h-3.5 w-3.5 text-success-text" aria-hidden="true" />
                           ) : (
-                            <ArrowUpRight className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+                            <ArrowUpRight className="h-3.5 w-3.5 text-destructive-text" aria-hidden="true" />
                           )}
                           {href ? (
                             <Link href={href} className="hover:underline">
@@ -156,7 +156,7 @@ export default async function MovementsPage({
                       <TableCell
                         className={cn(
                           'tabular text-right font-medium',
-                          inbound ? 'text-success' : 'text-destructive',
+                          inbound ? 'text-success-text' : 'text-destructive-text',
                         )}
                       >
                         {inbound ? '+' : ''}

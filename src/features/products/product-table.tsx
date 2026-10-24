@@ -130,9 +130,9 @@ export function ProductTable({
                       className={cn(
                         'tabular text-sm',
                         row.marginPercent < 0
-                          ? 'text-destructive'
+                          ? 'text-destructive-text'
                           : row.marginPercent < 10
-                            ? 'text-warning'
+                            ? 'text-warning-text'
                             : 'text-muted-foreground',
                       )}
                     >
@@ -147,7 +147,7 @@ export function ProductTable({
                       <span
                         className={cn(
                           'tabular font-medium',
-                          row.onHand <= 0 ? 'text-destructive' : belowReorder ? 'text-warning' : '',
+                          row.onHand <= 0 ? 'text-destructive-text' : belowReorder ? 'text-warning-text' : '',
                         )}
                       >
                         {formatQuantity(row.onHand)}
@@ -156,7 +156,7 @@ export function ProductTable({
                       <span
                         className={cn(
                           'block text-xs',
-                          row.onHand <= 0 ? 'text-destructive' : belowReorder ? 'text-warning' : 'text-success',
+                          row.onHand <= 0 ? 'text-destructive-text' : belowReorder ? 'text-warning-text' : 'text-success-text',
                         )}
                       >
                         {row.onHand <= 0 ? 'Out of stock' : belowReorder ? 'Low stock' : 'In stock'}

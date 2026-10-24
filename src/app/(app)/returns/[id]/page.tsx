@@ -71,7 +71,7 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
       />
 
       {!record.restock && (
-        <div className="mb-4 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
+        <div className="mb-4 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning-text">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>
             These goods were <strong>not</strong> returned to sellable stock — the sale was refunded and the
@@ -147,7 +147,7 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
               <Row label="When">{formatDateTime(record.createdAt)}</Row>
               <Row label="Lines">{record.items.length}</Row>
               <Row label="Restocked">
-                <span className={record.restock ? 'text-success' : 'text-destructive'}>
+                <span className={record.restock ? 'text-success-text' : 'text-destructive-text'}>
                   {record.restock ? 'Yes' : 'Written off'}
                 </span>
               </Row>

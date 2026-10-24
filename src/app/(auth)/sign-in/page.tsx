@@ -51,7 +51,7 @@ export default async function SignInPage({
       </div>
 
       {setupDone && (
-        <div role="status" className="rounded-xl border border-success/30 bg-success/10 p-4 text-sm text-success">
+        <div role="status" className="rounded-xl border border-success/30 bg-success/10 p-4 text-sm text-success-text">
           <p className="font-medium">Setup complete</p>
           <p className="mt-1 opacity-90">Sign in with your new System Administrator account.</p>
         </div>
@@ -61,7 +61,7 @@ export default async function SignInPage({
       {sessionExpired && (
         <div
           role="status"
-          className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning"
+          className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning-text"
         >
           <p className="font-medium">Your session has ended</p>
           <p className="mt-1 opacity-90">

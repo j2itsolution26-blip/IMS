@@ -110,7 +110,7 @@ export function OpenShiftDialog({
           </DialogHeader>
 
           {serverError && (
-            <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive-text">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>{serverError}</span>
             </div>
@@ -136,7 +136,7 @@ export function OpenShiftDialog({
                 className={cn('h-12 rounded-lg pl-8 text-lg font-semibold tabular', showError && 'border-destructive focus-visible:ring-destructive')}
               />
             </div>
-            <p id="starting-cash-help" className={cn('text-xs', showError ? 'text-destructive' : 'text-muted-foreground')}>
+            <p id="starting-cash-help" className={cn('text-xs', showError ? 'text-destructive-text' : 'text-muted-foreground')}>
               {showError && !parsed.ok
                 ? parsed.error
                 : suggestedAmount > 0

@@ -197,7 +197,7 @@ function PasswordField({
           {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
       </div>
-      {description && <p className="text-xs text-destructive">{description}</p>}
+      {description && <p className="text-xs text-destructive-text">{description}</p>}
     </div>
   );
 }

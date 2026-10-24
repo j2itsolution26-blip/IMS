@@ -495,14 +495,14 @@ export function ProductPhotoField({
       )}
 
       {stage === 'uploaded' && (
-        <p className="flex items-center gap-1.5 text-xs font-medium text-success">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-success-text">
           <Check className="h-3.5 w-3.5" aria-hidden="true" /> Photo uploaded
         </p>
       )}
 
       {reviewing && removeError && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
-          <p className="flex items-start gap-1.5 text-xs font-medium text-destructive">
+          <p className="flex items-start gap-1.5 text-xs font-medium text-destructive-text">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>
               Couldn&apos;t remove the background.
@@ -549,7 +549,7 @@ export function ProductPhotoField({
 
       {stage === 'failed' && (
         <div role="alert" className="space-y-2 rounded-md border border-destructive/40 bg-destructive/10 p-3">
-          <p className="flex items-start gap-1.5 text-xs font-medium text-destructive">
+          <p className="flex items-start gap-1.5 text-xs font-medium text-destructive-text">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>
               Couldn&apos;t upload the product photo.

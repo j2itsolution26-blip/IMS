@@ -11,9 +11,9 @@ export type KpiTone = 'default' | 'success' | 'warning' | 'destructive';
 
 const TONE_ICON: Record<KpiTone, string> = {
   default: 'bg-primary/10 text-primary',
-  success: 'bg-success/10 text-success',
-  warning: 'bg-warning/15 text-warning',
-  destructive: 'bg-destructive/10 text-destructive',
+  success: 'bg-success/10 text-success-text',
+  warning: 'bg-warning/15 text-warning-text',
+  destructive: 'bg-destructive/10 text-destructive-text',
 };
 
 const CARD = 'flex h-full flex-col rounded-xl border bg-card p-4 shadow-card';
@@ -85,7 +85,7 @@ export function KpiCard({
             <span
               className={cn(
                 'inline-flex items-center gap-0.5 font-semibold',
-                isFlat ? 'text-muted-foreground' : isGood ? 'text-success' : 'text-destructive',
+                isFlat ? 'text-muted-foreground' : isGood ? 'text-success-text' : 'text-destructive-text',
               )}
             >
               <TrendIcon className="h-3 w-3" aria-hidden="true" />

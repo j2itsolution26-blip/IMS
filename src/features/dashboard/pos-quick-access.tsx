@@ -164,7 +164,7 @@ function LookupResults({ lookup, currency, posHref }: { lookup: Lookup; currency
 
   if (lookup.status === 'error') {
     return (
-      <p className="mt-3 text-sm text-destructive" role="alert">
+      <p className="mt-3 text-sm text-destructive-text" role="alert">
         {lookup.message}
       </p>
     );
@@ -209,7 +209,7 @@ function Availability({ product }: { product: SellableProduct }) {
   if (!product.isTrackable) return <p className="text-xs text-muted-foreground">Not stock-tracked</p>;
   const out = product.available <= 0;
   return (
-    <p className={cn('tabular text-xs font-medium', out ? 'text-destructive' : 'text-success')}>
+    <p className={cn('tabular text-xs font-medium', out ? 'text-destructive-text' : 'text-success-text')}>
       {out ? 'Out of stock' : `${formatPieces(product.available)} in stock`}
     </p>
   );

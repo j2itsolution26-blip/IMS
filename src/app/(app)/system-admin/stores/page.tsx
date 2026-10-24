@@ -52,13 +52,13 @@ export default async function StoresPage({ searchParams }: { searchParams: Promi
             <table className="w-full min-w-[760px] text-sm">
               <caption className="sr-only">Stores and their subscriptions</caption>
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th scope="col" className="px-4 py-2 font-medium">Store</th>
-                  <th scope="col" className="px-4 py-2 font-medium">Plan</th>
-                  <th scope="col" className="px-4 py-2 font-medium">Access</th>
-                  <th scope="col" className="px-4 py-2 font-medium">Ends</th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">Products</th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">Staff</th>
+                <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <th scope="col" className="h-10 px-4 font-semibold">Store</th>
+                  <th scope="col" className="h-10 px-4 font-semibold">Plan</th>
+                  <th scope="col" className="h-10 px-4 font-semibold">Access</th>
+                  <th scope="col" className="h-10 px-4 font-semibold">Ends</th>
+                  <th scope="col" className="h-10 px-4 text-right font-semibold">Products</th>
+                  <th scope="col" className="h-10 px-4 text-right font-semibold">Staff</th>
                 </tr>
               </thead>
               <tbody>

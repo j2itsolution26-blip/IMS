@@ -31,13 +31,13 @@ const STATUS_META: Record<StockStatus, { label: string; dot: string; pill: strin
   OUT_OF_STOCK: {
     label: 'Out of stock',
     dot: 'bg-destructive',
-    pill: 'bg-destructive/10 text-destructive',
+    pill: 'bg-destructive/10 text-destructive-text',
     bar: 'bg-destructive',
   },
-  CRITICAL: { label: 'Low stock', dot: 'bg-warning', pill: 'bg-warning/15 text-warning', bar: 'bg-warning' },
-  LOW: { label: 'Low stock', dot: 'bg-warning', pill: 'bg-warning/15 text-warning', bar: 'bg-warning' },
-  HEALTHY: { label: 'In stock', dot: 'bg-success', pill: 'bg-success/10 text-success', bar: 'bg-success' },
-  OVERSTOCK: { label: 'In stock', dot: 'bg-success', pill: 'bg-success/10 text-success', bar: 'bg-success' },
+  CRITICAL: { label: 'Low stock', dot: 'bg-warning', pill: 'bg-warning/15 text-warning-text', bar: 'bg-warning' },
+  LOW: { label: 'Low stock', dot: 'bg-warning', pill: 'bg-warning/15 text-warning-text', bar: 'bg-warning' },
+  HEALTHY: { label: 'In stock', dot: 'bg-success', pill: 'bg-success/10 text-success-text', bar: 'bg-success' },
+  OVERSTOCK: { label: 'In stock', dot: 'bg-success', pill: 'bg-success/10 text-success-text', bar: 'bg-success' },
 };
 
 const HEAD = 'h-11 whitespace-nowrap px-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground';
@@ -46,9 +46,9 @@ const CELL = 'px-4 py-3';
 /** A stable tint per product, so a photo-less row still reads as itself. */
 const PLACEHOLDER_TINTS = [
   'bg-primary/10 text-primary',
-  'bg-success/10 text-success',
-  'bg-warning/15 text-warning',
-  'bg-destructive/10 text-destructive',
+  'bg-success/10 text-success-text',
+  'bg-warning/15 text-warning-text',
+  'bg-destructive/10 text-destructive-text',
 ];
 
 function initialsOf(name: string): string {
@@ -244,9 +244,9 @@ export function InventoryProductList({
                         className={cn(
                           'tabular text-sm font-semibold',
                           row.status === 'OUT_OF_STOCK'
-                            ? 'text-destructive'
+                            ? 'text-destructive-text'
                             : row.status === 'LOW' || row.status === 'CRITICAL'
-                              ? 'text-warning'
+                              ? 'text-warning-text'
                               : '',
                         )}
                       >

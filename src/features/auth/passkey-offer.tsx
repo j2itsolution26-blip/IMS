@@ -47,14 +47,14 @@ export function PasskeyOffer({ onDone, onNotNow }: { onDone: () => void; onNotNo
       {error && (
         <div
           role="alert"
-          className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/8 p-3.5 text-sm text-destructive dark:bg-destructive/15"
+          className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/8 p-3.5 text-sm text-destructive-text dark:bg-destructive/15"
         >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
       {created && (
-        <p role="status" className="rounded-lg border border-success/30 bg-success/10 p-3.5 text-sm text-success">
+        <p role="status" className="rounded-lg border border-success/30 bg-success/10 p-3.5 text-sm text-success-text">
           Passkey created. You can manage your passkeys from your profile.
         </p>
       )}

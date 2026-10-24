@@ -45,7 +45,7 @@ function Field({ id, label, error, hint, children }: { id: string; label: string
       <Label htmlFor={id}>{label}</Label>
       {children}
       {error ? (
-        <p id={`${id}-error`} className="text-xs text-destructive">
+        <p id={`${id}-error`} className="text-xs text-destructive-text">
           {error}
         </p>
       ) : (
@@ -92,7 +92,7 @@ function useAction() {
 function FormAlert({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+    <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive-text">
       {message}
     </p>
   );
@@ -170,7 +170,7 @@ export function CreateStoreButton() {
             {similar && (
               <div role="alert" className="space-y-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
                 <p className="flex items-start gap-2">
-                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning-text" aria-hidden="true" />
                   {similar}
                 </p>
                 <label className="flex items-center gap-2 font-medium">
@@ -506,7 +506,7 @@ function PaymentDialog({ open, onClose, storeId, storeName, plan }: { open: bool
             <span>
               I have checked that this amount was received in our account with this reference.
               {err('confirmed') && (
-                <span id="pay-confirm-error" className="mt-1 block text-xs text-destructive">
+                <span id="pay-confirm-error" className="mt-1 block text-xs text-destructive-text">
                   {err('confirmed')}
                 </span>
               )}

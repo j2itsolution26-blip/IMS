@@ -192,7 +192,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                         <span
                           className={cn(
                             'font-medium',
-                            change.newValue > change.oldValue ? 'text-warning' : 'text-success',
+                            change.newValue > change.oldValue ? 'text-warning-text' : 'text-success-text',
                           )}
                         >
                           {formatCurrency(change.newValue, currency)}
@@ -240,9 +240,9 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                         <TableCell>
                           <span className="flex items-center gap-1.5 text-sm">
                             {inbound ? (
-                              <ArrowDownLeft className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+                              <ArrowDownLeft className="h-3.5 w-3.5 text-success-text" aria-hidden="true" />
                             ) : (
-                              <ArrowUpRight className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+                              <ArrowUpRight className="h-3.5 w-3.5 text-destructive-text" aria-hidden="true" />
                             )}
                             {humanizeEnum(movement.type)}
                           </span>
@@ -253,7 +253,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                         <TableCell
                           className={cn(
                             'tabular text-right font-medium',
-                            inbound ? 'text-success' : 'text-destructive',
+                            inbound ? 'text-success-text' : 'text-destructive-text',
                           )}
                         >
                           {inbound ? '+' : ''}

@@ -175,7 +175,7 @@ export function SignInForm({
       {formError && (
         <div
           role="alert"
-          className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/8 p-3.5 text-sm text-destructive dark:bg-destructive/15"
+          className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/8 p-3.5 text-sm text-destructive-text dark:bg-destructive/15"
         >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{formError}</span>
@@ -217,7 +217,7 @@ export function SignInForm({
           />
         </div>
         {errors.identifier && (
-          <p id="identifier-error" className="text-xs text-destructive" role="alert">
+          <p id="identifier-error" className="text-xs text-destructive-text" role="alert">
             {errors.identifier.message}
           </p>
         )}
@@ -258,7 +258,7 @@ export function SignInForm({
           </button>
         </div>
         {errors.password && (
-          <p id="password-error" className="text-xs text-destructive" role="alert">
+          <p id="password-error" className="text-xs text-destructive-text" role="alert">
             {errors.password.message}
           </p>
         )}

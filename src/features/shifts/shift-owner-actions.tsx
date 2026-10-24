@@ -35,7 +35,7 @@ function PesoInput({ id, value, onChange, autoFocus }: { id: string; value: stri
 
 function FormError({ error }: { error: string | null }) {
   return error ? (
-    <p role="alert" className="text-sm text-destructive">
+    <p role="alert" className="text-sm text-destructive-text">
       {error}
     </p>
   ) : null;
@@ -187,7 +187,7 @@ export function AdjustmentButton({ shiftId, currency }: { shiftId: string; curre
             <div className="space-y-1.5">
               <Label htmlFor="adjust-amount">Amount</Label>
               <PesoInput id="adjust-amount" value={amount} onChange={setAmount} />
-              {amount !== '' && !parsed.ok && <p className="text-xs text-destructive">{parsed.error}</p>}
+              {amount !== '' && !parsed.ok && <p className="text-xs text-destructive-text">{parsed.error}</p>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="adjust-reason">Reason</Label>
@@ -272,7 +272,7 @@ export function OwnerCloseButton({ shiftId, cashierName, currency }: { shiftId: 
             <div className="space-y-1.5">
               <Label htmlFor="owner-counted">Cash counted</Label>
               <PesoInput id="owner-counted" value={counted} onChange={setCounted} autoFocus />
-              {counted !== '' && !parsed.ok && <p className="text-xs text-destructive">{parsed.error}</p>}
+              {counted !== '' && !parsed.ok && <p className="text-xs text-destructive-text">{parsed.error}</p>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="owner-notes">

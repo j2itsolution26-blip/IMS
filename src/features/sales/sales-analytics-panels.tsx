@@ -296,8 +296,8 @@ function ComparisonRow({
               isFlat
                 ? 'bg-muted text-muted-foreground'
                 : isUp
-                  ? 'bg-success/10 text-success'
-                  : 'bg-destructive/10 text-destructive',
+                  ? 'bg-success/10 text-success-text'
+                  : 'bg-destructive/10 text-destructive-text',
             )}
           >
             <TrendIcon className="h-3 w-3" aria-hidden="true" />
@@ -441,10 +441,10 @@ export function TopProductsPanel({
                       className={cn(
                         'tabular inline-flex rounded-full px-2 py-0.5 text-xs font-semibold',
                         product.currentStock <= 0
-                          ? 'bg-destructive/10 text-destructive'
+                          ? 'bg-destructive/10 text-destructive-text'
                           : product.currentStock < 10
-                            ? 'bg-warning/15 text-warning'
-                            : 'bg-success/10 text-success',
+                            ? 'bg-warning/15 text-warning-text'
+                            : 'bg-success/10 text-success-text',
                       )}
                     >
                       {formatQuantity(product.currentStock)}

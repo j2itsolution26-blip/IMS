@@ -137,7 +137,7 @@ export default async function ShiftManagementPage({ searchParams }: { searchPara
       </div>
 
       {result.refundsOutsideShift.count > 0 && (
-        <p className="mb-4 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+        <p className="mb-4 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning-text">
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           {money(result.refundsOutsideShift.amount)} in cash refunds ({result.refundsOutsideShift.count}) were paid {inlineLabel(range)} while
           no shift was open, so no drawer accounts for them.

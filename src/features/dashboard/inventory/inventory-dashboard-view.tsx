@@ -308,9 +308,9 @@ function MoreLink({ href, children }: { href: string; children: React.ReactNode 
 /* -------------------------------------------------------------------------- */
 
 const STATUS_PILL: Record<'OUT' | 'LOW' | 'IN', { label: string; className: string; dot: string }> = {
-  OUT: { label: 'Out of stock', className: 'bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-  LOW: { label: 'Low stock', className: 'bg-warning/15 text-warning', dot: 'bg-warning' },
-  IN: { label: 'In stock', className: 'bg-success/10 text-success', dot: 'bg-success' },
+  OUT: { label: 'Out of stock', className: 'bg-destructive/10 text-destructive-text', dot: 'bg-destructive' },
+  LOW: { label: 'Low stock', className: 'bg-warning/15 text-warning-text', dot: 'bg-warning' },
+  IN: { label: 'In stock', className: 'bg-success/10 text-success-text', dot: 'bg-success' },
 };
 
 function bandOf(status: StockLevelRow['status']): 'OUT' | 'LOW' | 'IN' {
@@ -416,7 +416,7 @@ function AttentionTable({
                   <TableCell
                     className={cn(
                       'tabular px-4 py-2.5 text-right text-sm font-semibold',
-                      band === 'OUT' ? 'text-destructive' : band === 'LOW' ? 'text-warning' : '',
+                      band === 'OUT' ? 'text-destructive-text' : band === 'LOW' ? 'text-warning-text' : '',
                     )}
                   >
                     {formatNumber(row.available, 0)}
@@ -497,7 +497,7 @@ function ReorderPanel({
                     <Link href={`/products/${row.productId}`} className="truncate text-sm font-medium hover:underline">
                       {row.name}
                     </Link>
-                    <span className={cn('tabular shrink-0 text-sm font-semibold', out ? 'text-destructive' : 'text-warning')}>
+                    <span className={cn('tabular shrink-0 text-sm font-semibold', out ? 'text-destructive-text' : 'text-warning-text')}>
                       {formatNumber(row.available, 0)}
                       <span className="font-normal text-muted-foreground"> / {formatPieces(row.threshold)}</span>
                     </span>
@@ -576,14 +576,14 @@ function RecentActivityPanel({ rows }: { rows: InventoryDashboardData['recentAct
                     <TableCell className="whitespace-nowrap px-4 py-2.5 text-sm">
                       <span className="inline-flex items-center gap-1.5">
                         {inbound ? (
-                          <ArrowDownLeft className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+                          <ArrowDownLeft className="h-3.5 w-3.5 text-success-text" aria-hidden="true" />
                         ) : (
-                          <ArrowUpRight className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+                          <ArrowUpRight className="h-3.5 w-3.5 text-destructive-text" aria-hidden="true" />
                         )}
                         {MOVEMENT_LABEL[row.type]}
                       </span>
                     </TableCell>
-                    <TableCell className={cn('tabular whitespace-nowrap px-4 py-2.5 text-right text-sm font-semibold', inbound ? 'text-success' : 'text-destructive')}>
+                    <TableCell className={cn('tabular whitespace-nowrap px-4 py-2.5 text-right text-sm font-semibold', inbound ? 'text-success-text' : 'text-destructive-text')}>
                       {inbound ? '+' : ''}
                       {formatPieces(row.quantity)}
                     </TableCell>

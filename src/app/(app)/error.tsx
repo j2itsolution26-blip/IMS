@@ -30,7 +30,7 @@ export default function AppError({
     <div className="flex min-h-[60vh] items-center justify-center">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+          <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive-text">
             <AlertTriangle className="h-5 w-5" />
           </span>
           <CardTitle>{isPermission ? 'You do not have access' : 'Something went wrong'}</CardTitle>

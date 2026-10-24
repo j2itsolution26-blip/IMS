@@ -66,7 +66,7 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
       {isOwner && shift.displayStatus === 'REQUIRES_REVIEW' && (
         <section className="no-print mb-5 rounded-xl border border-warning/40 bg-warning/5 p-4">
           <h2 className="flex items-center gap-2 font-semibold">
-            <TriangleAlert className="h-4 w-4 text-warning" aria-hidden="true" />
+            <TriangleAlert className="h-4 w-4 text-warning-text" aria-hidden="true" />
             This drawer counted{' '}
             <VarianceText difference={shift.difference} kind={shift.varianceKind} currency={currency} />
           </h2>
@@ -79,7 +79,7 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
       )}
 
       {shift.liveExpectedCash != null && (
-        <p className="mb-4 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+        <p className="mb-4 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning-text">
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           Records changed after this shift closed (for example a sale voided later). Recalculated today the drawer would expect{' '}
           {money(shift.liveExpectedCash)}; the figures below are as reconciled at close.
@@ -120,7 +120,7 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
                   label="Variance after adjustments"
                   value={
                     shift.adjustedDifference === 0 ? (
-                      <span className="text-success">Balanced</span>
+                      <span className="text-success-text">Balanced</span>
                     ) : (
                       `${(shift.adjustedDifference ?? 0) > 0 ? '+' : '−'}${money(Math.abs(shift.adjustedDifference ?? 0))}`
                     )
@@ -187,7 +187,7 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
             items={shift.movements.map((m) => ({
               id: m.id,
               amount: `${m.type === 'CASH_IN' ? '+' : '−'}${money(m.amount)}`,
-              tone: m.type === 'CASH_IN' ? 'text-success' : 'text-destructive',
+              tone: m.type === 'CASH_IN' ? 'text-success-text' : 'text-destructive-text',
               text: `${m.type === 'CASH_IN' ? 'Cash in' : 'Cash out'}: ${m.reason}`,
               meta: `${m.userName}, ${formatDateTime(m.createdAt)}`,
             }))}
@@ -200,7 +200,7 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
                 items={shift.adjustments.map((a) => ({
                   id: a.id,
                   amount: `${a.amount > 0 ? '+' : '−'}${money(Math.abs(a.amount))}`,
-                  tone: a.amount > 0 ? 'text-success' : 'text-destructive',
+                  tone: a.amount > 0 ? 'text-success-text' : 'text-destructive-text',
                   text: a.reason,
                   meta: `${a.userName}, ${formatDateTime(a.createdAt)}`,
                 }))}

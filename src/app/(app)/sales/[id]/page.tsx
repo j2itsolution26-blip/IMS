@@ -77,7 +77,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
       />
 
       {sale.status === 'VOIDED' && (
-        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive-text">
           This sale has been voided. Stock was returned and it no longer counts toward revenue or profit.
         </div>
       )}
@@ -120,7 +120,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                           <p className="text-xs text-muted-foreground">
                             {item.sku}
                             {item.returnedQuantity > 0 && (
-                              <span className="ml-1 text-warning">
+                              <span className="ml-1 text-warning-text">
                                 · {formatPieces(item.returnedQuantity)} returned
                               </span>
                             )}
@@ -194,7 +194,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
               {sale.changeAmount > 0 && <Row label="Change">{formatCurrency(sale.changeAmount, currency)}</Row>}
               {sale.balance > 0 && (
                 <Row label="Balance due">
-                  <span className="text-warning">{formatCurrency(sale.balance, currency)}</span>
+                  <span className="text-warning-text">{formatCurrency(sale.balance, currency)}</span>
                 </Row>
               )}
 
@@ -203,7 +203,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                   <div className="border-t pt-2" />
                   <Row label="Cost of goods">{formatCurrency(sale.costOfGoods, currency)}</Row>
                   <Row label="Gross profit">
-                    <span className={sale.profit < 0 ? 'text-destructive' : 'text-success'}>
+                    <span className={sale.profit < 0 ? 'text-destructive-text' : 'text-success-text'}>
                       {formatCurrency(sale.profit, currency)}
                     </span>
                   </Row>
@@ -263,7 +263,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                           {item.reason ? ` · ${item.reason}` : ''}
                         </span>
                       </span>
-                      <span className="tabular shrink-0 font-medium text-warning">
+                      <span className="tabular shrink-0 font-medium text-warning-text">
                         − {formatCurrency(item.total, currency)}
                       </span>
                     </li>

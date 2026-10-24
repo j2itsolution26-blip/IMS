@@ -75,7 +75,7 @@ export function PasskeysManager({ passkeys, available }: { passkeys: PasskeyRow[
       )}
 
       {error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-destructive-text">
           {error}
         </p>
       )}
@@ -189,7 +189,7 @@ function PasskeyItem({ passkey, onRemove }: { passkey: PasskeyRow; onRemove: () 
             type="button"
             size="icon"
             variant="ghost"
-            className="h-9 w-9 text-destructive hover:text-destructive"
+            className="h-9 w-9 text-destructive-text hover:text-destructive-text"
             onClick={onRemove}
             aria-label={`Remove ${passkey.name ?? 'passkey'}`}
           >

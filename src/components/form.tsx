@@ -43,7 +43,7 @@ export function FormField({
       <Label htmlFor={id}>
         {label}
         {required && (
-          <span className="ml-0.5 text-destructive" aria-hidden="true">
+          <span className="ml-0.5 text-destructive-text" aria-hidden="true">
             *
           </span>
         )}
@@ -60,7 +60,7 @@ export function FormField({
         </p>
       )}
       {message && (
-        <p id={`${id}-error`} className="text-xs text-destructive">
+        <p id={`${id}-error`} className="text-xs text-destructive-text">
           {message}
         </p>
       )}
@@ -93,7 +93,7 @@ export function FormError({ message }: { message: string | null }) {
   return (
     <div
       role="alert"
-      className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+      className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive-text"
     >
       <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <span>{message}</span>

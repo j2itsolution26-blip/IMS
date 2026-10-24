@@ -44,7 +44,7 @@ export function UsageMeter({ meter, label }: { meter: { key: LimitKey; used: num
         <span id={id} className="font-medium">
           {name}
         </span>
-        <span className={cn('tabular-nums', full ? 'font-semibold text-warning' : 'text-muted-foreground')}>
+        <span className={cn('tabular-nums', full ? 'font-semibold text-warning-text' : 'text-muted-foreground')}>
           {formatNumber(meter.used, 0)} {unlimited ? '· unlimited' : `of ${formatNumber(meter.limit, 0)}`}
         </span>
       </div>
@@ -57,7 +57,7 @@ export function UsageMeter({ meter, label }: { meter: { key: LimitKey; used: num
         />
       )}
       {over ? (
-        <p className="text-xs text-warning">
+        <p className="text-xs text-warning-text">
           Over the plan&apos;s limit. Nothing is deleted, but no more can be added until some are removed or the plan is upgraded.
         </p>
       ) : (
@@ -122,7 +122,7 @@ export function PlanComparison({ current }: { current: PlanId }) {
               {PLAN_ORDER.map((id) => (
                 <td key={id} className={cn('px-4 py-2.5', id === current && 'bg-primary/5')}>
                   {PLANS[id].features[feature] ? (
-                    <Check className="h-4 w-4 text-success" aria-label="Included" />
+                    <Check className="h-4 w-4 text-success-text" aria-label="Included" />
                   ) : (
                     <Minus className="h-4 w-4 text-muted-foreground" aria-label="Not included" />
                   )}

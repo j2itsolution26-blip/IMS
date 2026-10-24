@@ -890,7 +890,7 @@ export function PosTerminal({
                       variant="ghost"
                       size="icon"
                       onClick={() => setQuantity(line.productId, 0)}
-                      className="ml-auto h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive"
+                      className="ml-auto h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive-text"
                       aria-label={`Remove ${line.name}`}
                     >
                       <Trash2 />
@@ -938,7 +938,7 @@ export function PosTerminal({
             Charge {formatCurrency(totals.total, currency)}
           </Button>
           {!online && basket.length > 0 && (
-            <p className="text-center text-xs text-warning">Offline. Reconnect to charge this sale.</p>
+            <p className="text-center text-xs text-warning-text">Offline. Reconnect to charge this sale.</p>
           )}
 
           {basket.length > 0 ? (
@@ -1041,17 +1041,17 @@ export function PosTerminal({
 
                 {outstanding > 0 ? (
                   <div className="rounded-xl bg-destructive/10 px-4 py-3 text-center">
-                    <p className="text-xs font-medium uppercase tracking-wide text-destructive">
+                    <p className="text-xs font-medium uppercase tracking-wide text-destructive-text">
                       Amount still due
                     </p>
-                    <p className="tabular mt-0.5 text-3xl font-bold text-destructive">
+                    <p className="tabular mt-0.5 text-3xl font-bold text-destructive-text">
                       {formatCurrency(outstanding, currency)}
                     </p>
                   </div>
                 ) : (
                   <div className="rounded-xl bg-success/10 px-4 py-3 text-center">
-                    <p className="text-xs font-medium uppercase tracking-wide text-success">Change</p>
-                    <p className="tabular mt-0.5 text-3xl font-bold text-success">
+                    <p className="text-xs font-medium uppercase tracking-wide text-success-text">Change</p>
+                    <p className="tabular mt-0.5 text-3xl font-bold text-success-text">
                       {formatCurrency(change, currency)}
                     </p>
                   </div>
@@ -1074,7 +1074,7 @@ export function PosTerminal({
                   </div>
                 ) : (
                   <div className="space-y-2 rounded-xl border border-warning/40 bg-warning/10 p-3 text-center">
-                    <p className="text-sm font-medium text-warning">GCash number has not been set.</p>
+                    <p className="text-sm font-medium text-warning-text">GCash number has not been set.</p>
                     {canEditStoreSettings && (
                       <Button type="button" variant="outline" size="sm" asChild>
                         <Link href="/settings">
@@ -1117,10 +1117,10 @@ export function PosTerminal({
 
                 {outstanding > 0 && (
                   <div className="rounded-xl bg-destructive/10 px-4 py-3 text-center">
-                    <p className="text-xs font-medium uppercase tracking-wide text-destructive">
+                    <p className="text-xs font-medium uppercase tracking-wide text-destructive-text">
                       Amount still due
                     </p>
-                    <p className="tabular mt-0.5 text-3xl font-bold text-destructive">
+                    <p className="tabular mt-0.5 text-3xl font-bold text-destructive-text">
                       {formatCurrency(outstanding, currency)}
                     </p>
                   </div>
@@ -1272,7 +1272,7 @@ function FilterChip({
         active
           ? 'border-transparent bg-sidebar text-sidebar-foreground'
           : tone === 'warning'
-            ? 'border-warning/30 bg-warning/10 text-warning hover:bg-warning/15'
+            ? 'border-warning/30 bg-warning/10 text-warning-text hover:bg-warning/15'
             : 'bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
       )}
     >
@@ -1327,12 +1327,12 @@ function ProductTile({
   const stock = !product.isTrackable
     ? { label: 'Service', text: 'text-muted-foreground', dot: 'bg-muted-foreground' }
     : soldOut
-      ? { label: 'Out of stock', text: 'text-destructive', dot: 'bg-destructive' }
+      ? { label: 'Out of stock', text: 'text-destructive-text', dot: 'bg-destructive' }
       : low
-        ? { label: `${formatQuantity(product.available)} left`, text: 'text-warning', dot: 'bg-warning' }
+        ? { label: `${formatQuantity(product.available)} left`, text: 'text-warning-text', dot: 'bg-warning' }
         : {
             label: `${formatQuantity(product.available)} in stock`,
-            text: 'text-success',
+            text: 'text-success-text',
             dot: 'bg-success',
           };
 

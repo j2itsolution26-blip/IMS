@@ -179,7 +179,7 @@ function ScannerCart({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive"
+                  className="h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive-text"
                   onClick={() => onRemove(line.productId)}
                   aria-label={`Remove ${line.name}`}
                 >

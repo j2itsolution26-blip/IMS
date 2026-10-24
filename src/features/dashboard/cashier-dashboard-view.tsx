@@ -131,7 +131,7 @@ export function CashierDashboardView({
 function ShiftStatus({ openedAt }: { openedAt: Date | null }) {
   if (openedAt) {
     return (
-      <span className="inline-flex min-h-9 items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3 text-sm font-medium text-success">
+      <span className="inline-flex min-h-9 items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3 text-sm font-medium text-success-text">
         <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
         Shift open since {formatTime(openedAt)}
       </span>
@@ -177,7 +177,7 @@ function ShiftCard({
             {summary.transactionCount === 1 ? '' : 's'} ({formatCurrency(summary.totalSales, currency)} all payments)
           </p>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-semibold text-success">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-semibold text-success-text">
           <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" /> Open
         </span>
       </div>
@@ -199,8 +199,8 @@ function ShiftCard({
 
 const STAT_TONE = {
   default: 'bg-primary/10 text-primary',
-  warning: 'bg-warning/15 text-warning',
-  destructive: 'bg-destructive/10 text-destructive',
+  warning: 'bg-warning/15 text-warning-text',
+  destructive: 'bg-destructive/10 text-destructive-text',
 } as const;
 
 /**
@@ -379,7 +379,7 @@ function StockAlerts({
                 <span
                   className={cn(
                     'tabular shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold',
-                    out ? 'bg-destructive/10 text-destructive' : 'bg-warning/15 text-warning',
+                    out ? 'bg-destructive/10 text-destructive-text' : 'bg-warning/15 text-warning-text',
                   )}
                 >
                   {out ? 'Out of stock' : `${formatPieces(row.available)} left`}

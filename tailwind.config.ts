@@ -27,17 +27,23 @@ const config: Config = {
           DEFAULT: 'hsl(var(--secondary))',
           foreground: 'hsl(var(--secondary-foreground))',
         },
+        // `text` is the status colour for words and figures. The DEFAULT hues
+        // stay vivid for dots, bars and fills, but as text on white they fall
+        // to ~2:1, so text uses its own darker (light) / lighter (dark) step.
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
+          text: 'hsl(var(--destructive-text))',
         },
         success: {
           DEFAULT: 'hsl(var(--success))',
           foreground: 'hsl(var(--success-foreground))',
+          text: 'hsl(var(--success-text))',
         },
         warning: {
           DEFAULT: 'hsl(var(--warning))',
           foreground: 'hsl(var(--warning-foreground))',
+          text: 'hsl(var(--warning-text))',
         },
         muted: {
           DEFAULT: 'hsl(var(--muted))',

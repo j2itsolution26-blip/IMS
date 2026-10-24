@@ -69,7 +69,7 @@ export default async function StoreDetailPage({ params }: { params: Promise<{ id
             {access.graceEndsAt && (
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Read-only from</dt>
-                <dd className="font-medium text-warning">{formatDate(access.graceEndsAt)}</dd>
+                <dd className="font-medium text-warning-text">{formatDate(access.graceEndsAt)}</dd>
               </div>
             )}
             <div className="flex items-center justify-between gap-3">
@@ -99,13 +99,13 @@ export default async function StoreDetailPage({ params }: { params: Promise<{ id
               <table className="w-full min-w-[820px] text-sm">
                 <caption className="sr-only">Payments</caption>
                 <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th scope="col" className="px-4 py-2 font-medium">Received</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Plan</th>
-                    <th scope="col" className="px-4 py-2 text-right font-medium">Amount</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Method · reference</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Covers</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Recorded by</th>
+                  <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                    <th scope="col" className="h-10 px-4 font-semibold">Received</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Plan</th>
+                    <th scope="col" className="h-10 px-4 text-right font-semibold">Amount</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Method · reference</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Covers</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Recorded by</th>
                     <th scope="col" className="px-4 py-2"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
@@ -124,7 +124,7 @@ export default async function StoreDetailPage({ params }: { params: Promise<{ id
                       <td className="px-4 py-2.5">
                         {formatDate(payment.periodStart)} – {formatDate(payment.periodEnd)}
                         {payment.voidedAt && (
-                          <span className="block text-xs text-destructive">
+                          <span className="block text-xs text-destructive-text">
                             Void {formatDate(payment.voidedAt)} by {payment.voidedBy}: {payment.voidReason}
                           </span>
                         )}

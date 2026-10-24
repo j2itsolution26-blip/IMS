@@ -41,7 +41,7 @@ export function ConfirmDialog({
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0">
           <div className="flex gap-3">
             {destructive && (
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive-text">
                 <AlertTriangle className="h-4 w-4" aria-hidden="true" />
               </span>
             )}

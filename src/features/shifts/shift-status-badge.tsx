@@ -34,9 +34,9 @@ export function VarianceText({
   className?: string;
 }) {
   if (difference == null || kind == null) return <span className="text-muted-foreground">—</span>;
-  if (kind === 'BALANCED') return <span className={cn('text-success', className)}>Balanced</span>;
+  if (kind === 'BALANCED') return <span className={cn('text-success-text', className)}>Balanced</span>;
   return (
-    <span className={cn('whitespace-nowrap', kind === 'SHORTAGE' ? 'text-destructive' : 'text-warning', className)}>
+    <span className={cn('whitespace-nowrap', kind === 'SHORTAGE' ? 'text-destructive-text' : 'text-warning-text', className)}>
       {kind === 'SHORTAGE' ? 'Short ' : 'Over '}
       {formatCurrency(Math.abs(difference), currency)}
     </span>

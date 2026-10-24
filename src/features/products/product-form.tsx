@@ -285,13 +285,13 @@ export function ProductForm({
               {canViewProfit && (
                 <div className="flex flex-wrap items-center gap-4 rounded-md bg-muted/60 px-3 py-2 text-sm">
                   <span className="text-muted-foreground">Profit per piece</span>
-                  <span className={`tabular font-medium ${profitPerPiece < 0 ? 'text-destructive' : ''}`}>
+                  <span className={`tabular font-medium ${profitPerPiece < 0 ? 'text-destructive-text' : ''}`}>
                     {formatCurrency(profitPerPiece, currency)}
                   </span>
                   <span className="text-muted-foreground">Margin</span>
                   <span
                     className={`tabular font-medium ${
-                      margin < 0 ? 'text-destructive' : margin < 10 ? 'text-warning' : 'text-success'
+                      margin < 0 ? 'text-destructive-text' : margin < 10 ? 'text-warning-text' : 'text-success-text'
                     }`}
                   >
                     {sellingPrice > 0 ? `${margin.toFixed(1)}%` : '—'}
@@ -435,7 +435,7 @@ export function ProductForm({
                   can still arrive from an older record, so its error is kept
                   visible rather than being silently unfixable. */}
               {errors.imageUrl?.message && (
-                <p className="text-xs text-destructive">{errors.imageUrl.message}</p>
+                <p className="text-xs text-destructive-text">{errors.imageUrl.message}</p>
               )}
 
               <p className="text-xs text-muted-foreground">

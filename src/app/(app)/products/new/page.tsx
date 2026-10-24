@@ -34,7 +34,7 @@ export default async function NewProductPage() {
 
       {noCategories && (
         <div className="mb-4 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning-text" aria-hidden="true" />
           <p>
             You need at least one category — use the <strong>+</strong> button next to the Category field
             below to add one.

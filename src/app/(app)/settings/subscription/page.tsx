@@ -158,13 +158,13 @@ export default async function SubscriptionPage() {
               <table className="w-full min-w-[640px] text-sm">
                 <caption className="sr-only">Payment history</caption>
                 <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th scope="col" className="px-4 py-2 font-medium">Paid</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Plan</th>
-                    <th scope="col" className="px-4 py-2 text-right font-medium">Amount</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Method</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Reference</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Covers</th>
+                  <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                    <th scope="col" className="h-10 px-4 font-semibold">Paid</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Plan</th>
+                    <th scope="col" className="h-10 px-4 text-right font-semibold">Amount</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Method</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Reference</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Covers</th>
                   </tr>
                 </thead>
                 <tbody>

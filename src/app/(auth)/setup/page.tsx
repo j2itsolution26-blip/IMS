@@ -25,7 +25,7 @@ function Problem({ title, lead, children }: { title: string; lead: string; child
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <div className="mb-1 flex items-center gap-2 text-warning">
+        <div className="mb-1 flex items-center gap-2 text-warning-text">
           <AlertTriangle className="h-4 w-4" aria-hidden="true" />
           <span className="text-xs font-semibold uppercase tracking-wide">Setup can&apos;t start yet</span>
         </div>

@@ -176,7 +176,7 @@ export default async function InventoryPage({
         {canViewCost ? (
           <Kpi
             icon={<PhilippinePeso className="h-4 w-4" />}
-            iconClass="bg-success/10 text-success"
+            iconClass="bg-success/10 text-success-text"
             label="Stock value (retail)"
             value={formatCompactCurrency(snapshot.retailValue, currency)}
             foot={`Cost ${formatCurrency(snapshot.costValue, currency)} · ${formatNumber(margin, 0)}% margin`}
@@ -184,7 +184,7 @@ export default async function InventoryPage({
         ) : (
           <Kpi
             icon={<PackageCheck className="h-4 w-4" />}
-            iconClass="bg-success/10 text-success"
+            iconClass="bg-success/10 text-success-text"
             label="In stock"
             value={formatNumber(inStock, 0)}
             foot="Above their low-stock level"
@@ -193,7 +193,7 @@ export default async function InventoryPage({
         )}
         <Kpi
           icon={<TriangleAlert className="h-4 w-4" />}
-          iconClass="bg-warning/15 text-warning"
+          iconClass="bg-warning/15 text-warning-text"
           label="Low stock"
           value={formatNumber(lowStock, 0)}
           foot="Below reorder level"
@@ -202,7 +202,7 @@ export default async function InventoryPage({
         />
         <Kpi
           icon={<PackageX className="h-4 w-4" />}
-          iconClass="bg-destructive/10 text-destructive"
+          iconClass="bg-destructive/10 text-destructive-text"
           label="Out of stock"
           value={formatNumber(snapshot.outOfStock, 0)}
           foot={snapshot.outOfStock > 0 ? 'Losing sales now' : 'Nothing to restock'}
@@ -308,8 +308,8 @@ function Kpi({
       <p
         className={cn(
           'tabular mt-1.5 truncate text-xl font-semibold leading-tight tracking-tight sm:mt-2 sm:text-2xl',
-          tone === 'warning' && 'text-warning',
-          tone === 'destructive' && 'text-destructive',
+          tone === 'warning' && 'text-warning-text',
+          tone === 'destructive' && 'text-destructive-text',
         )}
       >
         {value}

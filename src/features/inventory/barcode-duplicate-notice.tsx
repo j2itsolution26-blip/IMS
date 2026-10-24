@@ -47,9 +47,9 @@ export function BarcodeDuplicateNotice({
 
   return (
     <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3">
-      <PackageSearch className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+      <PackageSearch className="mt-0.5 h-4 w-4 shrink-0 text-warning-text" aria-hidden="true" />
       <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="text-sm font-medium text-warning">Product already exists</p>
+        <p className="text-sm font-medium text-warning-text">Product already exists</p>
         <p className="truncate text-sm font-medium">{match.name}</p>
         <p className="tabular text-xs text-muted-foreground">
           {formatCurrency(match.sellingPrice, currency)} · Stock: {formatQuantity(match.onHand)}

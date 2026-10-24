@@ -21,7 +21,7 @@ export function SubscriptionBanner({ access, canManageBilling, now }: { access: 
         serious ? 'border-destructive/40 bg-destructive/10' : 'border-warning/40 bg-warning/10',
       )}
     >
-      <Icon className={cn('h-4 w-4 shrink-0', serious ? 'text-destructive' : 'text-warning')} aria-hidden="true" />
+      <Icon className={cn('h-4 w-4 shrink-0', serious ? 'text-destructive-text' : 'text-warning-text')} aria-hidden="true" />
       <p className="min-w-0 flex-1">{accessHeadline(access, now)}</p>
       {canManageBilling ? (
         <Link href="/settings/subscription" className="shrink-0 font-semibold text-primary hover:underline">
@@ -39,7 +39,7 @@ export function StoreSuspended() {
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
       <div role="alert" className="w-full max-w-md rounded-xl border bg-card p-6 text-center shadow-card">
-        <span className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+        <span className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive-text">
           <Ban className="h-5 w-5" aria-hidden="true" />
         </span>
         <h1 className="text-lg font-semibold">This store is suspended</h1>

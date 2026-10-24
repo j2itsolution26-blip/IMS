@@ -146,7 +146,7 @@ function CashMovementDialog({ type, onClose, currency }: { type: 'CASH_IN' | 'CA
             </DialogDescription>
           </DialogHeader>
           {error && (
-            <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
+            <p role="alert" className="flex items-start gap-2 text-sm text-destructive-text">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {error}
             </p>
           )}
@@ -165,7 +165,7 @@ function CashMovementDialog({ type, onClose, currency }: { type: 'CASH_IN' | 'CA
                 aria-invalid={touched && !parsed.ok}
               />
             </div>
-            {touched && !parsed.ok && <p className="text-xs text-destructive">{parsed.error}</p>}
+            {touched && !parsed.ok && <p className="text-xs text-destructive-text">{parsed.error}</p>}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="movement-reason">Reason</Label>
@@ -178,7 +178,7 @@ function CashMovementDialog({ type, onClose, currency }: { type: 'CASH_IN' | 'CA
               className="h-11"
               aria-invalid={touched && !reasonOk}
             />
-            {touched && !reasonOk && <p className="text-xs text-destructive">Give a short reason.</p>}
+            {touched && !reasonOk && <p className="text-xs text-destructive-text">Give a short reason.</p>}
           </div>
           <DialogFooter className="gap-2 sm:gap-2">
             <Button type="button" variant="outline" className="h-11" onClick={onClose} disabled={busy}>
@@ -206,9 +206,9 @@ interface Summary {
 }
 
 const VARIANCE = {
-  BALANCED: { label: 'Balanced', className: 'text-success' },
-  OVERAGE: { label: 'Overage', className: 'text-warning' },
-  SHORTAGE: { label: 'Shortage', className: 'text-destructive' },
+  BALANCED: { label: 'Balanced', className: 'text-success-text' },
+  OVERAGE: { label: 'Overage', className: 'text-warning-text' },
+  SHORTAGE: { label: 'Shortage', className: 'text-destructive-text' },
 } as const;
 
 function varianceOf(counted: number, expected: number) {
@@ -321,14 +321,14 @@ function CloseShiftDialog({
         </DialogHeader>
 
         {hasUnfinishedOrder && step !== 'done' && (
-          <p className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+          <p className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning-text">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             There is an unfinished or held order in this browser. Complete or clear it first if a customer is waiting.
           </p>
         )}
 
         {error && (
-          <p role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <p role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive-text">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {error}
           </p>
         )}
@@ -350,7 +350,7 @@ function CloseShiftDialog({
                   className="h-12 pl-8 text-lg font-semibold tabular"
                 />
               </div>
-              {touched && !parsed.ok && <p className="text-xs text-destructive">{parsed.error}</p>}
+              {touched && !parsed.ok && <p className="text-xs text-destructive-text">{parsed.error}</p>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="closing-notes">

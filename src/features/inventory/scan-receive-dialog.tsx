@@ -306,7 +306,7 @@ export function ScanReceiveDialog() {
                           {line.saving ? 'Saving…' : 'pcs'}
                         </span>
                       </div>
-                      {line.error && <p className="text-xs text-destructive">{line.error}</p>}
+                      {line.error && <p className="text-xs text-destructive-text">{line.error}</p>}
                     </li>
                   ))}
                 </ul>
@@ -314,7 +314,7 @@ export function ScanReceiveDialog() {
 
               {received.length > 0 && (
                 <div className="space-y-1 rounded-lg border border-success/30 bg-success/5 p-3">
-                  <p className="flex items-center gap-1.5 text-xs font-medium text-success">
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-success-text">
                     <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Received
                   </p>
                   <ul className="space-y-0.5">

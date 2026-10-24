@@ -226,7 +226,7 @@ export function SetupForm({ keyRequired }: { keyRequired: boolean }) {
       {formError && !isSuccess && (
         <div
           role="alert"
-          className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/8 p-3.5 text-sm text-destructive dark:bg-destructive/15"
+          className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/8 p-3.5 text-sm text-destructive-text dark:bg-destructive/15"
         >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{formError}</span>
@@ -418,7 +418,7 @@ export function SetupForm({ keyRequired }: { keyRequired: boolean }) {
                 <span
                   className={cn(
                     'font-semibold',
-                    passwordAnalysis.metCount <= 2 && 'text-destructive',
+                    passwordAnalysis.metCount <= 2 && 'text-destructive-text',
                     passwordAnalysis.metCount > 2 && passwordAnalysis.metCount <= 4 && 'text-amber-500',
                     passwordAnalysis.metCount === 5 && strengthInfo.label === 'Strong' && 'text-blue-600 dark:text-blue-400',
                     passwordAnalysis.metCount === 5 && strengthInfo.label === 'Very Strong' && 'text-emerald-600 dark:text-emerald-400',
@@ -501,7 +501,7 @@ export function SetupForm({ keyRequired }: { keyRequired: boolean }) {
               <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
               <span>Passwords match</span>
             </div>
-            <p className="text-xs text-destructive font-medium pl-5">
+            <p className="text-xs text-destructive-text font-medium pl-5">
               Passwords do not match
             </p>
           </div>
@@ -558,7 +558,7 @@ function Field({
         {children}
       </div>
       {error && (
-        <p id={`${id}-error`} className="text-xs text-destructive" role="alert">
+        <p id={`${id}-error`} className="text-xs text-destructive-text" role="alert">
           {error}
         </p>
       )}

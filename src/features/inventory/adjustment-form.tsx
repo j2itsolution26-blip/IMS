@@ -324,7 +324,7 @@ export function AdjustmentForm({
                         <TableCell
                           className={cn(
                             'tabular text-right font-medium',
-                            delta > 0 ? 'text-success' : delta < 0 ? 'text-destructive' : 'text-muted-foreground',
+                            delta > 0 ? 'text-success-text' : delta < 0 ? 'text-destructive-text' : 'text-muted-foreground',
                           )}
                         >
                           {delta > 0 ? '+' : ''}
@@ -362,7 +362,7 @@ export function AdjustmentForm({
               {canViewCost && (
                 <span className="tabular font-medium">
                   Stock value impact:{' '}
-                  <span className={valueImpact < 0 ? 'text-destructive' : 'text-success'}>
+                  <span className={valueImpact < 0 ? 'text-destructive-text' : 'text-success-text'}>
                     {valueImpact > 0 ? '+' : ''}
                     {formatCurrency(valueImpact, currency)}
                   </span>

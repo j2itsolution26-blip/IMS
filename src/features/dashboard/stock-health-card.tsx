@@ -81,7 +81,7 @@ export function StockHealthCard({
             </ul>
 
             {snapshot.deadStock > 0 && (
-              <p className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
+              <p className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning-text">
                 {snapshot.deadStock} product{snapshot.deadStock === 1 ? '' : 's'} holding stock with no recent
                 sales.{' '}
                 <Link href="/reports/dead-stock" className="font-medium underline">

@@ -289,7 +289,7 @@ export default async function ReportsPage({
                         </Link>
                         <span
                           className={`tabular shrink-0 text-sm font-medium ${
-                            isOut ? 'text-destructive' : 'text-warning'
+                            isOut ? 'text-destructive-text' : 'text-warning-text'
                           }`}
                         >
                           {formatQuantity(row.onHand)} pcs
