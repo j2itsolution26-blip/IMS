@@ -8,9 +8,12 @@ import {
   ShoppingCart,
   TrendingUp,
   TriangleAlert,
+  Vault,
+  Wallet,
 } from 'lucide-react';
 import type { DateRange, PeriodKey } from '@/server/analytics/date-range';
 import type { DashboardOverview } from '@/server/analytics/dashboard-overview';
+import type { ShiftKpis } from '@/server/services/shift-service';
 import { inlineLabel } from '@/server/analytics/date-range';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { STORE_TIME_ZONE } from '@/lib/store-time';
@@ -74,6 +77,7 @@ export function DashboardView({
   currency,
   generatedAt,
   data,
+  drawers,
   tabs,
 }: {
   /** The owner's Sales / Inventory switch, rendered above the header. */
@@ -86,6 +90,8 @@ export function DashboardView({
   currency: string;
   generatedAt: string;
   data: DashboardOverview;
+  /** Today's cash drawers across every cashier; null when the role may not see them. */
+  drawers: ShiftKpis | null;
 }) {
   const { headline, summary, canViewProfit } = data;
   const { current, change } = summary;
@@ -209,6 +215,38 @@ export function DashboardView({
           href={hrefWith('/sales', keep)}
         />
       </section>
+
+      {/* Cash drawers — today's trading day, whatever period is selected. */}
+      {drawers && (
+        <section aria-label="Cash drawers today" className="mb-4 grid gap-3 sm:grid-cols-3">
+          <KpiCard
+            label="Open shifts"
+            value={formatNumber(drawers.activeShifts, 0)}
+            icon={Wallet}
+            hint={
+              drawers.activeShifts > 0
+                ? `${formatCurrency(drawers.startingCashTotal, currency)} starting cash`
+                : 'No drawer is open'
+            }
+            href="/shifts?view=open"
+          />
+          <KpiCard
+            label="Expected drawer cash"
+            value={formatCurrency(drawers.expectedDrawerCash, currency)}
+            icon={Vault}
+            hint="Across open shifts"
+            href="/shifts?view=open"
+          />
+          <KpiCard
+            label="Cash to review"
+            value={formatNumber(drawers.pendingReview, 0)}
+            icon={TriangleAlert}
+            tone={drawers.pendingReview > 0 ? 'warning' : 'default'}
+            hint={drawers.pendingReview > 0 ? 'Waiting for your review' : 'Nothing to review'}
+            href="/shifts?view=review"
+          />
+        </section>
+      )}
 
       {/* Charts */}
       <div className="mb-4 grid items-start gap-4 xl:grid-cols-3">

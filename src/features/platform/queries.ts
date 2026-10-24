@@ -3,6 +3,7 @@ import 'server-only';
 import { platformPrisma } from '@/lib/prisma';
 import { OWNER_ROLE_SLUG, SYSTEM_ADMIN_ROLE_SLUG } from '@/lib/permissions';
 import type { StoreSubscription } from '@/lib/store-access';
+import { tallyStores, type StoreTally } from '@/lib/subscription';
 
 /**
  * Reads for the platform administrator.
@@ -98,13 +99,15 @@ export interface PlatformStats {
   /** Owner accounts created in the last 30 days. */
   recentOwners: number;
   storeName: string;
+  /** Stores by subscription status and plan — counts only, no store data. */
+  stores: StoreTally;
 }
 
 export async function getPlatformStats(): Promise<PlatformStats> {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
   const owner = { role: { slug: OWNER_ROLE_SLUG } };
 
-  const [total, active, staff, admins, recentOwners, storeNameSetting] = await Promise.all([
+  const [total, active, staff, admins, recentOwners, storeNameSetting, storeGroups] = await Promise.all([
     platformPrisma.user.count({ where: owner }),
     platformPrisma.user.count({ where: { ...owner, isActive: true } }),
     platformPrisma.user.count({
@@ -114,6 +117,7 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     platformPrisma.user.count({ where: { ...owner, createdAt: { gte: thirtyDaysAgo } } }),
     // The store's own name; with several stores the platform lists them all.
     platformPrisma.store.findFirst({ orderBy: { createdAt: 'asc' }, select: { name: true } }),
+    platformPrisma.store.groupBy({ by: ['status', 'plan'], _count: { _all: true } }),
   ]);
 
   return {
@@ -122,6 +126,9 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     admins,
     recentOwners,
     storeName: storeNameSetting?.name || 'Unnamed store',
+    stores: tallyStores(
+      storeGroups.map((group) => ({ status: group.status, plan: group.plan, count: group._count._all })),
+    ),
   };
 }
 

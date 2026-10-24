@@ -123,3 +123,30 @@ export function shouldWarn(access: StoreAccess, now: Date): boolean {
   if (access.state === 'TRIAL' && access.endsAt) return (daysUntil(access.endsAt, now) ?? 99) <= 7;
   return false;
 }
+
+export type StoreStatusId = StoreSubscription['status'];
+
+export interface StoreTally {
+  total: number;
+  byStatus: Record<StoreStatusId, number>;
+  byPlan: Record<PlanId, number>;
+}
+
+/**
+ * Folds grouped store counts into the platform overview's totals. Every
+ * status and plan is present, at zero when no store has it, so the overview
+ * never renders a missing figure as if it were unknown.
+ */
+export function tallyStores(rows: { status: StoreStatusId; plan: PlanId; count: number }[]): StoreTally {
+  const tally: StoreTally = {
+    total: 0,
+    byStatus: { TRIAL: 0, ACTIVE: 0, PAST_DUE: 0, SUSPENDED: 0 },
+    byPlan: { BASIC: 0, BUSINESS: 0, ENTERPRISE: 0 },
+  };
+  for (const row of rows) {
+    tally.total += row.count;
+    tally.byStatus[row.status] += row.count;
+    tally.byPlan[row.plan] += row.count;
+  }
+  return tally;
+}

@@ -11,6 +11,7 @@ import { getDashboardOverview } from '@/server/analytics/dashboard-overview';
 import { getInventoryDashboard } from '@/server/analytics/inventory-dashboard';
 import { getStockLevels } from '@/server/analytics/inventory-analytics';
 import { getCashierDashboard } from '@/server/analytics/cashier-dashboard';
+import { getShiftKpis } from '@/server/services/shift-service';
 import { getSettings, readNumber, readString } from '@/server/services/settings-service';
 import { DASHBOARD_PERIODS, DashboardView, type DashboardQuery } from '@/features/dashboard/dashboard-view';
 import {
@@ -113,12 +114,18 @@ async function renderOwnerSales(user: CurrentUser, params: SearchParams, currenc
   };
 
   const now = new Date();
-  const data = await getDashboardOverview({
-    range,
-    topLimit: query.top,
-    canViewProfit: userCan(user, FINANCIAL_PERMISSION),
-    now,
-  });
+  const canViewDrawers = userCan(user, FINANCIAL_PERMISSION);
+  const [data, drawers] = await Promise.all([
+    getDashboardOverview({
+      range,
+      topLimit: query.top,
+      canViewProfit: canViewDrawers,
+      now,
+    }),
+    // Every cashier's drawer cash is owner-only — the same key Shift
+    // Management checks — so it is not even queried without it.
+    canViewDrawers ? getShiftKpis(now) : Promise.resolve(null),
+  ]);
 
   return (
     <DashboardView
@@ -130,6 +137,7 @@ async function renderOwnerSales(user: CurrentUser, params: SearchParams, currenc
       currency={currency}
       generatedAt={now.toISOString()}
       data={data}
+      drawers={drawers}
     />
   );
 }
