@@ -66,10 +66,17 @@
     --chart-5: #e87ba4; /* magenta */
     --chart-6: #008300; /* green   */
 
-    /* Chart chrome — recessive by design. */
-    --chart-grid: #e1e0d9;
-    --chart-axis: #c3c2b7;
-    --chart-label: #898781;
+    /* Chart chrome — recessive by design, on the same cool slate as the rest
+       of the interface. Labels are #64748b: 4.8:1 on a white card. */
+    --chart-grid: #e2e8f0;
+    --chart-axis: #cbd5e1;
+    --chart-label: #64748b;
+
+    /* Elevation — hairline shadows that separate a white card from the grey
+       ground without looking lifted. */
+    --shadow-2xs: 0 1px 0 0 rgb(15 23 42 / 0.03);
+    --shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+    --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.04);
 
     --radius: 0.625rem;
   }
@@ -121,9 +128,14 @@
     --chart-5: #d55181;
     --chart-6: #008300;
 
-    --chart-grid: #2c2c2a;
-    --chart-axis: #383835;
-    --chart-label: #898781;
+    --chart-grid: #1e293b;
+    --chart-axis: #334155;
+    --chart-label: #94a3b8;
+
+    /* On a dark surface a shadow is invisible; borders do the separating. */
+    --shadow-2xs: 0 0 #0000;
+    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-card: 0 0 #0000;
   }
 }
 

@@ -54,7 +54,7 @@ export function KpiCard({
   const body = (
     <div
       className={cn(
-        'flex h-full flex-col rounded-xl border bg-card p-4 shadow-2xs transition-colors',
+        'flex h-full flex-col rounded-xl border bg-card p-4 shadow-card transition-colors',
         href && 'hover:border-primary/40',
       )}
     >

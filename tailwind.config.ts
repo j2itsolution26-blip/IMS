@@ -77,9 +77,26 @@ const config: Config = {
         },
       },
       borderRadius: {
+        xl: 'calc(var(--radius) + 2px)',
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+      },
+      // Tailwind 3 has no `xs`/`2xs` steps, so classes using them compiled to
+      // nothing. They are defined here as theme tokens: dark mode flattens
+      // them, where elevation reads from the surface colour instead.
+      boxShadow: {
+        '2xs': 'var(--shadow-2xs)',
+        xs: 'var(--shadow-xs)',
+        card: 'var(--shadow-card)',
+      },
+      // The type scale for headings that recur on every screen. Each step
+      // carries its own line height, tracking and weight so call sites can't
+      // drift apart.
+      fontSize: {
+        title: ['1.375rem', { lineHeight: '1.75rem', letterSpacing: '-0.015em', fontWeight: '700' }],
+        'title-lg': ['1.625rem', { lineHeight: '2rem', letterSpacing: '-0.02em', fontWeight: '700' }],
+        kpi: ['1.625rem', { lineHeight: '1', letterSpacing: '-0.02em', fontWeight: '700' }],
       },
       keyframes: {
         'accordion-down': {

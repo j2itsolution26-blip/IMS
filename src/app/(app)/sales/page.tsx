@@ -144,7 +144,7 @@ export default async function SalesPage({
         </div>
       </div>
 
-      <div className="mb-4 rounded-xl border bg-card p-3 shadow-2xs [&>div]:mb-0">
+      <div className="mb-4 rounded-xl border bg-card p-3 shadow-card [&>div]:mb-0">
         <FilterBar
           searchPlaceholder="Search invoice number…"
           selects={[
@@ -178,7 +178,7 @@ export default async function SalesPage({
         />
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-2xs">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
         {result.rows.length === 0 ? (
           <EmptyState
             icon={Receipt}

@@ -213,7 +213,7 @@ export default async function InventoryPage({
         />
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
         <InventorySearchFilter
           tabs={[
             { value: 'ALL', label: 'All', count: snapshot.distinctProducts },

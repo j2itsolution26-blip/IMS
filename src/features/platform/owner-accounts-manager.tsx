@@ -109,7 +109,7 @@ export function OwnerAccountsManager({
         )}
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
         {accounts.length === 0 ? (
           <EmptyState
             icon={UserPlus}

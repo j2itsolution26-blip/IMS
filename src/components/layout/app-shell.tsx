@@ -104,7 +104,7 @@ export function AppShell({
         {/* Header / Top bar, with the connection notice pinned beneath it.
             Safe-area padding keeps it clear of notches in the installed app. */}
         <div className="sticky top-0 z-30">
-        <header className="no-print flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center gap-2 border-b bg-background/95 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-2xs sm:gap-3 sm:pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(1rem,env(safe-area-inset-right))]">
+        <header className="no-print flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center gap-2 border-b bg-card/95 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-card/85 shadow-2xs sm:gap-3 sm:pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(1rem,env(safe-area-inset-right))]">
           <Button
             variant="ghost"
             size="icon"

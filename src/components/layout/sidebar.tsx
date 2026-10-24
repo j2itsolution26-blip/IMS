@@ -228,12 +228,12 @@ export function Sidebar({
                   type="button"
                   aria-label={`Account menu for ${user.name}`}
                   className={cn(
-                    'flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/5 p-2 text-left shadow-2xs transition-all hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    'flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/5 p-2 text-left transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     collapsed ? 'lg:justify-center lg:p-1.5 lg:border-none lg:bg-transparent' : 'justify-between',
                   )}
                 >
                   <span className="flex items-center gap-2.5 min-w-0">
-                    <Avatar className="h-8 w-8 border border-primary/20 shrink-0">
+                    <Avatar className="h-8 w-8 border border-sidebar-accent/30 shrink-0">
                       {user.image && <AvatarImage src={user.image} alt="" />}
                       <AvatarFallback>{initials(user.name)}</AvatarFallback>
                     </Avatar>
@@ -247,7 +247,7 @@ export function Sidebar({
                       <span className="truncate text-xs font-semibold text-sidebar-foreground leading-tight">
                         {user.name}
                       </span>
-                      <span className="mt-0.5 inline-block w-fit rounded-full bg-primary/15 px-1.5 py-0.2 text-[10px] font-medium text-primary">
+                      <span className="mt-0.5 inline-block w-fit rounded-full bg-sidebar-accent/15 px-1.5 py-px text-[10px] font-medium text-sidebar-accent">
                         {user.roleName}
                       </span>
                     </span>
@@ -338,7 +338,7 @@ export function Sidebar({
 
 const ROW = 'relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 const ROW_IDLE = 'text-sidebar-muted-foreground hover:bg-white/5 hover:text-sidebar-foreground';
-const ROW_ACTIVE = 'bg-primary/15 text-primary font-semibold shadow-xs';
+const ROW_ACTIVE = 'bg-sidebar-accent/15 text-sidebar-foreground font-semibold';
 
 function CountBadge({ count, collapsed }: { count: number; collapsed?: boolean }) {
   if (count <= 0) return null;
@@ -346,7 +346,7 @@ function CountBadge({ count, collapsed }: { count: number; collapsed?: boolean }
     <Badge
       variant="warning"
       className={cn(
-        'px-1.5 py-0 text-[10px] font-bold shadow-xs',
+        'px-1.5 py-0 text-[10px] font-bold',
         collapsed ? 'lg:absolute lg:-top-1 lg:-right-1 lg:h-4 lg:min-w-4 lg:p-0 lg:flex lg:items-center lg:justify-center' : '',
       )}
     >
@@ -387,10 +387,10 @@ function NavLinkItem({
       )}
     >
       {/* Active indicator bar */}
-      {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-primary" />}
+      {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-sidebar-accent" />}
 
       <link.icon
-        className={cn('h-4 w-4 shrink-0 transition-colors', active ? 'text-primary' : 'text-sidebar-muted-foreground')}
+        className={cn('h-4 w-4 shrink-0 transition-colors', active ? 'text-sidebar-accent' : 'text-sidebar-muted-foreground')}
         aria-hidden="true"
       />
 
@@ -464,10 +464,10 @@ function NavGroupItem({
         onClick={() => setExpanded((open) => !open)}
         aria-expanded={expanded}
         aria-controls={listId}
-        className={cn(ROW, 'justify-start', childActive ? 'text-primary font-semibold' : ROW_IDLE)}
+        className={cn(ROW, 'justify-start', childActive ? 'text-sidebar-foreground font-semibold' : ROW_IDLE)}
       >
         <group.icon
-          className={cn('h-4 w-4 shrink-0', childActive ? 'text-primary' : 'text-sidebar-muted-foreground')}
+          className={cn('h-4 w-4 shrink-0', childActive ? 'text-sidebar-accent' : 'text-sidebar-muted-foreground')}
           aria-hidden="true"
         />
         <span className="flex-1 truncate text-left">{group.label}</span>
@@ -509,9 +509,9 @@ function NavGroupItem({
               aria-label={group.label}
               className={cn(ROW, 'justify-center px-2', childActive ? ROW_ACTIVE : ROW_IDLE)}
             >
-              {childActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-primary" />}
+              {childActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-sidebar-accent" />}
               <group.icon
-                className={cn('h-4 w-4 shrink-0', childActive ? 'text-primary' : 'text-sidebar-muted-foreground')}
+                className={cn('h-4 w-4 shrink-0', childActive ? 'text-sidebar-accent' : 'text-sidebar-muted-foreground')}
                 aria-hidden="true"
               />
               <CountBadge count={groupCount} collapsed />
