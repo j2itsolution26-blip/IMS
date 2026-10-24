@@ -26,7 +26,7 @@ export default async function StoresPage({ searchParams }: { searchParams: Promi
     <>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">Stores</h1>
+          <h1 className="text-title sm:text-title-lg">Stores</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Every store&apos;s plan, subscription and usage. Open a store to change its plan or record a payment.
           </p>

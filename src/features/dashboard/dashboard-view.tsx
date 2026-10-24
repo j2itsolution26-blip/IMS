@@ -110,7 +110,7 @@ export function DashboardView({
       {/* Header */}
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">Sales Dashboard</h1>
+          <h1 className="text-title sm:text-title-lg">Sales Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             <span className="font-medium text-foreground">{storeName}</span> · {today}
           </p>

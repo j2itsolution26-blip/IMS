@@ -19,7 +19,7 @@ export default async function SystemAdminPage() {
     <>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">System administration</h1>
+          <h1 className="text-title sm:text-title-lg">System administration</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Signed in as {admin.name} — stores, owner accounts and subscriptions.
           </p>

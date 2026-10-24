@@ -67,7 +67,7 @@ export function CashierDashboardView({
     <>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">Cashier Dashboard</h1>
+          <h1 className="text-title sm:text-title-lg">Cashier Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Hello, <span className="font-medium text-foreground">{cashierName}</span>. Your sales and what is running out.
           </p>

@@ -13,7 +13,7 @@ export default async function OwnerAccountsPage() {
   return (
     <>
       <div className="mb-5">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">Owner accounts</h1>
+        <h1 className="text-title sm:text-title-lg">Owner accounts</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Create the store owner, reset their password, or suspend access. Store records are never
           deleted.

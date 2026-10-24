@@ -17,7 +17,7 @@ export default async function AuditPage() {
   return (
     <>
       <div className="mb-5">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">Audit log</h1>
+        <h1 className="text-title sm:text-title-lg">Audit log</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Administrative actions on accounts. Passwords and tokens are never recorded.
         </p>
