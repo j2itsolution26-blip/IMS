@@ -4,11 +4,18 @@ import {
   PAYMENT_TERMS_DAYS,
   billingSnapshot,
   formatInvoiceNumber,
+  invoiceDisplayStatus,
   invoicePeriod,
   isRevenue,
+  maskReference,
   monthlyRecurringRevenue,
+  paymentDisplayStatus,
+  planDifferences,
+  planDirection,
+  planPricing,
   purchasablePlans,
   reminderFor,
+  usageLevel,
 } from '@/lib/billing';
 import type { StoreSubscription } from '@/lib/store-access';
 
@@ -267,4 +274,69 @@ test('invoice amounts come from the stored price list and payments copy the invo
   assert.match(submit, /status: 'PENDING'/);
   assert.match(submit, /amount: invoice\.amount/);
   assert.doesNotMatch(submit, /tx\.store\.update/, 'submitting a payment never changes the subscription');
+});
+
+// --- Presentation rules -------------------------------------------------------
+
+test('an open invoice reads as awaiting verification, overdue or open; closed ones keep their state', () => {
+  assert.equal(invoiceDisplayStatus({ status: 'OPEN', dueAt: at(3) }, false, NOW), 'OPEN');
+  assert.equal(invoiceDisplayStatus({ status: 'OPEN', dueAt: at(-1) }, false, NOW), 'OVERDUE');
+  assert.equal(invoiceDisplayStatus({ status: 'OPEN', dueAt: at(-1) }, true, NOW), 'AWAITING_VERIFICATION');
+  assert.equal(invoiceDisplayStatus({ status: 'PAID', dueAt: at(-1) }, false, NOW), 'PAID');
+  assert.equal(invoiceDisplayStatus({ status: 'VOID', dueAt: at(-1) }, true, NOW), 'VOID');
+});
+
+test('a voided payment is void even if it was verified; a pending one is never shown as paid', () => {
+  assert.equal(paymentDisplayStatus({ status: 'VERIFIED', voidedAt: NOW }), 'VOID');
+  assert.equal(paymentDisplayStatus({ status: 'VERIFIED', voidedAt: null }), 'VERIFIED');
+  assert.equal(paymentDisplayStatus({ status: 'PENDING', voidedAt: null }), 'PENDING');
+  assert.equal(paymentDisplayStatus({ status: 'REJECTED', voidedAt: null }), 'REJECTED');
+});
+
+test('annual savings are twelve monthly payments minus the annual price, only when both are published', () => {
+  const prices = [
+    { plan: 'BASIC' as const, interval: 'MONTHLY' as const, amount: 499 },
+    { plan: 'BASIC' as const, interval: 'ANNUAL' as const, amount: 4990 },
+    { plan: 'BUSINESS' as const, interval: 'MONTHLY' as const, amount: 999 },
+    { plan: 'ENTERPRISE' as const, interval: 'MONTHLY' as const, amount: 1499 },
+    { plan: 'ENTERPRISE' as const, interval: 'ANNUAL' as const, amount: 20000 },
+  ];
+  const basic = planPricing(prices, 'BASIC');
+  assert.equal(basic.annualSavings, 998);
+  assert.equal(basic.annualPerMonth, 415.83);
+  assert.deepEqual(planPricing(prices, 'BUSINESS'), { monthly: 999, annual: null, annualPerMonth: null, annualSavings: null });
+  // An annual price dearer than twelve months is no saving.
+  assert.equal(planPricing(prices, 'ENTERPRISE').annualSavings, null);
+  assert.deepEqual(planPricing([], 'BASIC'), { monthly: null, annual: null, annualPerMonth: null, annualSavings: null });
+});
+
+test('plan direction follows plan order', () => {
+  assert.equal(planDirection('BASIC', 'BUSINESS'), 'UPGRADE');
+  assert.equal(planDirection('ENTERPRISE', 'BASIC'), 'DOWNGRADE');
+  assert.equal(planDirection('BUSINESS', 'BUSINESS'), 'CURRENT');
+});
+
+test('plan differences come from the plan configuration and flag what a downgrade loses', () => {
+  const down = planDifferences('BUSINESS', 'BASIC');
+  const products = down.find((row) => row.label === 'Products');
+  assert.deepEqual(products, { label: 'Products', from: '5,000', to: '500', lower: true });
+  assert.ok(down.find((row) => row.label === 'Report exports')?.lower);
+  assert.ok(planDifferences('BASIC', 'ENTERPRISE').every((row) => !row.lower));
+  assert.deepEqual(planDifferences('BASIC', 'BASIC'), []);
+});
+
+test('usage levels: near at 80%, full at the limit, over beyond it', () => {
+  assert.equal(usageLevel(10, null), 'UNLIMITED');
+  assert.equal(usageLevel(0, 0), 'NOT_INCLUDED');
+  assert.equal(usageLevel(3, 0), 'OVER');
+  assert.equal(usageLevel(399, 500), 'OK');
+  assert.equal(usageLevel(400, 500), 'NEAR');
+  assert.equal(usageLevel(500, 500), 'FULL');
+  assert.equal(usageLevel(501, 500), 'OVER');
+  assert.equal(usageLevel(0, 1), 'OK');
+});
+
+test('references are masked to their last four characters', () => {
+  assert.equal(maskReference('1234567890'), '••••7890');
+  assert.equal(maskReference('AB12'), 'AB12');
 });

@@ -20,7 +20,7 @@ export const METER_LABEL: Record<LimitKey, string> = {
   backgroundRemovalsPerMonth: 'Background removals this month',
 };
 
-const METER_HINT: Partial<Record<LimitKey, string>> = {
+export const METER_HINT: Partial<Record<LimitKey, string>> = {
   products: 'Archived products do not count.',
   staff: 'Active accounts; the owner does not count.',
 };

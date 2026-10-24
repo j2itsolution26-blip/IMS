@@ -1,27 +1,34 @@
 import type { Metadata } from 'next';
-import { CalendarClock, CreditCard, FileText, History, LifeBuoy, Receipt } from 'lucide-react';
+import Link from 'next/link';
+import { CreditCard, FileText, LifeBuoy, ShieldCheck, Sparkles } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
 import { getStoreContext } from '@/lib/tenant/context';
-import { formatDate, formatDateTime } from '@/lib/format';
-import { STATUS_LABEL, PAYMENT_METHOD_LABEL, accessHeadline, daysUntil } from '@/lib/subscription';
-import { PLANS } from '@/lib/plans';
+import { formatDateTime } from '@/lib/format';
 import { PageHeader } from '@/components/page-header';
-import { Panel, PanelEmpty } from '@/components/panel';
-import { AccessBadge, PlanComparison, UsageMeter } from '@/features/subscription/plan-display';
+import { Panel } from '@/components/panel';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/misc';
 import { auditHistoryStart, usageSummary } from '@/server/services/entitlements';
-import { BILLING_LABEL, INTERVAL_LABEL, LIFECYCLE_LABEL, billingSnapshot } from '@/lib/billing';
+import { billingSnapshot, invoiceDisplayStatus, paymentDisplayStatus } from '@/lib/billing';
 import { getBillingConfig } from '@/server/platform/billing-service';
-import { BillingPanel } from '@/features/billing/billing-panel';
 import { runBillingRemindersForStore } from '@/server/platform/billing-reminders';
-import { Badge } from '@/components/ui/badge';
+import { SubscriptionSummary } from '@/features/billing/subscription-summary';
+import { UsageOverview } from '@/features/billing/usage-overview';
+import { PlanCards } from '@/features/billing/plan-cards';
+import { InvoicePayment } from '@/features/billing/invoice-payment';
+import { InvoicesTable } from '@/features/billing/invoices-table';
+import { PaymentsTable } from '@/features/billing/payments-table';
+import { ActivityTimeline } from '@/features/billing/activity-timeline';
+import type { InvoiceRow, OpenInvoiceInfo, PaymentRow } from '@/features/billing/types';
 
 export const metadata: Metadata = { title: 'Subscription & Billing' };
 export const dynamic = 'force-dynamic';
 
 /**
- * Settings → Subscription: the store's plan, where it stands, what it is
- * using, and what to do next. Every number is counted on the server with the
- * same rules the limits are enforced by.
+ * Settings → Subscription & Billing: the store's plan, where it stands, what
+ * it is using, what (if anything) it owes, and its billing history. Every
+ * number is read on the server with the same rules the limits and billing
+ * actions are enforced by; the page only presents them.
  */
 export default async function SubscriptionPage() {
   const user = await requirePermission('billing.view');
@@ -35,7 +42,7 @@ export default async function SubscriptionPage() {
   await runBillingRemindersForStore(store.id, now).catch((error) => console.error('[billing] reminder check failed', error));
 
   const historyStart = auditHistoryStart(ctx, now);
-  const [meters, payments, history, invoices, config] = await Promise.all([
+  const [meters, payments, history, invoices, config, storeRow] = await Promise.all([
     usageSummary(ctx),
     ctx.db.subscriptionPayment.findMany({
       orderBy: { createdAt: 'desc' },
@@ -43,7 +50,9 @@ export default async function SubscriptionPage() {
       select: {
         id: true, plan: true, amount: true, method: true, reference: true, paidAt: true,
         months: true, periodStart: true, periodEnd: true, voidedAt: true, voidReason: true,
-        status: true, rejectReason: true, rejectedAt: true, invoiceId: true, createdAt: true,
+        status: true, rejectReason: true, invoiceId: true, createdAt: true,
+        rejectedAt: true, verifiedAt: true, recordedById: true, notes: true,
+        invoice: { select: { number: true } },
       },
     }),
     ctx.db.auditLog.findMany({
@@ -54,18 +63,28 @@ export default async function SubscriptionPage() {
       },
       orderBy: { createdAt: 'desc' },
       take: 20,
-      select: { id: true, summary: true, createdAt: true },
+      select: { id: true, entity: true, summary: true, createdAt: true },
     }),
     ctx.db.invoice.findMany({
       orderBy: { createdAt: 'desc' },
       take: 24,
       select: {
         id: true, number: true, plan: true, interval: true, amount: true, periodStart: true, periodEnd: true,
-        dueAt: true, status: true, paidAt: true, voidReason: true,
+        dueAt: true, status: true, paidAt: true, voidReason: true, createdAt: true, termsVersion: true,
       },
     }),
     getBillingConfig(),
+    ctx.db.store.findUnique({ where: { id: store.id }, select: { billingInterval: true } }),
   ]);
+
+  // Who recorded each payment, without naming platform administrators: the
+  // store-scoped client only finds this store's own members.
+  const recorderIds = [...new Set(payments.map((payment) => payment.recordedById))];
+  const members = recorderIds.length
+    ? await ctx.db.user.findMany({ where: { id: { in: recorderIds } }, select: { id: true, name: true } })
+    : [];
+  const memberName = new Map(members.map((member) => [member.id, member.name]));
+  const recorderLabel = (id: string) => (id === user.id ? 'You' : (memberName.get(id) ?? 'Platform administrator'));
 
   const openInvoice = invoices.find((invoice) => invoice.status === 'OPEN') ?? null;
   const invoicePayments = openInvoice ? payments.filter((payment) => payment.invoiceId === openInvoice.id) : [];
@@ -78,268 +97,229 @@ export default async function SubscriptionPage() {
     now,
   });
   const canManage = userCan(user, 'billing.manage');
+  const canContactSupport = userCan(user, 'support.create');
+  const suspended = access.state === 'SUSPENDED';
+  const onTrial = store.status === 'TRIAL';
+  const selfService = config.prices.some((price) => price.amount > 0) && config.terms !== null;
+  const billingInterval = storeRow?.billingInterval ?? null;
 
-  const endLabel = access.state === 'TRIAL' ? 'Trial ends' : 'Current period ends';
-  const daysLeft = daysUntil(access.state === 'GRACE' ? access.graceEndsAt : access.endsAt, now);
+  const lastPaidInvoice = invoices.find((invoice) => invoice.status === 'PAID' && invoice.plan === access.plan.id) ?? null;
+
+  const openInvoiceInfo: OpenInvoiceInfo | null =
+    openInvoice && billing.billing
+      ? {
+          id: openInvoice.id,
+          number: openInvoice.number,
+          plan: openInvoice.plan,
+          interval: openInvoice.interval,
+          amount: Number(openInvoice.amount),
+          periodStart: openInvoice.periodStart.toISOString(),
+          periodEnd: openInvoice.periodEnd.toISOString(),
+          dueAt: openInvoice.dueAt.toISOString(),
+          flag: billing.billing,
+          pending: pendingPayment
+            ? { method: pendingPayment.method, reference: pendingPayment.reference, submittedAt: pendingPayment.createdAt.toISOString() }
+            : null,
+          lastRejection:
+            lastRejection?.rejectReason && lastRejection.rejectedAt
+              ? { reason: lastRejection.rejectReason, at: lastRejection.rejectedAt.toISOString() }
+              : null,
+        }
+      : null;
+
+  const invoiceRows: InvoiceRow[] = invoices.map((invoice) => ({
+    id: invoice.id,
+    number: invoice.number,
+    plan: invoice.plan,
+    interval: invoice.interval,
+    amount: Number(invoice.amount),
+    periodStart: invoice.periodStart.toISOString(),
+    periodEnd: invoice.periodEnd.toISOString(),
+    issuedAt: invoice.createdAt.toISOString(),
+    dueAt: invoice.dueAt.toISOString(),
+    paidAt: invoice.paidAt?.toISOString() ?? null,
+    voidReason: invoice.voidReason,
+    status: invoiceDisplayStatus(
+      invoice,
+      payments.some((payment) => payment.invoiceId === invoice.id && payment.status === 'PENDING'),
+      now,
+    ),
+    termsVersion: invoice.termsVersion,
+  }));
+
+  const paymentRows: PaymentRow[] = payments.map((payment) => {
+    const byStore = payment.recordedById === user.id || memberName.has(payment.recordedById);
+    return {
+      id: payment.id,
+      paidAt: payment.paidAt.toISOString(),
+      submittedAt: payment.createdAt.toISOString(),
+      amount: Number(payment.amount),
+      method: payment.method,
+      reference: payment.reference,
+      plan: payment.plan,
+      months: payment.months,
+      periodStart: payment.periodStart.toISOString(),
+      periodEnd: payment.periodEnd.toISOString(),
+      status: paymentDisplayStatus(payment),
+      rejectReason: payment.rejectReason,
+      voidReason: payment.voidReason,
+      recordedBy: recorderLabel(payment.recordedById),
+      verifiedAt: payment.verifiedAt?.toISOString() ?? null,
+      invoiceNumber: payment.invoice?.number ?? null,
+      // An administrator's notes on a payment they recorded stay with the administrator.
+      notes: byStore ? payment.notes : null,
+    };
+  });
+
+  // The one thing to do next.
+  const primaryAction = openInvoiceInfo ? (
+    <Button asChild>
+      <Link href="#outstanding-invoice">
+        <FileText aria-hidden="true" />
+        {canManage && !openInvoiceInfo.pending && !suspended ? 'Pay invoice' : 'View invoice'}
+      </Link>
+    </Button>
+  ) : selfService && canManage && !suspended ? (
+    <Button asChild>
+      <Link href="#plans">
+        <Sparkles aria-hidden="true" />
+        {onTrial || access.state === 'READ_ONLY' ? 'Choose a plan' : 'Change plan'}
+      </Link>
+    </Button>
+  ) : null;
 
   return (
-    <>
+    <div className="no-print">
       <PageHeader
         title="Subscription & Billing"
-        description="Your plan, what you owe (if anything), and how much of your plan you are using."
+        description="Manage your plan, usage, invoices, and payments."
         breadcrumbs={[{ label: 'Settings', href: '/settings' }, { label: 'Subscription & Billing' }]}
+        actions={
+          <>
+            <span className="hidden text-xs text-muted-foreground md:inline">As of {formatDateTime(now)}</span>
+            {canContactSupport && (
+              <Button variant="outline" asChild>
+                <Link href="/support/new?category=BILLING">
+                  <LifeBuoy aria-hidden="true" /> Contact support
+                </Link>
+              </Button>
+            )}
+            {primaryAction}
+          </>
+        }
       />
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Panel title="Your plan" className="lg:col-span-2">
-          <div className="space-y-4 p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-2xl font-bold tracking-tight">{access.plan.name}</span>
-              <AccessBadge state={access.state} />
-              {store.status !== 'TRIAL' && store.plan !== access.plan.id && (
-                <span className="text-xs text-muted-foreground">(bought: {PLANS[store.plan].name})</span>
-              )}
-            </div>
-            <p className="text-sm">{accessHeadline(access, now)}</p>
-            <div className="flex flex-wrap gap-2">
-              <Badge
-                variant={billing.lifecycle === 'TRIAL_EXPIRED' || billing.lifecycle === 'PAID_PERIOD_ENDED' ? 'warning' : 'secondary'}
-              >
-                {LIFECYCLE_LABEL[billing.lifecycle]}
-              </Badge>
-              {billing.billing ? (
-                <Badge variant={billing.billing === 'PAST_DUE' ? 'destructive' : billing.billing === 'PAYMENT_DUE' ? 'warning' : 'default'}>
-                  {BILLING_LABEL[billing.billing]}
-                </Badge>
-              ) : (
-                <Badge variant="outline">Nothing owed</Badge>
-              )}
-            </div>
+      <div className="space-y-4">
+        <div className="grid gap-4 lg:grid-cols-3">
+          <SubscriptionSummary
+            className="lg:col-span-2"
+            access={access}
+            status={store.status}
+            boughtPlan={!onTrial && store.plan !== access.plan.id ? store.plan : null}
+            billingInterval={onTrial ? null : billingInterval}
+            lastPaid={lastPaidInvoice ? { amount: Number(lastPaidInvoice.amount), interval: lastPaidInvoice.interval } : null}
+            amountDue={
+              openInvoiceInfo
+                ? { number: openInvoiceInfo.number, amount: openInvoiceInfo.amount, dueAt: openInvoice!.dueAt, flag: openInvoiceInfo.flag }
+                : null
+            }
+            lastChangeAt={history[0]?.createdAt ?? null}
+            now={now}
+          />
+          <UsageOverview meters={meters} plan={access.plan} canManage={canManage} />
+        </div>
 
-            <dl className="grid gap-3 text-sm sm:grid-cols-3">
-              <div>
-                <dt className="text-xs text-muted-foreground">Status</dt>
-                <dd className="font-medium">{STATUS_LABEL[store.status]}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">{endLabel}</dt>
-                <dd className="font-medium">{access.endsAt ? formatDate(access.endsAt) : 'No end date'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">
-                  {access.state === 'GRACE' ? 'Read-only from' : 'Time left'}
-                </dt>
-                <dd className="font-medium">
-                  {access.state === 'GRACE' && access.graceEndsAt
-                    ? formatDate(access.graceEndsAt)
-                    : daysLeft === null
-                      ? '—'
-                      : access.state === 'READ_ONLY'
-                        ? 'Ended'
-                        : `${daysLeft} day${daysLeft === 1 ? '' : 's'}`}
-                </dd>
-              </div>
-            </dl>
-
-            {(access.state === 'GRACE' || access.state === 'READ_ONLY') && (
-              <div role="status" className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
-                {access.state === 'GRACE'
-                  ? 'Your store works normally during the grace period. Renew before it ends to avoid read-only mode.'
-                  : 'Sales, stock changes, product edits and staff changes are paused. Sign-in, viewing, exports your plan includes, and closing an open shift still work. Renewing restores everything immediately — no data was removed.'}
-              </div>
-            )}
-          </div>
-        </Panel>
-
-        <Panel title="How billing works">
-          <div className="space-y-3 p-4 text-sm">
-            <p className="flex items-start gap-2">
-              <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-              Choose a plan to get an invoice, pay by GCash or bank transfer, then report the reference number here.
-            </p>
-            <p className="flex items-start gap-2">
-              <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-              Your plan starts or extends as soon as the administrator confirms the payment. Paying early never loses days.
-            </p>
-            <p className="flex items-start gap-2">
-              <LifeBuoy className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-              Downgrading never deletes data. Anything over a lower plan&apos;s limits stays; you just cannot add more.
-            </p>
-          </div>
-        </Panel>
+        {openInvoiceInfo && (
+          <Panel
+            id="outstanding-invoice"
+            title="Outstanding invoice"
+            description="You chose this plan and agreed to pay. Pay it, then report the payment for verification."
+            className="scroll-mt-20"
+          >
+            <InvoicePayment
+              canManage={canManage}
+              suspended={suspended}
+              paymentInstructions={config.paymentInstructions}
+              invoice={openInvoiceInfo}
+            />
+          </Panel>
+        )}
 
         <Panel
-          title="Billing"
-          description={
-            openInvoice
-              ? 'An invoice you agreed to. Pay it, then report the payment.'
-              : 'Reminders are informational: you owe nothing until you choose a plan.'
-          }
-          className="lg:col-span-3"
+          id="plans"
+          title="Plans"
+          description="What each plan includes. Downgrading never deletes data."
+          className="scroll-mt-20"
         >
-          <BillingPanel
+          <PlanCards
+            prices={config.prices}
+            terms={config.terms ? { version: config.terms.version, body: config.terms.body } : null}
             canManage={canManage}
+            effectivePlan={access.plan.id}
+            paidPlan={onTrial ? null : store.plan}
+            onTrial={onTrial}
+            billingInterval={billingInterval}
             subscription={{
               status: store.status,
               trialEndsAt: store.trialEndsAt?.toISOString() ?? null,
               currentPeriodEnd: store.currentPeriodEnd?.toISOString() ?? null,
             }}
-            prices={config.prices}
-            terms={config.terms ? { version: config.terms.version, body: config.terms.body } : null}
-            paymentInstructions={config.paymentInstructions}
-            openInvoice={
-              openInvoice && billing.billing
-                ? {
-                    id: openInvoice.id,
-                    number: openInvoice.number,
-                    plan: openInvoice.plan,
-                    interval: openInvoice.interval,
-                    amount: Number(openInvoice.amount),
-                    periodStart: openInvoice.periodStart.toISOString(),
-                    periodEnd: openInvoice.periodEnd.toISOString(),
-                    dueAt: openInvoice.dueAt.toISOString(),
-                    flag: billing.billing,
-                    pending: pendingPayment
-                      ? {
-                          method: pendingPayment.method,
-                          reference: pendingPayment.reference,
-                          submittedAt: pendingPayment.createdAt.toISOString(),
-                        }
-                      : null,
-                    lastRejection:
-                      lastRejection?.rejectReason && lastRejection.rejectedAt
-                        ? { reason: lastRejection.rejectReason, at: lastRejection.rejectedAt.toISOString() }
-                        : null,
-                  }
-                : null
-            }
+            openInvoiceNumber={openInvoice?.number ?? null}
+            suspended={suspended}
           />
-        </Panel>
-
-        <Panel title="Usage" description="Counted live from your store’s records." className="lg:col-span-3">
-          <div className="grid gap-5 p-4 sm:grid-cols-2">
-            {meters.map((meter) => (
-              <UsageMeter key={meter.key} meter={meter} />
-            ))}
-          </div>
-        </Panel>
-
-        <Panel title="Compare plans" description="What each plan includes. Choose one under Billing." className="lg:col-span-3">
-          <PlanComparison current={access.plan.id} />
-        </Panel>
-
-        <Panel title="Subscription changes" description="Plan, status, trial and payment changes made for your store." className="lg:col-span-3">
-          {history.length === 0 ? (
-            <PanelEmpty icon={History} title="No changes yet" description="Changes to your subscription will be listed here." />
-          ) : (
-            <ul className="divide-y">
-              {history.map((entry) => (
-                <li key={entry.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
-                  <p className="min-w-0 text-sm">{entry.summary}</p>
-                  <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(entry.createdAt)}</span>
+          <details className="group border-t">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+              How billing and payment work
+            </summary>
+            <div className="grid gap-4 px-4 pb-4 text-sm md:grid-cols-2">
+              <ol className="space-y-2">
+                <li className="flex items-start gap-2">
+                  <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                  Choose a plan and accept the billing terms. An invoice is issued; nothing is charged automatically.
                 </li>
-              ))}
-            </ul>
-          )}
+                <li className="flex items-start gap-2">
+                  <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                  Pay by GCash or bank transfer, then report the reference number on the invoice.
+                </li>
+                <li className="flex items-start gap-2">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                  The platform administrator verifies the payment; only then does the plan start or extend. Paying early never
+                  loses days.
+                </li>
+              </ol>
+              <div className="space-y-1.5">
+                <p className="font-medium">Payment instructions</p>
+                {config.paymentInstructions ? (
+                  <div className="whitespace-pre-wrap rounded-xl border bg-muted/30 p-3">{config.paymentInstructions}</div>
+                ) : (
+                  <p className="text-muted-foreground">Not published yet. Contact support for the GCash or bank details.</p>
+                )}
+              </div>
+            </div>
+          </details>
         </Panel>
 
-        <Panel title="Invoices" description="Plans you chose and agreed to pay for." className="lg:col-span-3">
-          {invoices.length === 0 ? (
-            <PanelEmpty icon={FileText} title="No invoices" description="Choosing a plan issues an invoice. None has been issued." />
-          ) : (
-            <div className="relative overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
-                <caption className="sr-only">Invoices</caption>
-                <thead>
-                  <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                    <th scope="col" className="h-10 px-4 font-semibold">Invoice</th>
-                    <th scope="col" className="h-10 px-4 font-semibold">Plan</th>
-                    <th scope="col" className="h-10 px-4 text-right font-semibold">Amount</th>
-                    <th scope="col" className="h-10 px-4 font-semibold">Covers</th>
-                    <th scope="col" className="h-10 px-4 font-semibold">Due</th>
-                    <th scope="col" className="h-10 px-4 font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoices.map((invoice) => (
-                    <tr key={invoice.id} className="border-b last:border-0">
-                      <td className="px-4 py-2.5 font-mono text-xs">{invoice.number}</td>
-                      <td className="px-4 py-2.5">
-                        {PLANS[invoice.plan].name}, {INTERVAL_LABEL[invoice.interval].toLowerCase()}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">₱{Number(invoice.amount).toFixed(2)}</td>
-                      <td className="px-4 py-2.5">
-                        {formatDate(invoice.periodStart)} – {formatDate(invoice.periodEnd)}
-                      </td>
-                      <td className="px-4 py-2.5">{formatDate(invoice.dueAt)}</td>
-                      <td className="px-4 py-2.5">
-                        {invoice.status === 'PAID' ? (
-                          <Badge variant="success">Paid{invoice.paidAt ? ` ${formatDate(invoice.paidAt)}` : ''}</Badge>
-                        ) : invoice.status === 'VOID' ? (
-                          <span className="text-xs text-muted-foreground">Void: {invoice.voidReason}</span>
-                        ) : (
-                          <Badge variant="warning">Open</Badge>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <Panel id="billing-history" title="Billing history" className="scroll-mt-20">
+          <Tabs defaultValue="invoices">
+            <div className="overflow-x-auto scrollbar-none border-b px-4 py-2">
+              <TabsList>
+                <TabsTrigger value="invoices">Invoices ({invoiceRows.length})</TabsTrigger>
+                <TabsTrigger value="payments">Payments ({paymentRows.length})</TabsTrigger>
+                <TabsTrigger value="activity">Activity</TabsTrigger>
+              </TabsList>
             </div>
-          )}
-        </Panel>
-
-        <Panel
-          title="Payment history"
-          description="Payments you reported and payments the administrator recorded. Only verified payments count."
-          className="lg:col-span-3"
-        >
-          {payments.length === 0 ? (
-            <PanelEmpty icon={Receipt} title="No payments yet" description="Payments you report, or the administrator records, will be listed here." />
-          ) : (
-            <div className="relative overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
-                <caption className="sr-only">Payment history</caption>
-                <thead>
-                  <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                    <th scope="col" className="h-10 px-4 font-semibold">Paid</th>
-                    <th scope="col" className="h-10 px-4 font-semibold">Plan</th>
-                    <th scope="col" className="h-10 px-4 text-right font-semibold">Amount</th>
-                    <th scope="col" className="h-10 px-4 font-semibold">Method</th>
-                    <th scope="col" className="h-10 px-4 font-semibold">Reference</th>
-                    <th scope="col" className="h-10 px-4 font-semibold">Covers</th>
-                    <th scope="col" className="h-10 px-4 font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.map((payment) => (
-                    <tr key={payment.id} className={payment.voidedAt ? 'border-b text-muted-foreground line-through last:border-0' : 'border-b last:border-0'}>
-                      <td className="px-4 py-2.5">{formatDateTime(payment.paidAt)}</td>
-                      <td className="px-4 py-2.5">{PLANS[payment.plan].name}, {payment.months} mo</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">₱{payment.amount.toFixed(2)}</td>
-                      <td className="px-4 py-2.5">{PAYMENT_METHOD_LABEL[payment.method]}</td>
-                      <td className="px-4 py-2.5 font-mono text-xs">{payment.reference}</td>
-                      <td className="px-4 py-2.5">
-                        {formatDate(payment.periodStart)} – {formatDate(payment.periodEnd)}
-                        {payment.voidedAt && <span className="ml-1 no-underline">(void: {payment.voidReason})</span>}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        {payment.status === 'VERIFIED' ? (
-                          <Badge variant="success">Verified</Badge>
-                        ) : payment.status === 'PENDING' ? (
-                          <Badge variant="default">Awaiting verification</Badge>
-                        ) : (
-                          <span className="text-xs text-destructive-text">Rejected: {payment.rejectReason}</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+            <TabsContent value="invoices" className="mt-0">
+              <InvoicesTable invoices={invoiceRows} storeName={store.name} />
+            </TabsContent>
+            <TabsContent value="payments" className="mt-0">
+              <PaymentsTable payments={paymentRows} />
+            </TabsContent>
+            <TabsContent value="activity" className="mt-0">
+              <ActivityTimeline entries={history} historyDays={access.plan.auditHistoryDays} />
+            </TabsContent>
+          </Tabs>
         </Panel>
       </div>
-    </>
+    </div>
   );
 }

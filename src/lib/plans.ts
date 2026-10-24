@@ -18,6 +18,8 @@ export type LimitKey = 'branches' | 'staff' | 'products' | 'backgroundRemovalsPe
 export interface PlanDefinition {
   id: PlanId;
   name: string;
+  /** One line on who the plan is for, shown on the plan cards. */
+  description: string;
   limits: Record<LimitKey, number | null>;
   features: Record<Feature, boolean>;
   /** How far back a store can see its audit trail, in days; null = all of it. */
@@ -28,6 +30,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   BASIC: {
     id: 'BASIC',
     name: 'Basic',
+    description: 'For a single store getting started.',
     limits: { branches: 1, staff: 3, products: 500, backgroundRemovalsPerMonth: 0 },
     features: { reportExports: false, customRoles: false, backgroundRemoval: false },
     auditHistoryDays: 90,
@@ -35,6 +38,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   BUSINESS: {
     id: 'BUSINESS',
     name: 'Business',
+    description: 'For growing stores with a team and a few branches.',
     limits: { branches: 3, staff: 15, products: 5000, backgroundRemovalsPerMonth: 100 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: 365,
@@ -42,6 +46,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   ENTERPRISE: {
     id: 'ENTERPRISE',
     name: 'Enterprise',
+    description: 'For multi-branch operations with large catalogs.',
     limits: { branches: 10, staff: null, products: null, backgroundRemovalsPerMonth: 1000 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: null,

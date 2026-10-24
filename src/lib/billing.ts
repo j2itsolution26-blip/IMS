@@ -1,4 +1,4 @@
-import type { PlanId } from './plans';
+import { FEATURE_LABEL, PLANS, PLAN_ORDER, type Feature, type LimitKey, type PlanId } from './plans';
 import { storeAccess, type StoreAccess, type StoreSubscription } from './store-access';
 import { addMonths } from './subscription';
 
@@ -264,4 +264,148 @@ export function formatInvoiceNumber(issuedAt: Date, suffix: string): string {
 export function purchasablePlans(prices: { plan: PlanId; interval: BillingInterval; amount: number }[]): PlanId[] {
   const order: PlanId[] = ['BASIC', 'BUSINESS', 'ENTERPRISE'];
   return order.filter((plan) => prices.some((price) => price.plan === plan && price.amount > 0));
+}
+
+// --- Presentation rules for the Subscription & Billing screen -----------------
+//
+// Pure, so what the owner is shown is unit-tested against the same states the
+// server stores. None of these decide anything: the server re-checks every
+// action.
+
+/**
+ * How an invoice reads to the owner. Stored states are only OPEN, PAID and
+ * VOID; "awaiting verification" and "overdue" are an open invoice seen
+ * against its payments and the clock.
+ */
+export type InvoiceDisplayStatus = 'OPEN' | 'AWAITING_VERIFICATION' | 'OVERDUE' | 'PAID' | 'VOID';
+
+export const INVOICE_STATUS_LABEL: Record<InvoiceDisplayStatus, string> = {
+  OPEN: 'Open',
+  AWAITING_VERIFICATION: 'Awaiting verification',
+  OVERDUE: 'Overdue',
+  PAID: 'Paid',
+  VOID: 'Void',
+};
+
+export function invoiceDisplayStatus(
+  invoice: { status: 'OPEN' | 'PAID' | 'VOID'; dueAt: Date },
+  hasPendingPayment: boolean,
+  now: Date,
+): InvoiceDisplayStatus {
+  if (invoice.status !== 'OPEN') return invoice.status;
+  if (hasPendingPayment) return 'AWAITING_VERIFICATION';
+  return invoice.dueAt.getTime() < now.getTime() ? 'OVERDUE' : 'OPEN';
+}
+
+/** A voided payment is void whatever its review said; only VERIFIED, non-void money counts. */
+export type PaymentDisplayStatus = 'PENDING' | 'VERIFIED' | 'REJECTED' | 'VOID';
+
+export const PAYMENT_STATUS_LABEL: Record<PaymentDisplayStatus, string> = {
+  PENDING: 'Awaiting verification',
+  VERIFIED: 'Verified',
+  REJECTED: 'Rejected',
+  VOID: 'Void',
+};
+
+export function paymentDisplayStatus(payment: Pick<PaymentForRevenue, 'status' | 'voidedAt'>): PaymentDisplayStatus {
+  return payment.voidedAt ? 'VOID' : payment.status;
+}
+
+export interface PlanPricing {
+  monthly: number | null;
+  annual: number | null;
+  /** Annual divided by 12, when an annual price exists. */
+  annualPerMonth: number | null;
+  /** What a year of monthly payments costs minus the annual price; null unless both exist and annual is cheaper. */
+  annualSavings: number | null;
+}
+
+const cents = (amount: number) => Math.round(amount * 100) / 100;
+
+/** One plan's published prices. Nothing is assumed for an interval with no price. */
+export function planPricing(prices: { plan: PlanId; interval: BillingInterval; amount: number }[], plan: PlanId): PlanPricing {
+  const find = (interval: BillingInterval) => prices.find((price) => price.plan === plan && price.interval === interval && price.amount > 0)?.amount ?? null;
+  const monthly = find('MONTHLY');
+  const annual = find('ANNUAL');
+  const savings = monthly !== null && annual !== null ? cents(monthly * 12 - annual) : null;
+  return {
+    monthly,
+    annual,
+    annualPerMonth: annual === null ? null : cents(annual / 12),
+    annualSavings: savings !== null && savings > 0 ? savings : null,
+  };
+}
+
+/** Moving from one plan to another, by plan order. */
+export type PlanDirection = 'CURRENT' | 'UPGRADE' | 'DOWNGRADE';
+
+export function planDirection(from: PlanId, to: PlanId): PlanDirection {
+  const delta = PLAN_ORDER.indexOf(to) - PLAN_ORDER.indexOf(from);
+  return delta === 0 ? 'CURRENT' : delta > 0 ? 'UPGRADE' : 'DOWNGRADE';
+}
+
+export interface PlanDifference {
+  label: string;
+  from: string;
+  to: string;
+  /** Whether the change gives the store less. */
+  lower: boolean;
+}
+
+const LIMIT_NAME: Record<LimitKey, string> = {
+  branches: 'Branches',
+  staff: 'Staff accounts',
+  products: 'Products',
+  backgroundRemovalsPerMonth: 'Background removals / month',
+};
+
+const limitValue = (value: number | null) => (value === null ? 'Unlimited' : value === 0 ? 'None' : value.toLocaleString('en-PH'));
+const rank = (value: number | null) => (value === null ? Number.POSITIVE_INFINITY : value);
+const historyValue = (days: number | null) => (days === null ? 'All' : `${days} days`);
+
+/** What changes, limit by limit and feature by feature, between two plans. Read from the plan configuration. */
+export function planDifferences(from: PlanId, to: PlanId): PlanDifference[] {
+  const a = PLANS[from];
+  const b = PLANS[to];
+  const rows: PlanDifference[] = [];
+  for (const key of Object.keys(LIMIT_NAME) as LimitKey[]) {
+    if (a.limits[key] === b.limits[key]) continue;
+    rows.push({ label: LIMIT_NAME[key], from: limitValue(a.limits[key]), to: limitValue(b.limits[key]), lower: rank(b.limits[key]) < rank(a.limits[key]) });
+  }
+  for (const feature of Object.keys(FEATURE_LABEL) as Feature[]) {
+    if (a.features[feature] === b.features[feature]) continue;
+    rows.push({
+      label: FEATURE_LABEL[feature],
+      from: a.features[feature] ? 'Included' : 'Not included',
+      to: b.features[feature] ? 'Included' : 'Not included',
+      lower: !b.features[feature],
+    });
+  }
+  if (a.auditHistoryDays !== b.auditHistoryDays) {
+    rows.push({
+      label: 'Audit history',
+      from: historyValue(a.auditHistoryDays),
+      to: historyValue(b.auditHistoryDays),
+      lower: rank(b.auditHistoryDays) < rank(a.auditHistoryDays),
+    });
+  }
+  return rows;
+}
+
+/** A usage meter at 80% or more is close to its limit. */
+export const USAGE_NEAR_RATIO = 0.8;
+
+export type UsageLevel = 'UNLIMITED' | 'NOT_INCLUDED' | 'OK' | 'NEAR' | 'FULL' | 'OVER';
+
+export function usageLevel(used: number, limit: number | null): UsageLevel {
+  if (limit === null) return 'UNLIMITED';
+  if (limit === 0) return used > 0 ? 'OVER' : 'NOT_INCLUDED';
+  if (used > limit) return 'OVER';
+  if (used === limit) return 'FULL';
+  return used / limit >= USAGE_NEAR_RATIO ? 'NEAR' : 'OK';
+}
+
+/** `••••7890`: enough to recognise a transfer without repeating it in full on every row. */
+export function maskReference(reference: string): string {
+  return reference.length <= 4 ? reference : `••••${reference.slice(-4)}`;
 }
