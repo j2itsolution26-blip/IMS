@@ -810,7 +810,7 @@ export function PosTerminal({
       </div>
 
       {/* Current order */}
-      <Card className="flex h-fit flex-col rounded-2xl xl:sticky xl:top-[4.5rem] xl:max-h-[calc(100dvh-6rem)]">
+      <Card className="flex h-fit flex-col xl:sticky xl:top-[4.5rem] xl:max-h-[calc(100dvh-6rem)]">
         <div className="flex items-start justify-between gap-2 p-4 pb-3">
           <div className="min-w-0">
             <p className="text-base font-semibold">Current order</p>
@@ -1343,7 +1343,7 @@ function ProductTile({
     <div
       onClick={soldOut ? undefined : onAdd}
       className={cn(
-        'group flex h-full flex-col overflow-hidden rounded-2xl border bg-card text-left shadow-2xs transition-[border-color,box-shadow,background-color] duration-150',
+        'group flex h-full flex-col overflow-hidden rounded-xl border bg-card text-left shadow-card transition-[border-color,box-shadow,background-color] duration-150',
         soldOut ? 'opacity-70' : 'cursor-pointer hover:border-primary/40 hover:shadow-sm',
         inCart > 0 && 'border-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]',
       )}
@@ -1363,7 +1363,7 @@ function ProductTile({
           ) : (
             <span
               className={cn(
-                'flex h-14 w-14 items-center justify-center rounded-2xl text-lg font-semibold',
+                'flex h-14 w-14 items-center justify-center rounded-xl text-lg font-semibold',
                 toneFor(product.name),
               )}
               aria-hidden="true"

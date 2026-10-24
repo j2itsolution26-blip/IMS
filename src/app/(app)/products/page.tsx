@@ -83,7 +83,7 @@ export default async function ProductsPage({
         ]}
       />
 
-      <div className="rounded-lg border">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
         {result.rows.length === 0 ? (
           hasFilters ? (
             <EmptyState

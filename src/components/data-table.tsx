@@ -97,7 +97,7 @@ export function DataTable<TData>({
         </div>
       )}
 
-      <div className="rounded-lg border">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
         {data.length === 0 ? (
           emptyState
         ) : (
