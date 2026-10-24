@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   Boxes,
+  CreditCard,
   FileBarChart,
   LayoutDashboard,
   List,
@@ -93,6 +94,7 @@ export const NAVIGATION: NavSection[] = [
     items: [
       { label: 'Overview', href: '/system-admin', icon: ShieldCheck, permission: 'platform.view', exact: true },
       { label: 'Stores', href: '/system-admin/stores', icon: Store, permission: 'platform.view' },
+      { label: 'Billing', href: '/system-admin/billing', icon: CreditCard, permission: 'platform.view' },
       { label: 'Owner accounts', href: '/system-admin/owners', icon: Users, permission: 'platform.view' },
       { label: 'Audit log', href: '/system-admin/audit', icon: ScrollText, permission: 'platform.view' },
     ],

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { History, Receipt } from 'lucide-react';
+import { FileText, History, Receipt } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
 import { getStoreDetail } from '@/features/platform/queries';
 import { formatDate, formatDateTime } from '@/lib/format';
@@ -12,6 +12,9 @@ import { Panel, PanelEmpty } from '@/components/panel';
 import { AccessBadge, PlanComparison, UsageMeter } from '@/features/subscription/plan-display';
 import { StoreControls, VoidPaymentButton } from '@/features/platform/store-subscription-manager';
 import { usagePeriod } from '@/server/services/entitlements';
+import { VoidInvoiceButton } from '@/features/platform/billing-queue';
+import { INTERVAL_LABEL } from '@/lib/billing';
+import { Badge } from '@/components/ui/badge';
 
 export const metadata: Metadata = { title: 'Store subscription' };
 export const dynamic = 'force-dynamic';
@@ -22,13 +25,20 @@ export default async function StoreDetailPage({ params }: { params: Promise<{ id
   const detail = await getStoreDetail(id, usagePeriod());
   if (!detail) notFound();
 
-  const { store, usage, payments, history } = detail;
+  const { store, usage, payments, invoices, history } = detail;
   const now = new Date();
   const access = storeAccess(store, now);
   const limits = access.plan.limits;
   const canManage = userCan(admin, 'platform.manage');
-  // The most recent live payment is the only one that can be voided (see voidPayment).
-  const voidable = payments.find((payment) => !payment.voidedAt && store.currentPeriodEnd && payment.periodEnd.getTime() === store.currentPeriodEnd.getTime());
+  // The most recent live, verified payment is the only one that can be voided
+  // (see voidPayment); pending or rejected reports are not money received.
+  const voidable = payments.find(
+    (payment) =>
+      payment.status === 'VERIFIED' &&
+      !payment.voidedAt &&
+      store.currentPeriodEnd &&
+      payment.periodEnd.getTime() === store.currentPeriodEnd.getTime(),
+  );
 
   return (
     <>
@@ -91,7 +101,62 @@ export default async function StoreDetailPage({ params }: { params: Promise<{ id
           </div>
         </Panel>
 
-        <Panel title="Payments" description="Manual payments confirmed on the platform. Permanent; mistakes are voided, not deleted." className="lg:col-span-3">
+        <Panel title="Invoices" description="Plans the owner chose, with the terms version they accepted." className="lg:col-span-3">
+          {invoices.length === 0 ? (
+            <PanelEmpty icon={FileText} title="No invoices" description="The owner has not chosen a paid plan." />
+          ) : (
+            <div className="relative overflow-x-auto">
+              <table className="w-full min-w-[820px] text-sm">
+                <caption className="sr-only">Invoices</caption>
+                <thead>
+                  <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                    <th scope="col" className="h-10 px-4 font-semibold">Invoice</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Plan</th>
+                    <th scope="col" className="h-10 px-4 text-right font-semibold">Amount</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Covers</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Due</th>
+                    <th scope="col" className="h-10 px-4 font-semibold">Status</th>
+                    <th scope="col" className="px-4 py-2"><span className="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoices.map((invoice) => (
+                    <tr key={invoice.id} className="border-b align-top last:border-0">
+                      <td className="px-4 py-2.5">
+                        <span className="font-mono text-xs">{invoice.number}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          Terms v{invoice.termsVersion}, accepted {formatDateTime(invoice.acceptedAt)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5">{PLANS[invoice.plan].name}, {INTERVAL_LABEL[invoice.interval].toLowerCase()}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">₱{invoice.amount}</td>
+                      <td className="px-4 py-2.5">{formatDate(invoice.periodStart)} – {formatDate(invoice.periodEnd)}</td>
+                      <td className="px-4 py-2.5">{formatDate(invoice.dueAt)}</td>
+                      <td className="px-4 py-2.5">
+                        {invoice.status === 'PAID' ? (
+                          <Badge variant="success">Paid{invoice.paidAt ? ` ${formatDate(invoice.paidAt)}` : ''}</Badge>
+                        ) : invoice.status === 'VOID' ? (
+                          <span className="text-xs text-muted-foreground">Void: {invoice.voidReason}</span>
+                        ) : (
+                          <Badge variant={invoice.dueAt.getTime() < now.getTime() ? 'destructive' : 'warning'}>
+                            {invoice.hasPendingPayment ? 'Payment to verify' : invoice.dueAt.getTime() < now.getTime() ? 'Past due' : 'Open'}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        {canManage && invoice.status === 'OPEN' && !invoice.hasPendingPayment && (
+                          <VoidInvoiceButton invoiceId={invoice.id} storeId={store.id} number={invoice.number} />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+
+        <Panel title="Payments" description="Verified, reported and rejected payments. Permanent; mistakes are voided, not deleted." className="lg:col-span-3">
           {payments.length === 0 ? (
             <PanelEmpty icon={Receipt} title="No payments recorded" description="Use Record payment once the money has arrived." />
           ) : (
@@ -132,6 +197,16 @@ export default async function StoreDetailPage({ params }: { params: Promise<{ id
                       <td className="px-4 py-2.5">
                         {payment.recordedBy}
                         <span className="block text-xs text-muted-foreground">{formatDateTime(payment.createdAt)}</span>
+                        <span className="mt-1 block">
+                          {payment.status === 'VERIFIED' ? (
+                            <Badge variant="success">Verified</Badge>
+                          ) : payment.status === 'PENDING' ? (
+                            <Badge variant="warning">Awaiting verification</Badge>
+                          ) : (
+                            <span className="text-xs text-destructive-text">Rejected: {payment.rejectReason}</span>
+                          )}
+                          {payment.invoiceNumber && <span className="ml-1 font-mono text-[11px] text-muted-foreground">{payment.invoiceNumber}</span>}
+                        </span>
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         {canManage && voidable?.id === payment.id && (

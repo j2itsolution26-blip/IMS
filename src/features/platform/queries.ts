@@ -224,12 +224,33 @@ export interface PlatformPayment {
   voidedAt: Date | null;
   voidedBy: string | null;
   voidReason: string | null;
+  status: 'PENDING' | 'VERIFIED' | 'REJECTED';
+  rejectReason: string | null;
+  invoiceNumber: string | null;
+}
+
+export interface PlatformInvoice {
+  id: string;
+  number: string;
+  plan: StoreSubscription['plan'];
+  interval: 'MONTHLY' | 'ANNUAL';
+  amount: string;
+  periodStart: Date;
+  periodEnd: Date;
+  dueAt: Date;
+  status: 'OPEN' | 'PAID' | 'VOID';
+  termsVersion: number;
+  acceptedAt: Date;
+  paidAt: Date | null;
+  voidReason: string | null;
+  hasPendingPayment: boolean;
 }
 
 export interface PlatformStoreDetail {
   store: Omit<PlatformStoreRow, 'products' | 'staff' | 'branches'> & { ownerEmail: string | null; ownerPhone: string | null };
   usage: { products: number; staff: number; branches: number; backgroundRemovals: number };
   payments: PlatformPayment[];
+  invoices: PlatformInvoice[];
   history: AdminAuditEntry[];
 }
 
@@ -243,7 +264,7 @@ export async function getStoreDetail(storeId: string, period: string): Promise<P
   });
   if (!store) return null;
 
-  const [products, staff, branches, removals, payments, history] = await Promise.all([
+  const [products, staff, branches, removals, payments, history, invoices] = await Promise.all([
     platformPrisma.product.count({ where: { storeId, status: { not: 'ARCHIVED' } } }),
     platformPrisma.user.count({ where: { storeId, isActive: true, ...(store.ownerId ? { id: { not: store.ownerId } } : {}) } }),
     platformPrisma.warehouse.count({ where: { storeId } }),
@@ -255,14 +276,24 @@ export async function getStoreDetail(storeId: string, period: string): Promise<P
       where: { storeId },
       orderBy: { createdAt: 'desc' },
       take: 100,
-      include: { recordedBy: { select: { name: true } }, voidedBy: { select: { name: true } } },
+      include: { recordedBy: { select: { name: true } }, voidedBy: { select: { name: true } }, invoice: { select: { number: true } } },
     }),
     // The platform's copy of this store's subscription entries (it names the administrator).
     platformPrisma.auditLog.findMany({
-      where: { storeId: null, entity: { in: ['Store', 'SubscriptionPayment'] }, changes: { path: ['storeId'], equals: storeId } },
+      where: { storeId: null, entity: { in: ['Store', 'SubscriptionPayment', 'Invoice'] }, changes: { path: ['storeId'], equals: storeId } },
       orderBy: { createdAt: 'desc' },
       take: 50,
       select: { id: true, action: true, summary: true, createdAt: true, user: { select: { name: true } } },
+    }),
+    platformPrisma.invoice.findMany({
+      where: { storeId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: {
+        id: true, number: true, plan: true, interval: true, amount: true, periodStart: true, periodEnd: true, dueAt: true,
+        status: true, termsVersion: true, acceptedAt: true, paidAt: true, voidReason: true,
+        payments: { where: { status: 'PENDING' }, select: { id: true } },
+      },
     }),
   ]);
 
@@ -278,6 +309,12 @@ export async function getStoreDetail(storeId: string, period: string): Promise<P
       id: p.id, plan: p.plan, amount: p.amount.toFixed(2), currency: p.currency, method: p.method, reference: p.reference,
       paidAt: p.paidAt, months: p.months, periodStart: p.periodStart, periodEnd: p.periodEnd, notes: p.notes,
       recordedBy: p.recordedBy.name, createdAt: p.createdAt, voidedAt: p.voidedAt, voidedBy: p.voidedBy?.name ?? null, voidReason: p.voidReason,
+      status: p.status, rejectReason: p.rejectReason, invoiceNumber: p.invoice?.number ?? null,
+    })),
+    invoices: invoices.map(({ payments: pendingPayments, amount, ...invoice }) => ({
+      ...invoice,
+      amount: amount.toFixed(2),
+      hasPendingPayment: pendingPayments.length > 0,
     })),
     history: history.map((row) => ({ id: row.id, action: row.action, summary: row.summary, actorName: row.user?.name ?? null, createdAt: row.createdAt })),
   };
