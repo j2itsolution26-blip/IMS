@@ -18,7 +18,7 @@ import { inlineLabel } from '@/server/analytics/date-range';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { STORE_TIME_ZONE } from '@/lib/store-time';
 import { PeriodPicker } from '@/components/period-picker';
-import { KpiCard } from '@/components/kpi-card';
+import { KpiBars, KpiCard } from '@/components/kpi-card';
 import { RefreshButton } from '@/features/dashboard/refresh-button';
 import {
   CategorySalesPanel,
@@ -116,7 +116,7 @@ export function DashboardView({
       {/* Header */}
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-title sm:text-title-lg">Sales Dashboard</h1>
+          <h1 className="text-display">Sales Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             <span className="font-medium text-foreground">{storeName}</span> · {today}
           </p>
@@ -149,6 +149,8 @@ export function DashboardView({
           change={headline.today.change}
           changeLabel="vs yesterday"
           hint={transactions(headline.today.transactions)}
+          footer={{ label: "See today's sales", href: '/sales?period=today' }}
+          inverse
         />
         <KpiCard
           label="Weekly Sales"
@@ -157,6 +159,7 @@ export function DashboardView({
           change={headline.week.change}
           changeLabel="vs last week"
           hint={`${transactions(headline.week.transactions)} · Mon–Sun`}
+          footer={{ label: "See this week's sales", href: '/sales?period=week' }}
         />
         <KpiCard
           label="Monthly Revenue"
@@ -165,6 +168,7 @@ export function DashboardView({
           change={headline.month.change}
           changeLabel="vs last month"
           hint={transactions(headline.month.transactions)}
+          footer={{ label: "See this month's sales", href: '/sales?period=month' }}
         />
       </section>
 
@@ -181,6 +185,7 @@ export function DashboardView({
               ? `${formatCurrency(current.grossSales, currency)} gross − ${formatCurrency(current.discounts, currency)} discounts − ${formatCurrency(current.returnsTotal, currency)} refunds`
               : capitalise(periodLabel)
           }
+          footer={{ label: 'See sales', href: hrefWith('/sales', keep) }}
         />
         {canViewProfit ? (
           <KpiCard
@@ -195,7 +200,7 @@ export function DashboardView({
                 ? `${formatNumber(current.zeroCostLines, 0)} sold ${current.zeroCostLines === 1 ? 'line has' : 'lines have'} no cost price, so profit is overstated`
                 : `Net sales − ${formatCurrency(current.netCostOfGoods, currency)} cost of goods`
             }
-            href="/reports/profit"
+            footer={{ label: 'See profit report', href: '/reports/profit' }}
           />
         ) : (
           <KpiCard
@@ -212,7 +217,8 @@ export function DashboardView({
           change={change.transactionCount}
           changeLabel={comparison}
           hint={`Avg ${formatCurrency(current.averageOrderValue, currency)} net per sale`}
-          href={hrefWith('/sales', keep)}
+          visual={<KpiBars data={data.trend.map((point) => point.orders)} />}
+          footer={{ label: 'See transactions', href: hrefWith('/sales', keep) }}
         />
       </section>
 
@@ -228,14 +234,14 @@ export function DashboardView({
                 ? `${formatCurrency(drawers.startingCashTotal, currency)} starting cash`
                 : 'No drawer is open'
             }
-            href="/shifts?view=open"
+            footer={{ label: 'See open shifts', href: '/shifts?view=open' }}
           />
           <KpiCard
             label="Expected drawer cash"
             value={formatCurrency(drawers.expectedDrawerCash, currency)}
             icon={Vault}
             hint="Across open shifts"
-            href="/shifts?view=open"
+            footer={{ label: 'See drawers', href: '/shifts?view=open' }}
           />
           <KpiCard
             label="Cash to review"
@@ -243,7 +249,7 @@ export function DashboardView({
             icon={TriangleAlert}
             tone={drawers.pendingReview > 0 ? 'warning' : 'default'}
             hint={drawers.pendingReview > 0 ? 'Waiting for your review' : 'Nothing to review'}
-            href="/shifts?view=review"
+            footer={{ label: 'Review shifts', href: '/shifts?view=review' }}
           />
         </section>
       )}
@@ -255,6 +261,7 @@ export function DashboardView({
           granularity={data.granularity}
           rangeLabel={periodLabel}
           currency={currency}
+          now={generatedAt}
           className="xl:col-span-2"
         />
         <CategorySalesPanel categories={data.categories} currency={currency} />

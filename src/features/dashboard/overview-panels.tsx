@@ -5,7 +5,7 @@ import type { DashboardOverview } from '@/server/analytics/dashboard-overview';
 import type { StockStatus } from '@/server/analytics/inventory-analytics';
 import type { Granularity } from '@/server/analytics/sales-analytics';
 import { BreakdownChart } from '@/components/charts/breakdown-chart';
-import { TrendChart } from '@/components/charts/trend-chart';
+import { PeriodBarChart } from '@/components/charts/period-bar-chart';
 import { ProductImage } from '@/components/product-image';
 import { ViewSaleButton } from '@/features/dashboard/view-sale-button';
 import { Badge } from '@/components/ui/badge';
@@ -78,12 +78,15 @@ export function SalesOverviewPanel({
   granularity,
   rangeLabel,
   currency,
+  now,
   className,
 }: {
   trend: DashboardOverview['trend'];
   granularity: Granularity;
   rangeLabel: string;
   currency: string;
+  /** When the figures were read (ISO), so the in-progress bucket matches them. */
+  now: string;
   className?: string;
 }) {
   const hasSales = trend.some((point) => point.revenue > 0 || point.orders > 0);
@@ -92,7 +95,7 @@ export function SalesOverviewPanel({
   return (
     <Panel
       title="Sales Overview"
-      description={`Revenue ${noun.per} — ${rangeLabel}. Hover a point for its figures.`}
+      description={`Revenue ${noun.per} — ${rangeLabel}. Hover a bar for its figures.`}
       className={className}
     >
       {!hasSales ? (
@@ -103,15 +106,15 @@ export function SalesOverviewPanel({
         />
       ) : (
         <div className="p-4">
-          <TrendChart
+          <PeriodBarChart
             currency={currency}
             height={280}
-            showProfit={false}
+            now={now}
             periodLabel={noun.title}
             data={trend.map((point) => ({
+              bucket: point.bucket,
               label: point.label,
               revenue: point.revenue,
-              profit: point.profit,
               orders: point.orders,
             }))}
           />

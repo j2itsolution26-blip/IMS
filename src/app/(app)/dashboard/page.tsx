@@ -212,7 +212,7 @@ async function renderCashier(user: CurrentUser, currency: string, suggestedOpeni
 function InventoryHeader() {
   return (
     <div className="mb-5 min-w-0">
-      <h1 className="text-title sm:text-title-lg">Inventory Operations</h1>
+      <h1 className="text-display">Inventory Operations</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Stock levels, restocking and stock movements. Every quantity is in pieces.
       </p>

@@ -16,7 +16,7 @@ import { requirePermission } from '@/lib/session';
 import { getPlatformStats, listAccountAudit } from '@/features/platform/queries';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { PLAN_ORDER, PLANS } from '@/lib/plans';
-import { KpiCard } from '@/components/kpi-card';
+import { KpiCard, KpiRing } from '@/components/kpi-card';
 import { Panel, PanelEmpty, PanelLink } from '@/components/panel';
 import { Button } from '@/components/ui/button';
 
@@ -27,12 +27,13 @@ export default async function SystemAdminPage() {
   const admin = await requirePermission('platform.view');
   const [stats, audit] = await Promise.all([getPlatformStats(), listAccountAudit(8)]);
   const { stores } = stats;
+  const activeShare = stores.total > 0 ? stores.byStatus.ACTIVE / stores.total : 0;
 
   return (
     <>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-title sm:text-title-lg">System administration</h1>
+          <h1 className="text-display">System administration</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Signed in as {admin.name} — stores, owner accounts and subscriptions.
           </p>
@@ -53,13 +54,20 @@ export default async function SystemAdminPage() {
 
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Stores</h2>
       <section aria-label="Stores by subscription status" className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <KpiCard label="Total stores" value={formatNumber(stores.total, 0)} icon={Store} href="/system-admin/stores" />
+        <KpiCard
+          label="Total stores"
+          value={formatNumber(stores.total, 0)}
+          icon={Store}
+          footer={{ label: 'See stores', href: '/system-admin/stores' }}
+          inverse
+        />
         <KpiCard
           label="Active"
           value={formatNumber(stores.byStatus.ACTIVE, 0)}
           icon={BadgeCheck}
           tone="success"
-          hint="Paid and current"
+          hint={stores.total > 0 ? `${Math.round(activeShare * 100)}% of stores` : 'Paid and current'}
+          visual={stores.total > 0 ? <KpiRing value={activeShare} /> : undefined}
         />
         <KpiCard label="On trial" value={formatNumber(stores.byStatus.TRIAL, 0)} icon={Clock} hint="Free trial running" />
         <KpiCard
@@ -84,21 +92,21 @@ export default async function SystemAdminPage() {
           label="Owner accounts"
           value={formatNumber(stats.owners.total, 0)}
           icon={Users}
-          href="/system-admin/owners"
+          footer={{ label: 'See owners', href: '/system-admin/owners' }}
         />
         <KpiCard
           label="Active owners"
           value={formatNumber(stats.owners.active, 0)}
           icon={UserCheck}
           tone="success"
-          href="/system-admin/owners"
+          footer={{ label: 'See owners', href: '/system-admin/owners' }}
         />
         <KpiCard
           label="Deactivated"
           value={formatNumber(stats.owners.inactive, 0)}
           icon={UserX}
           tone={stats.owners.inactive > 0 ? 'warning' : 'default'}
-          href="/system-admin/owners"
+          footer={{ label: 'See owners', href: '/system-admin/owners' }}
         />
         <KpiCard label="New in 30 days" value={formatNumber(stats.recentOwners, 0)} icon={UserPlus} />
         <KpiCard

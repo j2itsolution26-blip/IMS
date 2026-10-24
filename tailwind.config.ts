@@ -104,6 +104,9 @@ const config: Config = {
       fontSize: {
         title: ['1.375rem', { lineHeight: '1.75rem', letterSpacing: '-0.015em', fontWeight: '700' }],
         'title-lg': ['1.625rem', { lineHeight: '2rem', letterSpacing: '-0.02em', fontWeight: '700' }],
+        // Dashboard titles scale with the viewport — 24px on a phone, ~28px on a tablet, up to
+        // 32px from about 1200px — so no breakpoint jumps between devices.
+        display: ['clamp(1.5rem, 1.2rem + 1.1vw, 2rem)', { lineHeight: '1.15', letterSpacing: '-0.025em', fontWeight: '700' }],
         kpi: ['1.625rem', { lineHeight: '1', letterSpacing: '-0.02em', fontWeight: '700' }],
       },
       keyframes: {

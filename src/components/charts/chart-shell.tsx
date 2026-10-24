@@ -31,7 +31,7 @@ export const AXIS_PROPS = {
 
 export const GRID_PROPS = {
   stroke: 'var(--chart-grid)',
-  strokeDasharray: '0',
+  strokeDasharray: '4 4',
   vertical: false,
 } as const;
 
@@ -85,11 +85,14 @@ export interface TooltipRow {
   color?: string;
 }
 
-/** Tooltip surface. Values wear text tokens; the swatch carries series identity. */
+/**
+ * Tooltip surface — inverted against the page (dark on light, light on dark)
+ * so it reads as an overlay above the chart. The swatch carries series identity.
+ */
 export function ChartTooltip({ label, rows }: { label: string; rows: TooltipRow[] }) {
   return (
-    <div className="rounded-md border bg-popover px-3 py-2 text-xs shadow-md">
-      <p className="mb-1.5 font-medium text-foreground">{label}</p>
+    <div className="min-w-36 rounded-xl bg-foreground px-3 py-2.5 text-xs text-background shadow-lg">
+      <p className="mb-1.5 font-semibold">{label}</p>
       <ul className="space-y-1">
         {rows.map((row) => (
           <li key={row.name} className="flex items-center gap-2">
@@ -100,8 +103,8 @@ export function ChartTooltip({ label, rows }: { label: string; rows: TooltipRow[
                 style={{ backgroundColor: row.color }}
               />
             )}
-            <span className="text-muted-foreground">{row.name}</span>
-            <span className="tabular ml-auto font-medium text-foreground">{row.value}</span>
+            <span className="text-background/70">{row.name}</span>
+            <span className="tabular ml-auto pl-3 font-semibold">{row.value}</span>
           </li>
         ))}
       </ul>
