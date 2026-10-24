@@ -89,6 +89,11 @@ to be run first.
 refuses while another System Administrator exists, so deactivate the old
 account first. It never resets data.
 
+**Starting over** (deletes every account and record): take a backup first,
+then run `npm run db:reset-installation -- --backup=<file>`. It refuses unless
+the backup is of this database and still matches it, and unless
+`RESET_CONFIRM` is set to the exact phrase it prints. Never run by the app.
+
 ### 6. Create a store
 
 Sign in as the System Administrator, open **System Admin → Stores → Create
