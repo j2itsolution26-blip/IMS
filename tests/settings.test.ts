@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SETTING_DEFINITIONS, settingProblem, settingRow } from '@/lib/settings-definitions';
+import { SETTINGS_SECTIONS, changedKeys, currencySymbol } from '@/features/admin/settings-sections';
 
 /**
- * The setting rules shared by the settings form and `updateSettings`.
+ * The setting rules shared by the settings form and `updateSettings`, and the
+ * form's layout helpers.
  */
 
 const definition = (key: string) => {
@@ -61,4 +63,22 @@ test('the logo must be an http(s) address or empty', () => {
 test('a database row never carries the rules', () => {
   const row = settingRow(definition('sales.defaultTaxRate'));
   assert.deepEqual(Object.keys(row).sort(), ['description', 'group', 'key', 'label', 'type', 'value']);
+});
+
+test('the layout places every setting once, in its own group, and nothing else', () => {
+  const placed = SETTINGS_SECTIONS.flatMap((section) => section.fields.map((field) => ({ key: field.key, group: section.group })));
+  assert.equal(new Set(placed.map((p) => p.key)).size, placed.length, 'a setting is placed twice');
+  for (const { key, group } of placed) assert.equal(definition(key).group, group, `${key} is in the wrong card`);
+  assert.deepEqual(placed.map((p) => p.key).sort(), SETTING_DEFINITIONS.map((d) => d.key).sort());
+});
+
+test('changedKeys lists only values that differ from what is saved', () => {
+  const saved = { a: '1', b: 'x', c: '' };
+  assert.deepEqual(changedKeys({ ...saved }, saved), []);
+  assert.deepEqual(changedKeys({ ...saved, b: 'y', c: ' ' }, saved), ['b', 'c']);
+});
+
+test('currencySymbol writes pesos as ₱ and falls back to the code', () => {
+  assert.equal(currencySymbol('PHP'), '₱');
+  assert.equal(currencySymbol('not-a-code'), 'not-a-code');
 });

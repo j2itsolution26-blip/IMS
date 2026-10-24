@@ -23,42 +23,45 @@ export default async function SettingsPage() {
   );
 
   return (
-    <>
+    <div className="max-w-5xl">
       <PageHeader
         title="Settings"
-        description="System configuration. Several of these directly drive the dashboard, alerts, and reports."
+        description="Manage your store, staff and subscription. Several of these settings directly drive the dashboard, alerts, and reports."
       />
-      <div className="mb-6 grid gap-3 sm:grid-cols-2">
-        {userCan(user, 'users.view') && (
+
+      <nav aria-label="Account settings" className="mb-6">
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {userCan(user, 'users.view') && (
+            <SettingsLink
+              href="/settings/users"
+              icon={Users}
+              title="Staff Accounts"
+              description="Add staff, set their role, and reset passwords."
+            />
+          )}
           <SettingsLink
-            href="/settings/users"
-            icon={Users}
-            title="Staff Accounts"
-            description="Add staff, set their role, and reset passwords."
+            href="/settings/profile"
+            icon={User}
+            title="My Profile"
+            description="Your own name, contact details, and password."
           />
-        )}
-        {userCan(user, 'billing.view') && (
-          <SettingsLink
-            href="/settings/subscription"
-            icon={CreditCard}
-            title="Subscription"
-            description="Your plan, usage and payment history."
-          />
-        )}
-        <SettingsLink
-          href="/settings/profile"
-          icon={User}
-          title="My Profile"
-          description="Your own name, contact details, and password."
-        />
-      </div>
+          {userCan(user, 'billing.view') && (
+            <SettingsLink
+              href="/settings/subscription"
+              icon={CreditCard}
+              title="Subscription & Billing"
+              description="Your plan, usage, invoices and payments."
+            />
+          )}
+        </ul>
+      </nav>
 
       <SettingsForm
         definitions={SETTING_DEFINITIONS}
         values={values}
         canEdit={userCan(user, 'settings.update')}
       />
-    </>
+    </div>
   );
 }
 
@@ -74,18 +77,26 @@ function SettingsLink({
   description: string;
 }) {
   return (
-    <Link
-      href={href}
-      className="flex items-center gap-3 rounded-card border bg-card p-4 shadow-card transition-colors hover:border-primary/40 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <Icon className="h-5 w-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium">{title}</span>
-        <span className="block truncate text-xs text-muted-foreground">{description}</span>
-      </span>
-      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-    </Link>
+    <li>
+      <Link
+        href={href}
+        className="group flex h-full items-start gap-3 rounded-card border bg-card p-4 shadow-card transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      >
+        <span
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
+          aria-hidden="true"
+        >
+          <Icon className="h-5 w-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold leading-6">{title}</span>
+          <span className="mt-0.5 block text-sm text-muted-foreground">{description}</span>
+        </span>
+        <ChevronRight
+          className="mt-2.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary motion-reduce:transition-none"
+          aria-hidden="true"
+        />
+      </Link>
+    </li>
   );
 }
