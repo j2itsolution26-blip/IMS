@@ -31,13 +31,15 @@ export interface TicketFormProps {
   /** In-app only: "View ticket" goes to this path plus the ticket number. */
   ticketBasePath?: string;
   defaultCategory?: SupportCategory;
+  /** A narrow container (the public Help card): categories as a dropdown. */
+  compact?: boolean;
 }
 
 function newKey(): string {
   return crypto.randomUUID().replace(/-/g, '');
 }
 
-export function TicketForm({ variant, action, maxFiles, formToken, ticketBasePath, defaultCategory }: TicketFormProps) {
+export function TicketForm({ variant, action, maxFiles, formToken, ticketBasePath, defaultCategory, compact = false }: TicketFormProps) {
   const [submissionKey, setSubmissionKey] = React.useState(newKey);
   const [category, setCategory] = React.useState<SupportCategory | ''>(defaultCategory ?? '');
   const [files, setFiles] = React.useState<File[]>([]);
@@ -145,7 +147,7 @@ export function TicketForm({ variant, action, maxFiles, formToken, ticketBasePat
             <label htmlFor="support-website">Website</label>
             <input id="support-website" name="website" type="text" tabIndex={-1} autoComplete="off" />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className={cn('grid gap-4', !compact && 'sm:grid-cols-2')}>
             <FormField id="support-name" label="Your name" error={errors.name} required>
               <Input id="support-name" name="name" autoComplete="name" maxLength={100} aria-invalid={Boolean(errors.name) || undefined} aria-describedby={errors.name ? 'support-name-error' : undefined} />
             </FormField>
@@ -165,41 +167,63 @@ export function TicketForm({ variant, action, maxFiles, formToken, ticketBasePat
         </>
       )}
 
-      <fieldset className="space-y-2">
-        <legend className="text-sm font-medium">
-          What is it about?<span className="ml-0.5 text-destructive-text" aria-hidden="true">*</span>
-        </legend>
-        <div role="radiogroup" aria-invalid={Boolean(errors.category) || undefined} className="grid gap-2 sm:grid-cols-2">
-          {SUPPORT_CATEGORIES.map((value) => {
-            const info = CATEGORY_INFO[value];
-            const checked = category === value;
-            return (
-              <label
-                key={value}
-                className={cn(
-                  'flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 text-sm transition-colors',
-                  'focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background',
-                  checked ? 'border-primary bg-primary/5' : 'hover:bg-accent',
-                )}
-              >
-                <input
-                  type="radio"
-                  name="category-choice"
-                  value={value}
-                  checked={checked}
-                  onChange={() => setCategory(value)}
-                  className="mt-0.5 h-4 w-4 accent-primary"
-                />
-                <span className="min-w-0">
-                  <span className="block font-medium">{info.label}</span>
-                  <span className="block text-xs text-muted-foreground">{info.hint}</span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-        {errors.category && <p className="text-xs text-destructive-text">{errors.category}</p>}
-      </fieldset>
+      {compact ? (
+        <FormField id="support-category" label="What is it about?" error={errors.category} required>
+          <select
+            id="support-category"
+            value={category}
+            onChange={(event) => setCategory(event.target.value as SupportCategory)}
+            aria-invalid={Boolean(errors.category) || undefined}
+            aria-describedby={errors.category ? 'support-category-error' : undefined}
+            className="h-9 w-full rounded-full border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background aria-[invalid=true]:border-destructive"
+          >
+            <option value="" disabled>
+              Choose a category
+            </option>
+            {SUPPORT_CATEGORIES.map((value) => (
+              <option key={value} value={value}>
+                {CATEGORY_INFO[value].label}
+              </option>
+            ))}
+          </select>
+        </FormField>
+      ) : (
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">
+            What is it about?<span className="ml-0.5 text-destructive-text" aria-hidden="true">*</span>
+          </legend>
+          <div role="radiogroup" aria-invalid={Boolean(errors.category) || undefined} className="grid gap-2 sm:grid-cols-2">
+            {SUPPORT_CATEGORIES.map((value) => {
+              const info = CATEGORY_INFO[value];
+              const checked = category === value;
+              return (
+                <label
+                  key={value}
+                  className={cn(
+                    'flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 text-sm transition-colors',
+                    'focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background',
+                    checked ? 'border-primary bg-primary/5' : 'hover:bg-accent',
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="category-choice"
+                    value={value}
+                    checked={checked}
+                    onChange={() => setCategory(value)}
+                    className="mt-0.5 h-4 w-4 accent-primary"
+                  />
+                  <span className="min-w-0">
+                    <span className="block font-medium">{info.label}</span>
+                    <span className="block text-xs text-muted-foreground">{info.hint}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          {errors.category && <p className="text-xs text-destructive-text">{errors.category}</p>}
+        </fieldset>
+      )}
 
       <FormField id="support-subject" label="Subject" error={errors.subject} description="A short title, e.g. “Receipt prints twice”." required>
         <Input

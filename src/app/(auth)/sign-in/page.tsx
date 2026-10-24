@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { Lock } from 'lucide-react';
+import Link from 'next/link';
+import { LifeBuoy, Lock } from 'lucide-react';
 import { getSetupStatus } from '@/server/platform/setup-service';
 import { SignInForm } from '@/features/auth/sign-in-form';
 import { InstallAppLink } from '@/features/pwa/install-app-link';
@@ -80,6 +81,15 @@ export default async function SignInPage({
       {/* There is no self-service recovery: owners reset staff passwords. */}
       <div className="space-y-3 border-t pt-5 text-center text-xs text-muted-foreground">
         <p>Forgot your password? Ask your store owner to reset it.</p>
+        <p>
+          <Link
+            href="/help"
+            className="inline-flex items-center gap-1.5 font-medium text-foreground underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            <LifeBuoy className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+            Help &amp; Support
+          </Link>
+        </p>
         <p className="flex items-center justify-center gap-1.5">
           <Lock className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
           Secure access &bull; Only authorized staff can sign in

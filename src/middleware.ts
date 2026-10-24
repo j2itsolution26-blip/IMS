@@ -33,7 +33,10 @@ const SESSION_COOKIES = ['better-auth.session_token', '__Secure-better-auth.sess
 //
 // `/api/cron` is called by Vercel Cron, which has no session. Each route there
 // refuses any request without the CRON_SECRET bearer token.
-const PUBLIC_PATHS = ['/sign-in', '/sign-up', '/setup', '/api/auth', '/api/health', '/api/session', '/api/cron'];
+//
+// `/help` is the public support form for people who cannot sign in. It can
+// only create a ticket (throttled, with abuse checks); it reads none.
+const PUBLIC_PATHS = ['/sign-in', '/sign-up', '/setup', '/help', '/api/auth', '/api/health', '/api/session', '/api/cron'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
