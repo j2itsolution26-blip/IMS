@@ -244,3 +244,27 @@ test('the migration keeps billing records permanent and one open invoice per sto
   assert.match(sql, /only a verified payment can be voided/);
   assert.match(sql, /"status" "SubscriptionPaymentStatus" NOT NULL DEFAULT 'VERIFIED'/, 'existing payments stay verified');
 });
+
+// --- Owner actions cannot be pointed at another store or price ----------------
+
+test('owner billing actions take the store from the session and never accept an amount', async () => {
+  const { readFileSync } = await import('node:fs');
+  const actions = readFileSync('src/features/billing/actions.ts', 'utf8');
+  assert.match(actions, /authorize\('billing\.manage'\)/);
+  assert.match(actions, /storeId: user\.store\.id/);
+  assert.doesNotMatch(actions, /storeId: z\./, 'no store id in any input schema');
+  assert.doesNotMatch(actions, /amount: z\./, 'no amount in any input schema');
+  assert.doesNotMatch(actions, /verifyPayment|rejectPayment|voidInvoice/, 'owners cannot verify, reject or void');
+});
+
+test('invoice amounts come from the stored price list and payments copy the invoice', async () => {
+  const { readFileSync } = await import('node:fs');
+  const service = readFileSync('src/server/platform/billing-service.ts', 'utf8');
+  const select = service.slice(service.indexOf('export async function selectPlan'), service.indexOf('export async function withdrawInvoice'));
+  assert.match(select, /tx\.planPrice\.findUnique/);
+  assert.match(select, /amount: price\.amount/);
+  const submit = service.slice(service.indexOf('export async function submitPayment'), service.indexOf('// --- Administrator'));
+  assert.match(submit, /status: 'PENDING'/);
+  assert.match(submit, /amount: invoice\.amount/);
+  assert.doesNotMatch(submit, /tx\.store\.update/, 'submitting a payment never changes the subscription');
+});

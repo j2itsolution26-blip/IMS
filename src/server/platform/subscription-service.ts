@@ -34,13 +34,14 @@ export interface Actor {
   name: string;
 }
 
-type Tx = Prisma.TransactionClient;
-type LockedStore = StoreSubscription & { id: string; name: string };
+export type Tx = Prisma.TransactionClient;
+export type LockedStore = StoreSubscription & { id: string; name: string };
 
 const DAY = 86_400_000;
-const TX = { timeout: 20_000, maxWait: 10_000 } as const;
+export const TX = { timeout: 20_000, maxWait: 10_000 } as const;
 
-async function lockStore(tx: Tx, storeId: string): Promise<LockedStore> {
+/** Locks the store's row for the rest of the transaction and reads its subscription. */
+export async function lockStore(tx: Tx, storeId: string): Promise<LockedStore> {
   const [row] = await tx.$queryRaw<LockedStore[]>`
     SELECT id, name, plan::text AS plan, status::text AS status, "trialEndsAt", "currentPeriodEnd"
     FROM stores WHERE id = ${storeId} FOR UPDATE`;
@@ -48,15 +49,16 @@ async function lockStore(tx: Tx, storeId: string): Promise<LockedStore> {
   return row;
 }
 
-const iso = (date: Date | null) => (date ? date.toISOString() : null);
-const snapshot = (store: StoreSubscription) => ({
+export const iso = (date: Date | null) => (date ? date.toISOString() : null);
+export const snapshot = (store: StoreSubscription) => ({
   plan: store.plan,
   status: store.status,
   trialEndsAt: iso(store.trialEndsAt),
   currentPeriodEnd: iso(store.currentPeriodEnd),
 });
 
-async function audit(
+/** One entry in the store's trail and one in the platform's, naming the administrator. */
+export async function audit(
   tx: Tx,
   actor: Actor,
   store: { id: string; name: string },

@@ -18,6 +18,14 @@ import {
   voidPayment,
   type Actor,
 } from '@/server/platform/subscription-service';
+import {
+  publishTerms,
+  rejectPayment,
+  setPaymentInstructions,
+  setPlanPrice,
+  verifyPayment,
+  voidInvoice,
+} from '@/server/platform/billing-service';
 
 /**
  * Subscription administration: only a platform administrator holding
@@ -164,5 +172,84 @@ export async function createStoreAction(input: unknown): Promise<ActionResult<{ 
     refresh();
     revalidatePath('/system-admin/owners');
     return { storeId };
+  });
+}
+
+// --- Billing: prices, terms, instructions, payment review ----------------------
+
+function refreshBilling(storeId?: string) {
+  revalidatePath('/system-admin/billing');
+  refresh(storeId);
+}
+
+const interval = z.enum(['MONTHLY', 'ANNUAL']);
+const priceSchema = z.object({
+  plan,
+  interval,
+  // Empty removes the price; nothing is assumed in its place.
+  amount: z
+    .string()
+    .trim()
+    .regex(/^(\d{1,7}(\.\d{1,2})?)?$/, 'Enter the price in pesos, e.g. 499 or 499.50.')
+    .transform((value) => (value === '' ? null : Number(value)))
+    .refine((n) => n === null || (n > 0 && n <= 1_000_000), 'Enter a price above zero (up to ₱1,000,000).'),
+});
+export async function setPlanPriceAction(input: unknown): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const actor = await requireManager('change a plan price');
+    const values = parseInput(priceSchema, input);
+    await setPlanPrice(actor, values);
+    refreshBilling();
+  });
+}
+
+const termsSchema = z.object({ body: z.string().trim().min(20, 'Write the terms in full.').max(20_000) });
+export async function publishTermsAction(input: unknown): Promise<ActionResult<{ version: number }>> {
+  return runAction(async () => {
+    const actor = await requireManager('publish billing terms');
+    const values = parseInput(termsSchema, input);
+    const result = await publishTerms(actor, values);
+    refreshBilling();
+    return result;
+  });
+}
+
+const instructionsSchema = z.object({ value: z.string().max(4_000) });
+export async function setPaymentInstructionsAction(input: unknown): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const actor = await requireManager('change the payment instructions');
+    const values = parseInput(instructionsSchema, input);
+    await setPaymentInstructions(actor, values);
+    refreshBilling();
+  });
+}
+
+const reviewSchema = z.object({ paymentId: id, storeId: id });
+export async function verifyPaymentAction(input: unknown): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const actor = await requireManager('verify a subscription payment');
+    const values = parseInput(reviewSchema, input);
+    await verifyPayment(actor, values);
+    refreshBilling(values.storeId);
+  });
+}
+
+const rejectSchema = z.object({ paymentId: id, storeId: id, reason });
+export async function rejectPaymentAction(input: unknown): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const actor = await requireManager('reject a subscription payment');
+    const values = parseInput(rejectSchema, input);
+    await rejectPayment(actor, values);
+    refreshBilling(values.storeId);
+  });
+}
+
+const voidInvoiceSchema = z.object({ invoiceId: id, storeId: id, reason });
+export async function voidInvoiceAction(input: unknown): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const actor = await requireManager('void an invoice');
+    const values = parseInput(voidInvoiceSchema, input);
+    await voidInvoice(actor, values);
+    refreshBilling(values.storeId);
   });
 }

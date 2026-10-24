@@ -1,0 +1,514 @@
+import 'server-only';
+
+import { randomBytes } from 'node:crypto';
+import { Prisma, type BillingInterval, type StorePlan, type SubscriptionPaymentMethod } from '@prisma/client';
+import { platformPrisma } from '@/lib/prisma';
+import { getRequestContext } from '@/lib/session';
+import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
+import { PLANS } from '@/lib/plans';
+import { INTERVAL_LABEL, INTERVAL_MONTHS, formatInvoiceNumber, invoicePeriod } from '@/lib/billing';
+import { PAYMENT_METHOD_LABEL, normalizeReference } from '@/lib/subscription';
+import { formatCurrency, formatDate } from '@/lib/format';
+import { syncLimits } from '@/server/platform/store-setup';
+import { TX, audit, iso, lockStore, snapshot, type Actor, type Tx } from '@/server/platform/subscription-service';
+
+/**
+ * Subscription billing: the platform's price list, terms and payment
+ * instructions; an owner choosing a plan (an invoice) and submitting a payment
+ * reference; the administrator verifying or rejecting it.
+ *
+ * Callers authorise first — `billing.manage` for owners (their own store
+ * only, taken from the session, never the request) and `platform.manage` for
+ * the administrator. Amounts always come from the stored price list, never
+ * from the browser. Every change runs in one transaction that locks the
+ * store's row, and is audited without any payment credentials.
+ *
+ * Owner writes go through the platform client on purpose: a store whose
+ * trial has lapsed is read-only through its own client, yet must still be
+ * able to choose a plan and report a payment. Only these billing rows are
+ * written that way, always for the signed-in owner's own store.
+ */
+
+export const PAYMENT_INSTRUCTIONS_KEY = 'billing.paymentInstructions';
+
+const money = (amount: Prisma.Decimal | number) => formatCurrency(Number(amount), 'PHP');
+
+// --- Configuration (platform administrator) -----------------------------------
+
+export interface BillingConfig {
+  prices: { plan: StorePlan; interval: BillingInterval; amount: number; currency: string }[];
+  terms: { version: number; body: string; createdAt: Date } | null;
+  paymentInstructions: string | null;
+}
+
+/** Everything an owner needs to choose a plan. Missing pieces stay null or empty — nothing is assumed. */
+export async function getBillingConfig(): Promise<BillingConfig> {
+  const [prices, terms, instructions] = await Promise.all([
+    platformPrisma.planPrice.findMany({ select: { plan: true, interval: true, amount: true, currency: true } }),
+    platformPrisma.billingTerms.findFirst({ orderBy: { version: 'desc' }, select: { version: true, body: true, createdAt: true } }),
+    platformPrisma.platformSetting.findUnique({ where: { key: PAYMENT_INSTRUCTIONS_KEY }, select: { value: true } }),
+  ]);
+  return {
+    prices: prices.map((price) => ({ ...price, amount: Number(price.amount) })),
+    terms,
+    paymentInstructions: instructions?.value.trim() || null,
+  };
+}
+
+async function platformAudit(tx: Tx, actor: Actor, summary: string, changes: Record<string, unknown>) {
+  const { ipAddress, userAgent } = await getRequestContext().catch(() => ({ ipAddress: null, userAgent: null }));
+  await tx.auditLog.create({
+    data: {
+      storeId: null,
+      userId: actor.id,
+      action: 'SETTINGS_CHANGE',
+      entity: 'Billing',
+      summary,
+      changes: changes as Prisma.InputJsonValue,
+      ipAddress,
+      userAgent,
+    },
+  });
+}
+
+/** Sets (or, with null, removes) one plan's price for one interval. Issued invoices keep their own amount. */
+export async function setPlanPrice(
+  actor: Actor,
+  input: { plan: StorePlan; interval: BillingInterval; amount: number | null },
+): Promise<void> {
+  if (input.amount !== null && (!Number.isFinite(input.amount) || input.amount <= 0 || input.amount > 1_000_000)) {
+    throw new ValidationError('Enter a price above zero.', { amount: ['Enter a price above zero.'] });
+  }
+  await platformPrisma.$transaction(async (tx) => {
+    const before = await tx.planPrice.findUnique({ where: { plan_interval: { plan: input.plan, interval: input.interval } } });
+    if (input.amount === null) {
+      if (before) await tx.planPrice.delete({ where: { id: before.id } });
+    } else {
+      const amount = new Prisma.Decimal(input.amount.toFixed(2));
+      await tx.planPrice.upsert({
+        where: { plan_interval: { plan: input.plan, interval: input.interval } },
+        create: { plan: input.plan, interval: input.interval, amount, updatedById: actor.id },
+        update: { amount, updatedById: actor.id },
+      });
+    }
+    const label = `${PLANS[input.plan].name} ${INTERVAL_LABEL[input.interval].toLowerCase()}`;
+    await platformAudit(
+      tx,
+      actor,
+      input.amount === null ? `Removed the ${label} price` : `Set the ${label} price to ${money(input.amount)}`,
+      { plan: input.plan, interval: input.interval, from: before ? Number(before.amount) : null, to: input.amount },
+    );
+  }, TX);
+}
+
+/** Publishes a new version of the billing terms. Earlier versions, and invoices that quote them, are untouched. */
+export async function publishTerms(actor: Actor, input: { body: string }): Promise<{ version: number }> {
+  const body = input.body.trim();
+  if (body.length < 20) throw new ValidationError('Write the terms in full.', { body: ['Write the terms in full.'] });
+  if (body.length > 20_000) throw new ValidationError('Keep the terms under 20,000 characters.', { body: ['Too long.'] });
+  return platformPrisma.$transaction(async (tx) => {
+    const latest = await tx.billingTerms.findFirst({ orderBy: { version: 'desc' }, select: { version: true, body: true } });
+    if (latest?.body === body) throw new ConflictError('These terms are already the current version.');
+    const version = (latest?.version ?? 0) + 1;
+    await tx.billingTerms.create({ data: { version, body, createdById: actor.id } });
+    await platformAudit(tx, actor, `Published billing terms version ${version}`, { version });
+    return { version };
+  }, TX);
+}
+
+/** The payment instructions owners see on an open invoice (GCash number, bank details). */
+export async function setPaymentInstructions(actor: Actor, input: { value: string }): Promise<void> {
+  const value = input.value.trim();
+  if (value.length > 4_000) throw new ValidationError('Keep the instructions under 4,000 characters.', { value: ['Too long.'] });
+  await platformPrisma.$transaction(async (tx) => {
+    await tx.platformSetting.upsert({
+      where: { key: PAYMENT_INSTRUCTIONS_KEY },
+      create: { key: PAYMENT_INSTRUCTIONS_KEY, value, updatedById: actor.id },
+      update: { value, updatedById: actor.id },
+    });
+    await platformAudit(tx, actor, value ? 'Updated the payment instructions' : 'Cleared the payment instructions', {});
+  }, TX);
+}
+
+// --- Owner: choose a plan, submit a payment ------------------------------------
+
+export interface Owner {
+  id: string;
+  name: string;
+  storeId: string;
+}
+
+async function ownerAudit(
+  tx: Tx,
+  owner: Owner,
+  store: { id: string; name: string },
+  entry: { action: 'SUBSCRIPTION' | 'PAYMENT'; entity: string; entityId: string; summary: string; changes: Record<string, unknown> },
+) {
+  const { ipAddress, userAgent } = await getRequestContext().catch(() => ({ ipAddress: null, userAgent: null }));
+  const base = { action: entry.action, entity: entry.entity, entityId: entry.entityId, ipAddress, userAgent };
+  await tx.auditLog.createMany({
+    data: [
+      { ...base, storeId: store.id, userId: owner.id, summary: entry.summary, changes: entry.changes as Prisma.InputJsonValue },
+      {
+        ...base,
+        storeId: null,
+        userId: null,
+        summary: `${store.name}: ${entry.summary} (by the owner, ${owner.name})`,
+        changes: { ...entry.changes, storeId: store.id, ownerId: owner.id } as Prisma.InputJsonValue,
+      },
+    ],
+  });
+}
+
+async function notifyAdmin(tx: Tx, item: { kind: string; title: string; body: string; href: string; storeId: string; dedupeKey: string }) {
+  await tx.platformNotification.createMany({ data: [item], skipDuplicates: true });
+}
+
+async function notifyStore(
+  tx: Tx,
+  storeId: string,
+  item: { type: 'INVOICE_CREATED' | 'PAYMENT_VERIFIED' | 'PAYMENT_REJECTED' | 'BILLING_REMINDER'; title: string; body: string; dedupeKey: string },
+) {
+  await tx.notification.createMany({
+    data: [{ storeId, type: item.type, title: item.title, body: item.body, href: '/settings/subscription', dedupeKey: item.dedupeKey }],
+    skipDuplicates: true,
+  });
+}
+
+const isOpenInvoiceConflict = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError &&
+  error.code === 'P2002' &&
+  JSON.stringify(error.meta ?? {}).includes('invoices_one_open_per_store');
+
+/**
+ * The owner chooses a paid plan and accepts the current billing terms,
+ * creating the one open invoice for their store. Nothing is charged; it is an
+ * obligation the owner agreed to, priced from the stored price list.
+ */
+export async function selectPlan(
+  owner: Owner,
+  input: { plan: StorePlan; interval: BillingInterval; termsVersion: number; acceptTerms: boolean },
+  now = new Date(),
+): Promise<{ invoiceId: string; number: string }> {
+  if (input.acceptTerms !== true) {
+    throw new ValidationError('Accept the billing terms to choose a plan.', { acceptTerms: ['Required.'] });
+  }
+  try {
+    return await platformPrisma.$transaction(async (tx) => {
+      const store = await lockStore(tx, owner.storeId);
+      if (store.status === 'SUSPENDED') {
+        throw new ConflictError('This store is suspended. Contact the platform administrator.');
+      }
+      const price = await tx.planPrice.findUnique({ where: { plan_interval: { plan: input.plan, interval: input.interval } } });
+      if (!price) throw new ConflictError('That plan is not available for that billing period.');
+      const terms = await tx.billingTerms.findFirst({ orderBy: { version: 'desc' } });
+      if (!terms) throw new ConflictError('Billing terms have not been published yet, so plans cannot be chosen.');
+      if (terms.version !== input.termsVersion) {
+        throw new ConflictError('The billing terms were updated. Review the current terms and accept them again.');
+      }
+
+      const period = invoicePeriod({ subscription: store, interval: input.interval, now });
+      const number = formatInvoiceNumber(now, randomBytes(3).toString('hex'));
+      const invoice = await tx.invoice.create({
+        data: {
+          number,
+          storeId: store.id,
+          plan: input.plan,
+          interval: input.interval,
+          amount: price.amount,
+          currency: price.currency,
+          periodStart: period.periodStart,
+          periodEnd: period.periodEnd,
+          dueAt: period.dueAt,
+          termsVersion: terms.version,
+          termsBody: terms.body,
+          acceptedById: owner.id,
+          acceptedAt: now,
+        },
+        select: { id: true, number: true },
+      });
+
+      const summary = `Chose ${PLANS[input.plan].name} (${INTERVAL_LABEL[input.interval].toLowerCase()}) at ${money(price.amount)}, accepting billing terms v${terms.version}; invoice ${number} due ${formatDate(period.dueAt)}`;
+      await ownerAudit(tx, owner, store, {
+        action: 'SUBSCRIPTION',
+        entity: 'Invoice',
+        entityId: invoice.id,
+        summary,
+        changes: {
+          plan: input.plan,
+          interval: input.interval,
+          amount: Number(price.amount),
+          termsVersion: terms.version,
+          periodStart: iso(period.periodStart),
+          periodEnd: iso(period.periodEnd),
+          dueAt: iso(period.dueAt),
+        },
+      });
+      await notifyStore(tx, store.id, {
+        type: 'INVOICE_CREATED',
+        title: `Invoice ${number} issued`,
+        body: `${money(price.amount)} for ${PLANS[input.plan].name}, due ${formatDate(period.dueAt)}.`,
+        dedupeKey: `invoice:${invoice.id}:created`,
+      });
+      await notifyAdmin(tx, {
+        kind: 'PLAN_SELECTED',
+        title: `${store.name} chose ${PLANS[input.plan].name}`,
+        body: `Invoice ${number}: ${money(price.amount)} ${INTERVAL_LABEL[input.interval].toLowerCase()}, due ${formatDate(period.dueAt)}.`,
+        href: `/system-admin/stores/${store.id}`,
+        storeId: store.id,
+        dedupeKey: `invoice:${invoice.id}:created`,
+      });
+      return { invoiceId: invoice.id, number: invoice.number };
+    }, TX);
+  } catch (error) {
+    if (isOpenInvoiceConflict(error)) {
+      throw new ConflictError('Your store already has an open invoice. Pay it or withdraw it first.');
+    }
+    throw error;
+  }
+}
+
+/** The owner withdraws an unpaid plan choice before paying. Refused once a payment is awaiting review. */
+export async function withdrawInvoice(owner: Owner, input: { invoiceId: string }, now = new Date()): Promise<void> {
+  await platformPrisma.$transaction(async (tx) => {
+    const store = await lockStore(tx, owner.storeId);
+    const invoice = await tx.invoice.findFirst({
+      where: { id: input.invoiceId, storeId: store.id },
+      select: { id: true, number: true, status: true, payments: { where: { status: 'PENDING' }, select: { id: true } } },
+    });
+    if (!invoice) throw new NotFoundError('Invoice');
+    if (invoice.status !== 'OPEN') throw new ConflictError('This invoice is already closed.');
+    if (invoice.payments.length > 0) {
+      throw new ConflictError('A payment for this invoice is awaiting verification, so it cannot be withdrawn.');
+    }
+    await tx.invoice.update({
+      where: { id: invoice.id },
+      data: { status: 'VOID', voidedAt: now, voidedById: owner.id, voidReason: 'Withdrawn by the owner before payment' },
+    });
+    await ownerAudit(tx, owner, store, {
+      action: 'SUBSCRIPTION',
+      entity: 'Invoice',
+      entityId: invoice.id,
+      summary: `Withdrew the plan choice; invoice ${invoice.number} voided before payment`,
+      changes: { invoice: invoice.number },
+    });
+  }, TX);
+}
+
+export interface PaymentSubmission {
+  invoiceId: string;
+  method: SubscriptionPaymentMethod;
+  reference: string;
+  paidAt: Date;
+  notes?: string;
+}
+
+/**
+ * The owner reports a payment against their open invoice. It waits as
+ * PENDING until the administrator checks the money arrived; nothing about the
+ * subscription changes until then.
+ */
+export async function submitPayment(owner: Owner, input: PaymentSubmission, now = new Date()): Promise<{ id: string }> {
+  const reference = normalizeReference(input.reference);
+  if (!reference) throw new ValidationError('Enter the payment reference.', { reference: ['Enter the reference number.'] });
+  if (Number.isNaN(input.paidAt.getTime()) || input.paidAt.getTime() > now.getTime() + 10 * 60_000) {
+    throw new ValidationError('Use the date you paid.', { paidAt: ['The payment date cannot be in the future.'] });
+  }
+  try {
+    return await platformPrisma.$transaction(async (tx) => {
+      const store = await lockStore(tx, owner.storeId);
+      if (store.status === 'SUSPENDED') {
+        throw new ConflictError('This store is suspended. Contact the platform administrator.');
+      }
+      const invoice = await tx.invoice.findFirst({
+        where: { id: input.invoiceId, storeId: store.id },
+        select: {
+          id: true, number: true, status: true, plan: true, interval: true, amount: true, currency: true,
+          periodStart: true, periodEnd: true,
+          payments: { where: { status: 'PENDING' }, select: { id: true } },
+        },
+      });
+      if (!invoice) throw new NotFoundError('Invoice');
+      if (invoice.status !== 'OPEN') throw new ConflictError('This invoice is already closed.');
+      if (invoice.payments.length > 0) throw new ConflictError('A payment for this invoice is already awaiting verification.');
+
+      const payment = await tx.subscriptionPayment.create({
+        data: {
+          storeId: store.id,
+          invoiceId: invoice.id,
+          status: 'PENDING',
+          plan: invoice.plan,
+          amount: invoice.amount,
+          currency: invoice.currency,
+          method: input.method,
+          reference,
+          paidAt: input.paidAt,
+          months: INTERVAL_MONTHS[invoice.interval],
+          periodStart: invoice.periodStart,
+          periodEnd: invoice.periodEnd,
+          notes: input.notes?.trim().slice(0, 500) || null,
+          recordedById: owner.id,
+        },
+        select: { id: true },
+      });
+
+      // The reference is a transfer identifier, not a credential; it is shown
+      // to the administrator to find the money, as for manual payments.
+      const summary = `Submitted a ${PAYMENT_METHOD_LABEL[input.method]} payment of ${money(invoice.amount)} for invoice ${invoice.number}; awaiting verification`;
+      await ownerAudit(tx, owner, store, {
+        action: 'PAYMENT',
+        entity: 'SubscriptionPayment',
+        entityId: payment.id,
+        summary,
+        changes: { invoice: invoice.number, method: input.method, reference, paidAt: iso(input.paidAt) },
+      });
+      await notifyAdmin(tx, {
+        kind: 'PAYMENT_SUBMITTED',
+        title: `Payment to verify: ${store.name}`,
+        body: `${PAYMENT_METHOD_LABEL[input.method]} ${money(invoice.amount)}, reference ${reference}, for invoice ${invoice.number}.`,
+        href: '/system-admin/billing',
+        storeId: store.id,
+        dedupeKey: `payment:${payment.id}:submitted`,
+      });
+      return payment;
+    }, TX);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw new ValidationError('That reference has already been recorded.', {
+        reference: ['This reference was already used for a payment.'],
+      });
+    }
+    throw error;
+  }
+}
+
+// --- Administrator: verify or reject -------------------------------------------
+
+/**
+ * Confirms the money arrived. In one transaction: the payment becomes
+ * VERIFIED, its invoice PAID, and the store moves to the invoice's plan,
+ * ACTIVE, paid until the later of its current paid-until date and the
+ * invoice's period end. A payment can be verified once only (row lock plus
+ * database trigger).
+ */
+export async function verifyPayment(actor: Actor, input: { paymentId: string }, now = new Date()): Promise<void> {
+  const target = await platformPrisma.subscriptionPayment.findUnique({ where: { id: input.paymentId }, select: { storeId: true } });
+  if (!target) throw new NotFoundError('Payment');
+
+  await platformPrisma.$transaction(async (tx) => {
+    const store = await lockStore(tx, target.storeId);
+    const payment = await tx.subscriptionPayment.findUnique({
+      where: { id: input.paymentId },
+      select: {
+        id: true, status: true, amount: true, method: true, reference: true, voidedAt: true,
+        invoice: { select: { id: true, number: true, status: true, plan: true, interval: true, periodEnd: true } },
+      },
+    });
+    if (!payment) throw new NotFoundError('Payment');
+    if (payment.status !== 'PENDING') throw new ConflictError('This payment has already been reviewed.');
+    if (!payment.invoice) throw new ConflictError('This payment is not linked to an invoice.');
+    if (payment.invoice.status !== 'OPEN') throw new ConflictError('Its invoice is already closed; reject this payment instead.');
+    if (store.status === 'SUSPENDED') throw new ConflictError('This store is suspended. Reactivate it before verifying a payment.');
+
+    const before = snapshot(store);
+    const periodEnd =
+      store.currentPeriodEnd && store.currentPeriodEnd.getTime() > payment.invoice.periodEnd.getTime()
+        ? store.currentPeriodEnd
+        : payment.invoice.periodEnd;
+
+    await tx.subscriptionPayment.update({
+      where: { id: payment.id },
+      data: { status: 'VERIFIED', verifiedAt: now, verifiedById: actor.id },
+    });
+    await tx.invoice.update({ where: { id: payment.invoice.id }, data: { status: 'PAID', paidAt: now } });
+    await tx.store.update({
+      where: { id: store.id },
+      data: { plan: payment.invoice.plan, status: 'ACTIVE', currentPeriodEnd: periodEnd, billingInterval: payment.invoice.interval },
+    });
+    await syncLimits(tx, store.id);
+
+    await audit(tx, actor, store, {
+      action: 'PAYMENT',
+      entity: 'SubscriptionPayment',
+      entityId: payment.id,
+      summary: `Verified ${PAYMENT_METHOD_LABEL[payment.method]} payment ${payment.reference} (${money(payment.amount)}) for invoice ${payment.invoice.number}; ${PLANS[payment.invoice.plan].name} active until ${formatDate(periodEnd)}`,
+      changes: {
+        before,
+        after: { plan: payment.invoice.plan, status: 'ACTIVE', currentPeriodEnd: iso(periodEnd), billingInterval: payment.invoice.interval },
+        invoice: payment.invoice.number,
+      },
+    });
+    await notifyStore(tx, store.id, {
+      type: 'PAYMENT_VERIFIED',
+      title: 'Payment verified',
+      body: `Thank you. ${PLANS[payment.invoice.plan].name} is active until ${formatDate(periodEnd)}.`,
+      dedupeKey: `payment:${payment.id}:verified`,
+    });
+  }, TX);
+}
+
+/** The money could not be found. The invoice stays open so the owner can pay and report again. */
+export async function rejectPayment(actor: Actor, input: { paymentId: string; reason: string }, now = new Date()): Promise<void> {
+  const reason = input.reason.trim();
+  if (reason.length < 5) throw new ValidationError('Say why the payment was rejected.', { reason: ['Give the owner a reason.'] });
+  const target = await platformPrisma.subscriptionPayment.findUnique({ where: { id: input.paymentId }, select: { storeId: true } });
+  if (!target) throw new NotFoundError('Payment');
+
+  await platformPrisma.$transaction(async (tx) => {
+    const store = await lockStore(tx, target.storeId);
+    const payment = await tx.subscriptionPayment.findUnique({
+      where: { id: input.paymentId },
+      select: { id: true, status: true, amount: true, method: true, reference: true, invoice: { select: { number: true } } },
+    });
+    if (!payment) throw new NotFoundError('Payment');
+    if (payment.status !== 'PENDING') throw new ConflictError('This payment has already been reviewed.');
+
+    await tx.subscriptionPayment.update({
+      where: { id: payment.id },
+      data: { status: 'REJECTED', rejectedAt: now, rejectedById: actor.id, rejectReason: reason.slice(0, 500) },
+    });
+    await audit(tx, actor, store, {
+      action: 'PAYMENT',
+      entity: 'SubscriptionPayment',
+      entityId: payment.id,
+      summary: `Rejected ${PAYMENT_METHOD_LABEL[payment.method]} payment ${payment.reference} (${money(payment.amount)})${payment.invoice ? ` for invoice ${payment.invoice.number}` : ''}: ${reason}`,
+      changes: { reason },
+    });
+    await notifyStore(tx, store.id, {
+      type: 'PAYMENT_REJECTED',
+      title: 'Payment could not be verified',
+      body: `${reason} Your invoice is still open; pay and submit the reference again.`,
+      dedupeKey: `payment:${payment.id}:rejected`,
+    });
+  }, TX);
+}
+
+/** Cancels an open invoice the owner should not owe (a mistake, an agreed change). Payments awaiting review block it. */
+export async function voidInvoice(actor: Actor, input: { invoiceId: string; reason: string }, now = new Date()): Promise<void> {
+  const reason = input.reason.trim();
+  if (reason.length < 5) throw new ValidationError('Say why the invoice is being voided.', { reason: ['Give a reason.'] });
+  const target = await platformPrisma.invoice.findUnique({ where: { id: input.invoiceId }, select: { storeId: true } });
+  if (!target) throw new NotFoundError('Invoice');
+
+  await platformPrisma.$transaction(async (tx) => {
+    const store = await lockStore(tx, target.storeId);
+    const invoice = await tx.invoice.findUnique({
+      where: { id: input.invoiceId },
+      select: { id: true, number: true, status: true, amount: true, payments: { where: { status: 'PENDING' }, select: { id: true } } },
+    });
+    if (!invoice) throw new NotFoundError('Invoice');
+    if (invoice.status !== 'OPEN') throw new ConflictError('Only an open invoice can be voided.');
+    if (invoice.payments.length > 0) throw new ConflictError('Verify or reject the payment awaiting review first.');
+    await tx.invoice.update({
+      where: { id: invoice.id },
+      data: { status: 'VOID', voidedAt: now, voidedById: actor.id, voidReason: reason.slice(0, 500) },
+    });
+    await audit(tx, actor, store, {
+      action: 'SUBSCRIPTION',
+      entity: 'Invoice',
+      entityId: invoice.id,
+      summary: `Voided invoice ${invoice.number} (${money(invoice.amount)}): ${reason}`,
+      changes: { reason },
+    });
+  }, TX);
+}
