@@ -99,6 +99,28 @@ model StoreUsage {
   @@map("store_usage")
 }
 
+enum InstallationStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+// Whether this installation's first-time setup has been done: one row, ever
+// (a CHECK in migration 20261027090000 pins the id to 1). Setup is open only
+// while there is no COMPLETED row and no account at all; the row is never
+// removed, so disabling or deleting an administrator later does not reopen it.
+model Installation {
+  id            Int                @id @default(1)
+  status        InstallationStatus
+  // A claim taken by one setup request while it creates the administrator.
+  claimToken    String?
+  claimedAt     DateTime?
+  completedAt   DateTime?
+  completedById String?
+  completedBy   User?              @relation("InstallationCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+
+  @@map("installation")
+}
+
 enum SubscriptionPaymentMethod {
   GCASH
   BANK_TRANSFER
@@ -114,14 +136,14 @@ model SubscriptionPayment {
   storeId String
   store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
 
-  plan     StorePlan
-  amount   Decimal                   @db.Decimal(12, 2)
-  currency String                    @default("PHP")
-  method   SubscriptionPaymentMethod
+  plan        StorePlan
+  amount      Decimal                   @db.Decimal(12, 2)
+  currency    String                    @default("PHP")
+  method      SubscriptionPaymentMethod
   // The GCash or bank reference, normalised (trimmed, uppercase, no spaces):
   // the same transfer can never be recorded twice.
-  reference String
-  paidAt    DateTime
+  reference   String
+  paidAt      DateTime
   // The subscription time this payment bought.
   months      Int
   periodStart DateTime
@@ -205,6 +227,7 @@ model User {
   passkeys             Passkey[]
   recordedPayments     SubscriptionPayment[]  @relation("PaymentRecordedBy")
   voidedPayments       SubscriptionPayment[]  @relation("PaymentVoidedBy")
+  completedSetup       Installation[]         @relation("InstallationCompletedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

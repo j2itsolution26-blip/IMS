@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { Lock } from 'lucide-react';
-import { platformPrisma } from '@/lib/prisma';
+import { isSetupRequired } from '@/server/platform/setup-service';
 import { SignInForm } from '@/features/auth/sign-in-form';
 import { InstallAppLink } from '@/features/pwa/install-app-link';
 import { passkeyConfig } from '@/lib/auth';
@@ -12,35 +12,32 @@ export const metadata: Metadata = { title: 'Sign in' };
 export const dynamic = 'force-dynamic';
 
 /**
- * Determines whether the system has been set up yet.
- *
- * With no accounts, the only sensible destination is the owner-creation flow
- * — there is nothing to sign in to yet — so this redirects there rather than
- * showing a login page nobody can pass. `null` means the database could not
- * be reached at all, in which case we fall back to showing the ordinary form
- * and let the sign-in attempt itself surface the real error.
+ * Whether first-time setup is still open (no completed setup, no account).
+ * Until it is done there is nothing to sign in to, so this page sends people
+ * to /setup. `false` when the database cannot be reached: the ordinary form
+ * shows and the sign-in attempt itself surfaces the real error.
  */
-async function countUsers(): Promise<number | null> {
+async function setupPending(): Promise<boolean> {
   try {
-    return await platformPrisma.user.count();
+    return await isSetupRequired();
   } catch {
-    return null;
+    return false;
   }
 }
 
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; reason?: string }>;
+  searchParams: Promise<{ next?: string; reason?: string; setup?: string }>;
 }) {
-  const [{ next, reason }, userCount] = await Promise.all([searchParams, countUsers()]);
+  const [{ next, reason, setup }, pending] = await Promise.all([searchParams, setupPending()]);
 
-  // Brand-new system: no accounts exist yet, so there is no login to show.
-  // The server — not a client-side check — decides this, and it is re-verified
-  // independently inside the sign-up flow itself (see src/lib/auth.ts).
-  if (userCount === 0) {
-    redirect('/sign-up');
+  // Brand-new installation: create the System Administrator first. Decided on
+  // the server, and re-checked atomically by the setup action itself.
+  if (pending) {
+    redirect('/setup');
   }
+  const setupDone = setup === 'done';
 
   // Set by /api/session/reset after clearing a cookie that could no longer be
   // verified. Saying so beats letting the user wonder why they were signed out.
@@ -54,6 +51,13 @@ export default async function SignInPage({
           Sign in to your TindahanProMax account.
         </p>
       </div>
+
+      {setupDone && (
+        <div role="status" className="rounded-xl border border-success/30 bg-success/10 p-4 text-sm text-success">
+          <p className="font-medium">Setup complete</p>
+          <p className="mt-1 opacity-90">Sign in with your new System Administrator account.</p>
+        </div>
+      )}
 
       {/* ── Signed-out notice ── */}
       {sessionExpired && (

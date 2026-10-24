@@ -1,7 +1,10 @@
+export const PASSWORD_POLICY_MESSAGE =
+  'Password must contain at least 10 characters, including uppercase, lowercase, number, and special character.';
+
 /**
  * Password strength rules, shared by every form that sets a password
- * (owner setup, and account settings) so the rules can never drift between
- * them. Mirrors the server-side check in `src/lib/auth.ts` exactly.
+ * (first-time setup, staff accounts and account settings) and by the
+ * account-creation hook in `src/lib/auth.ts`, so the rules can never drift.
  */
 export function validatePassword(password: string) {
   const minLength = password.length >= 10;

@@ -14,13 +14,14 @@ import {
   Loader2,
   Lock,
   AtSign,
+  KeyRound,
   Mail,
   User,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { authClient } from '@/lib/auth-client';
+import { completeSetupAction } from '@/features/setup/actions';
 import { cn } from '@/lib/utils';
 import { validatePassword } from '@/lib/password';
 import { USERNAME_HINT, normalizeUsername, usernameProblem } from '@/lib/username';
@@ -38,6 +39,7 @@ const schema = z
       message: 'Password must satisfy all requirements.',
     }),
     confirmPassword: z.string(),
+    setupKey: z.string().optional(),
   })
   .refine((values) => values.password === values.confirmPassword, {
     message: 'Passwords do not match.',
@@ -46,7 +48,14 @@ const schema = z
 
 type FormValues = z.infer<typeof schema>;
 
-export function SignUpForm() {
+/**
+ * First-time setup: creates the installation's initial System Administrator.
+ *
+ * The checks here are for quick feedback only. The server action validates
+ * everything again and decides on its own, from the database, whether setup
+ * is still open; nothing this form holds can reopen it.
+ */
+export function SetupForm({ keyRequired }: { keyRequired: boolean }) {
   const [formError, setFormError] = React.useState<string | null>(null);
   const [isSuccess, setIsSuccess] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
@@ -60,17 +69,19 @@ export function SignUpForm() {
     register,
     handleSubmit,
     setValue,
+    setError,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { name: '', username: '', email: '', password: '', confirmPassword: '' },
+    defaultValues: { name: '', username: '', email: '', password: '', confirmPassword: '', setupKey: '' },
     mode: 'onChange',
   });
 
   const nameValue = watch('name') || '';
   const emailValue = watch('email') || '';
   const usernameValue = watch('username') || '';
+  const setupKeyValue = watch('setupKey') || '';
 
   // ── Single-Source-Of-Truth Live Character-by-Character Password Analysis ──
   const passwordAnalysis = React.useMemo(() => {
@@ -140,7 +151,8 @@ export function SignUpForm() {
     passwordsMatch &&
     nameValue.trim().length >= 2 &&
     usernameProblem(normalizeUsername(usernameValue)) === null &&
-    isEmailValid;
+    isEmailValid &&
+    (!keyRequired || setupKeyValue.trim().length > 0);
 
   // Registered input handlers
   const passwordRegister = register('password');
@@ -149,31 +161,37 @@ export function SignUpForm() {
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
 
-    const { error } = await authClient.signUp.email({
+    const result = await completeSetupAction({
       name: values.name.trim(),
       username: normalizeUsername(values.username),
       email: values.email.trim().toLowerCase(),
       password: values.password,
+      confirmPassword: values.confirmPassword,
+      setupKey: keyRequired ? values.setupKey : undefined,
     });
 
-    if (error) {
-      const errorMsg = error.message || 'Could not create the account. Please try again.';
-      setFormError(errorMsg);
-      toast.error('Unable to create account', {
-        description: errorMsg,
-      });
+    if (!result.ok) {
+      for (const [field, messages] of Object.entries(result.fieldErrors ?? {})) {
+        if (messages?.[0] && field in schema.innerType().shape) {
+          setError(field as keyof FormValues, { message: messages[0] });
+        }
+      }
+      setFormError(result.error);
+      // Setup was finished elsewhere (another window, another administrator).
+      if (result.code === 'FORBIDDEN') setTimeout(() => (window.location.href = '/sign-in'), 2500);
       return;
     }
 
     setIsSuccess(true);
-    toast.success('Owner account created successfully', {
-      description: 'You can now sign in.',
+    toast.success('System Administrator account created', {
+      description: 'Sign in with your new account to continue.',
       duration: 4000,
     });
 
-    // Pause briefly so user can read confirmation toast before redirecting to login
+    // A moment to read the confirmation, then the normal sign-in page. No
+    // session is created here: the administrator signs in like everyone else.
     setTimeout(() => {
-      window.location.href = '/sign-in';
+      window.location.href = '/sign-in?setup=done';
     }, 1500);
   });
 
@@ -196,9 +214,9 @@ export function SignUpForm() {
         >
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
           <div className="space-y-1">
-            <p className="font-semibold leading-none">Owner account created successfully</p>
+            <p className="font-semibold leading-none">System Administrator account created</p>
             <p className="text-sm text-emerald-600/90 dark:text-emerald-400/90">
-              You can now sign in. Redirecting…
+              Setup is complete. Taking you to sign in…
             </p>
           </div>
         </div>
@@ -215,6 +233,31 @@ export function SignUpForm() {
         </div>
       )}
 
+      {/* ── Setup key (only when the deployment sets SETUP_KEY) ── */}
+      {keyRequired && (
+        <>
+          <Field id="setupKey" label="Setup key" error={errors.setupKey?.message} icon={<KeyRound className="h-4 w-4" />}>
+            <input
+              id="setupKey"
+              type="password"
+              autoComplete="off"
+              autoFocus
+              placeholder="From the SETUP_KEY setting of this deployment"
+              disabled={isSubmitting || isSuccess}
+              aria-invalid={Boolean(errors.setupKey)}
+              aria-describedby={errors.setupKey ? 'setupKey-error' : 'setupKey-hint'}
+              className={cn(inputBase, errors.setupKey && 'border-destructive focus-visible:ring-destructive')}
+              {...register('setupKey')}
+            />
+          </Field>
+          {!errors.setupKey && (
+            <p id="setupKey-hint" className="-mt-3 text-xs text-muted-foreground">
+              This deployment asks for its setup key, so only the person who deployed it can create the administrator.
+            </p>
+          )}
+        </>
+      )}
+
       {/* ── Name field ── */}
       <Field
         id="name"
@@ -225,7 +268,7 @@ export function SignUpForm() {
         <input
           id="name"
           autoComplete="name"
-          autoFocus
+          autoFocus={!keyRequired}
           placeholder="Enter your full name"
           disabled={isSubmitting || isSuccess}
           aria-invalid={Boolean(errors.name)}
@@ -482,7 +525,7 @@ export function SignUpForm() {
             Account Created!
           </>
         ) : (
-          'Create Owner Account'
+          'Create System Administrator Account'
         )}
       </Button>
     </form>

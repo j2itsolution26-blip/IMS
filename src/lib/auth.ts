@@ -5,6 +5,7 @@ import { username } from 'better-auth/plugins';
 import { platformPrisma } from '@/lib/prisma';
 import { getAppUrl, getTrustedOrigins } from '@/lib/env';
 import { provisioningTarget } from '@/lib/provisioning-context';
+import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password';
 import { APIError } from 'better-auth/api';
 import { APP_NAME } from '@/lib/brand';
 import { resolvePasskeyConfig } from '@/lib/passkey-config';
@@ -27,96 +28,33 @@ if (!passkeyConfig.enabled) console.info(`[auth] Passkeys are off: ${passkeyConf
 const INVALID_CREDENTIALS = 'Invalid username/email or password.';
 
 /**
- * Atomically claims the right to create the first Owner account of a store.
- *
- * `count()` followed later by an insert is a classic check-then-act race: two
- * sign-up requests hitting the server at the same instant could both observe
- * zero users and both walk away with the Owner role. Postgres resolves that in
- * a single statement, using the store's own settings row as a mutex.
- * `INSERT ... WHERE NOT EXISTS (owner) ON CONFLICT DO UPDATE ... WHERE <stale>`
- * means only one concurrent caller can ever see a returned row:
- *
- *   - No owner yet, no claim row  -> insert succeeds, this caller wins.
- *   - No owner yet, fresh claim   -> conflict, update's WHERE is false,
- *                                    0 rows returned, this caller loses.
- *   - No owner yet, stale claim   -> conflict, update's WHERE is true (a
- *                                    previous attempt died mid-request),
- *                                    row is re-claimed, this caller wins.
- *   - Owner already exists        -> WHERE NOT EXISTS is false, nothing is
- *                                    ever inserted, 0 rows returned.
- *
- * The row is left in place afterwards as a harmless, permanent marker (it is
- * outside `SETTING_DEFINITIONS`, so it never appears in the Settings UI).
- */
-async function claimOwnerSetupSlot(storeId: string): Promise<boolean> {
-  const rows = await platformPrisma.$queryRaw<{ id: string }[]>`
-    INSERT INTO settings (id, "storeId", key, value, type, "group", label, description, "createdAt", "updatedAt")
-    SELECT gen_random_uuid()::text, ${storeId}, 'system.ownerSetupClaim', 'claimed', 'STRING', 'system',
-           'Owner setup claim',
-           'Internal marker that serialises first-owner creation. Safe to delete manually if a crashed request ever leaves it stuck.',
-           now(), now()
-    WHERE NOT EXISTS (
-      SELECT 1 FROM users u JOIN roles r ON r.id = u."roleId"
-      WHERE r.slug = 'owner' AND u."storeId" = ${storeId}
-    )
-    ON CONFLICT ("storeId", key) DO UPDATE
-      SET "updatedAt" = now()
-      WHERE settings."updatedAt" < now() - interval '2 minutes'
-    RETURNING id
-  `;
-  return rows.length > 0;
-}
-
-/**
  * The store and role a newly created account gets.
  *
- * An authorised caller (a store's staff screen, the platform's owner screen)
- * names both through `runAsProvisioning`; the role must be one of that
- * store's. Otherwise this is a public sign-up, which is only allowed for the
- * very first account of all: it becomes the owner of the store that has no
- * owner yet. That is how a new installation bootstraps without shipping a
- * seeded admin with a known password.
+ * Only an authorised caller may create an account, and it names both through
+ * `runAsProvisioning`: a store's staff screen, the platform's Create store,
+ * the first-time setup (src/server/platform/setup-service.ts), or the
+ * `admin:create` recovery script. The role must belong to that store (the
+ * System Administrator role has none). There is no public sign-up: a request
+ * to Better Auth's sign-up endpoint from a browser is always refused.
  */
 async function resolveNewAccount(): Promise<{ roleId: string; storeId: string | null }> {
   const target = provisioningTarget();
-  if (target) {
-    const role = await platformPrisma.role.findFirst({
-      where: { id: target.roleId, storeId: target.storeId },
-      select: { id: true },
-    });
-    if (!role) throw new APIError('FORBIDDEN', { message: 'That role does not belong to this store.' });
-    return { roleId: target.roleId, storeId: target.storeId };
-  }
-
-  // Sign-up is not a public endpoint in a business system.
-  if ((await platformPrisma.user.count()) > 0) {
+  if (!target) {
     throw new APIError('FORBIDDEN', {
       message: 'Public sign-up is disabled. Ask an administrator to create your account.',
     });
   }
-
-  const store = await platformPrisma.store.findFirst({
-    where: { ownerId: null },
-    orderBy: { createdAt: 'asc' },
+  const role = await platformPrisma.role.findFirst({
+    where: { id: target.roleId, storeId: target.storeId },
     select: { id: true },
   });
-  const owner = store
-    ? await platformPrisma.role.findUnique({
-        where: { storeId_slug: { storeId: store.id, slug: 'owner' } },
-        select: { id: true },
-      })
-    : null;
-  if (!store || !owner) {
-    throw new Error(
-      'No store is ready for its owner. Run `npm run db:bootstrap` to install the roles before signing up.',
-    );
+  if (!role) throw new APIError('FORBIDDEN', { message: 'That role does not belong to this store.' });
+  // A second line behind the setup claim: the initial administrator is only
+  // ever the first account.
+  if (target.firstAccountOnly && (await platformPrisma.user.count()) > 0) {
+    throw new APIError('FORBIDDEN', { message: 'Setup has already been completed. Please sign in.' });
   }
-  if (!(await claimOwnerSetupSlot(store.id))) {
-    // Either an owner was created a moment ago by a concurrent request, or one
-    // already existed — either way, this request does not get to create a second.
-    throw new APIError('FORBIDDEN', { message: 'Owner account has already been created. Please sign in.' });
-  }
-  return { roleId: owner.id, storeId: store.id };
+  return { roleId: target.roleId, storeId: target.storeId };
 }
 
 export const auth = betterAuth({
@@ -142,9 +80,8 @@ export const auth = betterAuth({
     // following re-render of /settings/users then failed their permission
     // check.
     //
-    // Sign-in is now always explicit. The first-run sign-up form signs itself
-    // in from the browser, which is the only place a session cookie should be
-    // established.
+    // Sign-in is always explicit: even the administrator created by
+    // first-time setup signs in on the normal sign-in page afterwards.
     autoSignIn: false,
     minPasswordLength: 10,
     maxPasswordLength: 128,
@@ -191,20 +128,8 @@ export const auth = betterAuth({
       create: {
         before: async (user, ctx) => {
           const body = (ctx as { body?: { password?: string } } | undefined)?.body;
-          if (body?.password) {
-            const password = body.password;
-            const hasMinLen = password.length >= 10;
-            const hasUpper = /[A-Z]/.test(password);
-            const hasLower = /[a-z]/.test(password);
-            const hasNumber = /[0-9]/.test(password);
-            const hasSpecial = /[^A-Za-z0-9]/.test(password);
-
-            if (!hasMinLen || !hasUpper || !hasLower || !hasNumber || !hasSpecial) {
-              throw new APIError('BAD_REQUEST', {
-                message:
-                  'Password must contain at least 10 characters, including uppercase, lowercase, number, and special character.',
-              });
-            }
+          if (body?.password && !validatePassword(body.password).isValid) {
+            throw new APIError('BAD_REQUEST', { message: PASSWORD_POLICY_MESSAGE });
           }
 
           // Every account signs in by username, and the column is NOT NULL.

@@ -103,6 +103,32 @@ async function main() {
   const userId = created?.user?.id;
   if (!userId) throw new Error('The account could not be created.');
 
+  // An administrator now exists, so first-time setup is closed for good (it
+  // stays closed even if this account is later deactivated), and the creation
+  // is on the record like every other privileged account change.
+  await prisma.$transaction(async (tx) => {
+    const installation = await tx.installation.findUnique({ where: { id: 1 }, select: { status: true } });
+    if (!installation) {
+      await tx.installation.create({ data: { id: 1, status: 'COMPLETED', completedAt: new Date(), completedById: userId } });
+    } else if (installation.status !== 'COMPLETED') {
+      await tx.installation.update({
+        where: { id: 1 },
+        data: { status: 'COMPLETED', completedAt: new Date(), completedById: userId, claimToken: null },
+      });
+    }
+    await tx.auditLog.create({
+      data: {
+        storeId: null,
+        action: 'CREATE',
+        entity: 'User',
+        entityId: userId,
+        summary: `System Administrator @${username} created with the admin:create command`,
+        changes: { role: 'system-admin', via: 'admin:create' },
+        userId,
+      },
+    });
+  });
+
 
   console.log(`\nSystem Administrator created: ${email} (username: ${username})`);
   if (generated) {

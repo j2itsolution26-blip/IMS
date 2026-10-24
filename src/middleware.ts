@@ -27,7 +27,10 @@ const SESSION_COOKIES = ['better-auth.session_token', '__Secure-better-auth.sess
 //
 // `/api/session/reset` must be reachable with a *broken* session, since that is
 // precisely when it is needed.
-const PUBLIC_PATHS = ['/sign-in', '/sign-up', '/api/auth', '/api/health', '/api/session'];
+//
+// `/setup` is the first-time setup page; it decides on the server whether
+// setup is still open and otherwise redirects to sign-in.
+const PUBLIC_PATHS = ['/sign-in', '/sign-up', '/setup', '/api/auth', '/api/health', '/api/session'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -41,7 +44,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (hasSession && (pathname === '/sign-in' || pathname === '/sign-up')) {
+  if (hasSession && (pathname === '/sign-in' || pathname === '/sign-up' || pathname === '/setup')) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 

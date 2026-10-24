@@ -12,58 +12,22 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { ALL_PERMISSIONS, SYSTEM_ADMIN_ROLE_SLUG, SYSTEM_ROLES } from '../src/lib/permissions';
-import { grantsFor, setUpStore, syncGrants } from '../src/server/platform/store-setup';
+import { installPermissionCatalogue, installPlatformRole, setUpStore } from '../src/server/platform/store-setup';
 
 const prisma = new PrismaClient();
-
-async function installPermissions(): Promise<Map<string, string>> {
-  await prisma.$transaction(
-    ALL_PERMISSIONS.map((permission) =>
-      prisma.permission.upsert({
-        where: { key: permission.key },
-        create: {
-          key: permission.key,
-          resource: permission.resource,
-          action: permission.action,
-          description: permission.description,
-        },
-        update: { resource: permission.resource, action: permission.action, description: permission.description },
-      }),
-    ),
-  );
-
-  const rows = await prisma.permission.findMany({ select: { id: true, key: true } });
-  console.log(`  permissions: ${rows.length} installed`);
-  return new Map(rows.map((row) => [row.key, row.id]));
-}
-
-/** The System Administrator role belongs to the platform, not to any store. */
-async function installPlatformRole(permissionIds: Map<string, string>): Promise<void> {
-  const definition = SYSTEM_ROLES.find((role) => role.slug === SYSTEM_ADMIN_ROLE_SLUG);
-  if (!definition) return;
-  const fields = { name: definition.name, description: definition.description, isSystem: true };
-  const existing = await prisma.role.findFirst({ where: { slug: definition.slug, storeId: null }, select: { id: true } });
-  const role = existing
-    ? await prisma.role.update({ where: { id: existing.id }, data: fields, select: { id: true } })
-    : await prisma.role.create({ data: { slug: definition.slug, storeId: null, ...fields }, select: { id: true } });
-  const wanted = grantsFor(definition, permissionIds);
-  await syncGrants(prisma, role.id, wanted);
-  console.log(`  platform role ${definition.name} ${wanted.length} permissions`);
-}
 
 async function main() {
   console.log('Bootstrapping system reference data…\n');
 
-  const permissionIds = await installPermissions();
-  await installPlatformRole(permissionIds);
+  const permissionIds = await installPermissionCatalogue(prisma);
+  console.log(`  permissions: ${permissionIds.size} installed`);
+  const platformRole = await installPlatformRole(prisma, permissionIds);
+  console.log(`  platform role System Administrator ${platformRole.permissions} permissions`);
 
-  // A new installation has one store waiting for its owner; an existing one
-  // keeps the stores it has, and each is brought up to date.
-  let stores = await prisma.store.findMany({ select: { id: true, name: true }, orderBy: { createdAt: 'asc' } });
-  if (stores.length === 0) {
-    stores = [await prisma.store.create({ data: { name: 'My Store', slug: 'my-store' }, select: { id: true, name: true } })];
-  }
+  // Existing stores are brought up to date. A new installation has none:
+  // the System Administrator creates each store (with its owner and trial)
+  // from System Admin → Stores after first-time setup.
+  const stores = await prisma.store.findMany({ select: { id: true, name: true }, orderBy: { createdAt: 'asc' } });
 
   for (const store of stores) {
     const created = await setUpStore(prisma, store.id, permissionIds);
@@ -78,7 +42,7 @@ async function main() {
   console.log(`  products: ${products}`);
 
   if (users === 0) {
-    console.log('\nNext step: open /sign-up to create the owner account.');
+    console.log('\nNext step: open /setup to create the System Administrator account.');
   }
 }
 

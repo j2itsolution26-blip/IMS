@@ -57,6 +57,7 @@ export const MODEL_SCOPES: Record<Prisma.ModelName, ModelScope> = {
   Setting: { kind: 'store' },
   StoreUsage: { kind: 'store' },
   SubscriptionPayment: { kind: 'store-readonly' },
+  Installation: { kind: 'denied' },
 };
 
 /** A call that tried to reach outside its store. Always a bug, never user error. */

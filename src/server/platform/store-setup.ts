@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
-import { SYSTEM_ADMIN_ROLE_SLUG, SYSTEM_ROLES, resolveRolePermissions } from '../../lib/permissions';
+import { ALL_PERMISSIONS, SYSTEM_ADMIN_ROLE_SLUG, SYSTEM_ROLES, resolveRolePermissions } from '../../lib/permissions';
 import { SETTING_DEFINITIONS } from '../../lib/settings-definitions';
 import { storedLimits } from '../../lib/store-access';
 
@@ -22,6 +22,36 @@ import { storedLimits } from '../../lib/store-access';
  */
 
 type Db = PrismaClient | Prisma.TransactionClient;
+
+/**
+ * The permission catalogue, written from src/lib/permissions.ts. Returns
+ * permission key -> id. Used by bootstrap and by first-time setup, so a fresh
+ * database needs nothing run by hand before /setup works.
+ */
+export async function installPermissionCatalogue(db: Db): Promise<Map<string, string>> {
+  for (const permission of ALL_PERMISSIONS) {
+    await db.permission.upsert({
+      where: { key: permission.key },
+      create: { key: permission.key, resource: permission.resource, action: permission.action, description: permission.description },
+      update: { resource: permission.resource, action: permission.action, description: permission.description },
+    });
+  }
+  return permissionIds(db);
+}
+
+/** The System Administrator role, which belongs to the platform rather than any store. Returns its id. */
+export async function installPlatformRole(db: Db, ids: Map<string, string>): Promise<{ id: string; permissions: number }> {
+  const definition = SYSTEM_ROLES.find((role) => role.slug === SYSTEM_ADMIN_ROLE_SLUG);
+  if (!definition) throw new Error('The System Administrator role definition is missing.');
+  const fields = { name: definition.name, description: definition.description, isSystem: true };
+  const existing = await db.role.findFirst({ where: { slug: definition.slug, storeId: null }, select: { id: true } });
+  const role = existing
+    ? await db.role.update({ where: { id: existing.id }, data: fields, select: { id: true } })
+    : await db.role.create({ data: { slug: definition.slug, storeId: null, ...fields }, select: { id: true } });
+  const wanted = grantsFor(definition, ids);
+  await syncGrants(db, role.id, wanted);
+  return { id: role.id, permissions: wanted.length };
+}
 
 /** permission key -> id, from the permissions table. */
 export async function permissionIds(db: Db): Promise<Map<string, string>> {

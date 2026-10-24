@@ -51,6 +51,7 @@ Fill in `.env`:
 | `DATABASE_URL` | yes | Supabase **pooled** connection (port `6543`) with `?pgbouncer=true`. |
 | `DIRECT_URL` | yes | Supabase **direct** connection (port `5432`). Prisma Migrate needs a session-level connection that the pooler cannot provide. |
 | `BETTER_AUTH_SECRET` | yes | 32+ characters. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`. |
+| `SETUP_KEY` | recommended for public deployments | If set, first-time setup asks for it before creating the System Administrator, so nobody else who finds a brand-new deployment can claim it. Checked on the server only; never sent to the browser. Can be removed once setup is done. |
 | `BETTER_AUTH_URL` / `NEXT_PUBLIC_APP_URL` | recommended | Your public origin. On Vercel, `VERCEL_URL` is used when this is absent. |
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | optional | Product image uploads. Without them the app runs normally and the upload button is replaced by a plain URL field. |
 
@@ -60,32 +61,48 @@ Fill in `.env`:
 npx prisma migrate dev   # applies prisma/migrations
 ```
 
-### 5. Install system reference data
-
-```bash
-npm run db:bootstrap
-```
-
-This installs the permission catalogue, the Owner and Cashier roles, the
-default settings, the store's single default location, and six starter units
-(Piece, Pack, Bottle, Can, Sachet, Box). It creates **no business records** —
-no products or sales. It is safe to re-run, and it never overwrites a setting
-you have changed.
-
-### 6. Create the owner account
+### 5. Create the System Administrator (first-time setup)
 
 ```bash
 npm run dev
 ```
 
-Open <http://localhost:3000/sign-up>. The first account created becomes the
-**Owner** with full access. After that the page redirects away and the server
-rejects public sign-ups — every subsequent account is created from
-**Settings → Users**.
+Open <http://localhost:3000>. A new installation has **no accounts at all** —
+no demo users and no default passwords — so every page leads to
+**/setup**: *Welcome to TindahanProMax POS — Create Your System Administrator
+Account*. Setup installs the role and permission catalogue itself; nothing has
+to be run first.
 
-### 7. First-run setup inside the app
+- Setup is open only while the database has no account and no completed setup
+  (the `installation` table). Both are checked on the server every time.
+- It creates exactly one account, with the System Administrator role fixed on
+  the server. Simultaneous submissions cannot create two: one database claim
+  wins and the rest are refused.
+- Afterwards `/setup` redirects to sign-in **for good**: the completed state is
+  permanent, so disabling or deleting an administrator later does not reopen it.
+- There is no public sign-up. Every other account is created by an
+  administrator: stores and their owners from **System Admin → Stores**, staff
+  by each owner from **Settings → Staff Accounts**.
 
-In this order:
+**Recovery** (lost administrator access): with database access, run
+`ADMIN_PASSWORD='…' npm run admin:create -- --email=you@example.com`. It
+refuses while another System Administrator exists, so deactivate the old
+account first. It never resets data.
+
+### 6. Create a store
+
+Sign in as the System Administrator, open **System Admin → Stores → Create
+store**, and enter the store name and its owner's account. The store gets its
+own roles, warehouse and settings and a 14-day Business trial.
+
+`npm run db:bootstrap` is maintenance, not setup: it refreshes the permission
+catalogue and every existing store's built-in roles, warehouse and settings. It
+creates no accounts and no stores. Note that it resets the **built-in** roles'
+permissions to their defaults.
+
+### 7. First-run setup inside the store
+
+Sign in as the store's owner, then, in this order:
 
 1. **Products** — add a product and its category/unit inline (there's a "+"
    next to each picker), with cost, selling price, and a low-stock level.
@@ -104,12 +121,16 @@ Open a shift at the POS and you're ready to sell.
 2. Import it in Vercel.
 3. Add every variable from `.env.example` under **Settings → Environment Variables**.
 4. Deploy. The build runs `prisma generate && next build`.
-5. Apply migrations against production once:
+5. Apply migrations against production (the only database step; deployment
+   never resets or seeds data):
 
    ```bash
    npx prisma migrate deploy
-   npm run db:bootstrap
    ```
+
+6. For a new installation, set `SETUP_KEY` in Vercel first, then open the site
+   and complete **/setup**. An installation that already has accounts is
+   marked as set up by the migration and never shows setup.
 
 **Use the pooled connection string.** Serverless functions open many short-lived
 connections; a direct connection will exhaust the database's connection limit

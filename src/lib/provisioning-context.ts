@@ -8,13 +8,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  *
  * Better Auth exposes `/api/auth/sign-up/email` publicly, which in an internal
  * business system would let anyone on the internet create an account. Rather
- * than leaving that open, the `user.create.before` hook rejects sign-ups unless
- * either:
- *
- *   1. no users exist yet (first-run owner bootstrap), or
- *   2. the call originated from an action that wrapped itself in
- *      `runAsProvisioning` after checking its own permission (`users.create`
- *      for a store's staff, `platform.manage` for a store's owner).
+ * than leaving that open, the `user.create.before` hook rejects every sign-up
+ * unless the call originated from server code that wrapped itself in
+ * `runAsProvisioning` after its own check: `users.create` for a store's staff,
+ * `platform.manage` for a store's owner, the first-time setup's claim for the
+ * initial System Administrator, or the `admin:create` recovery script.
  *
  * The target store and role come from that server-side caller, never from the
  * request; the hook still checks the role belongs to the store.
@@ -29,13 +27,15 @@ export interface ProvisioningTarget {
   storeId: string | null;
   /** Its role, which must be one of that store's roles. */
   roleId: string;
+  /** First-time setup: refuse unless this is the very first account of the installation. */
+  firstAccountOnly?: boolean;
 }
 
 const storage = new AsyncLocalStorage<ProvisioningTarget>();
 
 export function runAsProvisioning<T>(target: ProvisioningTarget, fn: () => Promise<T>): Promise<T> {
   if (!target.roleId || target.storeId === undefined) throw new Error('runAsProvisioning needs a store (or null) and a role.');
-  return storage.run({ storeId: target.storeId, roleId: target.roleId }, fn);
+  return storage.run({ storeId: target.storeId, roleId: target.roleId, firstAccountOnly: target.firstAccountOnly === true }, fn);
 }
 
 /** The store and role an authorised provisioning call asked for, or null for a public sign-up. */
