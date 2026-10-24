@@ -12,7 +12,7 @@ import { PageHeader } from '@/components/page-header';
 import { PeriodPicker } from '@/components/period-picker';
 import { FilterBar, PaginationBar } from '@/components/filter-bar';
 import { EmptyState } from '@/components/empty-state';
-import { StatCard } from '@/components/stat-card';
+import { KpiCard } from '@/components/kpi-card';
 import { resolveShiftQuery, type ShiftSearchParams } from '@/features/shifts/params';
 import { ShiftMonitorTable } from '@/features/shifts/shift-monitor-table';
 import { ShiftExportMenu } from '@/features/shifts/shift-export-menu';
@@ -66,12 +66,12 @@ export default async function ShiftManagementPage({ searchParams }: { searchPara
       />
 
       <section aria-label="Today's shift figures" className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Active shifts" value={String(kpis.activeShifts)} icon={PlayCircle} href="/shifts?view=open" hint="Open right now" />
-        <StatCard label="Starting cash total" value={money(kpis.startingCashTotal)} icon={Wallet} hint="Floats of open shifts" />
-        <StatCard label="Cash sales today" value={money(kpis.cashSalesToday)} icon={Banknote} tone="success" hint="Cash only, after change" />
-        <StatCard label="Expected drawer cash" value={money(kpis.expectedDrawerCash)} icon={Vault} hint="Across open shifts" />
-        <StatCard label="Shifts closed today" value={String(kpis.closedToday)} icon={CircleCheck} />
-        <StatCard
+        <KpiCard label="Active shifts" value={String(kpis.activeShifts)} icon={PlayCircle} href="/shifts?view=open" hint="Open right now" />
+        <KpiCard label="Starting cash total" value={money(kpis.startingCashTotal)} icon={Wallet} hint="Floats of open shifts" />
+        <KpiCard label="Cash sales today" value={money(kpis.cashSalesToday)} icon={Banknote} tone="success" hint="Cash only, after change" />
+        <KpiCard label="Expected drawer cash" value={money(kpis.expectedDrawerCash)} icon={Vault} hint="Across open shifts" />
+        <KpiCard label="Shifts closed today" value={String(kpis.closedToday)} icon={CircleCheck} />
+        <KpiCard
           label="Cash discrepancies"
           value={String(kpis.pendingReview)}
           icon={TriangleAlert}

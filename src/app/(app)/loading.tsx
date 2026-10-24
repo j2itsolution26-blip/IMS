@@ -1,4 +1,5 @@
 import { Skeleton } from '@/components/ui/misc';
+import { KpiCardSkeleton } from '@/components/kpi-card';
 
 export default function Loading() {
   return (
@@ -9,7 +10,7 @@ export default function Loading() {
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
-          <Skeleton key={index} className="h-28 rounded-xl" />
+          <KpiCardSkeleton key={index} />
         ))}
       </div>
       <Skeleton className="h-80 rounded-xl" />

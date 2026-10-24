@@ -25,7 +25,7 @@ import { PaginationBar } from '@/components/filter-bar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { KpiCard } from '@/features/dashboard/kpi-card';
+import { KpiCard } from '@/components/kpi-card';
 import { ProductRowActions } from '@/features/inventory/product-row-actions';
 import { CategoryBarChart, MovementTrendChart, StockStatusDonut } from '@/features/dashboard/inventory/inventory-charts';
 

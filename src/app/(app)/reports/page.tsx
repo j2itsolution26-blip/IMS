@@ -13,7 +13,7 @@ import { formatCurrency, formatNumber, formatPercent, formatQuantity } from '@/l
 import { cn } from '@/lib/utils';
 import { storeDayKey } from '@/lib/store-time';
 import { PageHeader } from '@/components/page-header';
-import { StatCard } from '@/components/stat-card';
+import { KpiCard } from '@/components/kpi-card';
 import { ProductImage } from '@/components/product-image';
 import { ColumnChart } from '@/components/charts/breakdown-chart';
 import { Button } from '@/components/ui/button';
@@ -133,20 +133,20 @@ export default async function ReportsPage({
             Headline figures
           </h2>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard
+            <KpiCard
               label="Sales"
               value={formatCurrency(summary.revenue, currency)}
               icon={Receipt}
               hint={range.label}
             />
-            <StatCard
+            <KpiCard
               label="Transactions"
               value={formatNumber(summary.transactionCount, 0)}
               icon={ShoppingBag}
               href="/sales"
             />
-            <StatCard label="Items sold" value={formatQuantity(summary.itemsSold)} icon={Package} />
-            <StatCard
+            <KpiCard label="Items sold" value={formatQuantity(summary.itemsSold)} icon={Package} />
+            <KpiCard
               label="Profit"
               value={formatCurrency(summary.netProfit, currency)}
               icon={TrendingUp}

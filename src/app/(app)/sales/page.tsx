@@ -23,7 +23,7 @@ import {
   TopProductsPanel,
 } from '@/features/sales/sales-analytics-panels';
 import { SALE_STATUS_LABEL } from '@/lib/sale-status';
-import { KpiCard } from '@/features/dashboard/kpi-card';
+import { KpiCard } from '@/components/kpi-card';
 import { PeriodPicker } from '@/components/period-picker';
 import { FilterBar, PaginationBar } from '@/components/filter-bar';
 import { Button } from '@/components/ui/button';

@@ -15,7 +15,7 @@ import { inlineLabel } from '@/server/analytics/date-range';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { STORE_TIME_ZONE } from '@/lib/store-time';
 import { PeriodPicker } from '@/components/period-picker';
-import { KpiCard } from '@/features/dashboard/kpi-card';
+import { KpiCard } from '@/components/kpi-card';
 import { RefreshButton } from '@/features/dashboard/refresh-button';
 import {
   CategorySalesPanel,

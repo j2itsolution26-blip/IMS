@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { EmptyState } from '@/components/empty-state';
-import { StatCard } from '@/components/stat-card';
+import { KpiCard } from '@/components/kpi-card';
 import { cn } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -71,7 +71,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       />
 
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
+        <KpiCard
           label="Available"
           value={product.isTrackable ? formatPieces(available) : 'Not tracked'}
           tone={stockTone}
@@ -88,12 +88,12 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         />
         {canViewCost ? (
           <>
-            <StatCard
+            <KpiCard
               label="Stock value"
               value={formatCurrency(onHand * costPrice, currency)}
               hint={`at ${formatCurrency(costPrice, currency)} average cost`}
             />
-            <StatCard
+            <KpiCard
               label="Margin"
               value={sellingPrice > 0 ? `${margin.toFixed(1)}%` : '—'}
               tone={margin < 0 ? 'destructive' : margin < 10 ? 'warning' : 'success'}
@@ -102,12 +102,12 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           </>
         ) : (
           <>
-            <StatCard
+            <KpiCard
               label="Selling price"
               value={formatCurrency(sellingPrice, currency)}
               hint="per piece"
             />
-            <StatCard
+            <KpiCard
               label="Low-stock level"
               value={product.isTrackable && reorderLevel > 0 ? formatPieces(reorderLevel) : '—'}
               hint={
@@ -118,7 +118,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             />
           </>
         )}
-        <StatCard
+        <KpiCard
           label={`Sold (${history.performance.windowDays}d)`}
           value={formatPieces(history.performance.piecesSold)}
           hint={

@@ -4,7 +4,7 @@ import { Activity, ShieldCheck, Store, UserCheck, UserPlus, UserX, Users } from 
 import { requirePermission } from '@/lib/session';
 import { getPlatformStats, listAccountAudit } from '@/features/platform/queries';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { KpiCard } from '@/features/dashboard/kpi-card';
+import { KpiCard } from '@/components/kpi-card';
 import { Panel, PanelEmpty } from '@/components/panel';
 import { Button } from '@/components/ui/button';
 
