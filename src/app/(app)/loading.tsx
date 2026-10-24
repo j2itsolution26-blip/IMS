@@ -13,7 +13,7 @@ export default function Loading() {
           <KpiCardSkeleton key={index} />
         ))}
       </div>
-      <Skeleton className="h-80 rounded-xl" />
+      <Skeleton className="h-80 rounded-card" />
     </div>
   );
 }

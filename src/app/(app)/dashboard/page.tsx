@@ -227,15 +227,15 @@ function OwnerTabs({ active }: { active: 'sales' | 'inventory' }) {
     { value: 'inventory', label: 'Inventory', href: '/dashboard?view=inventory' },
   ] as const;
   return (
-    <nav aria-label="Dashboard view" className="mb-4 inline-flex rounded-lg border bg-card p-1">
+    <nav aria-label="Dashboard view" className="mb-4 inline-flex rounded-full bg-muted p-1">
       {tabs.map((tab) => (
         <Link
           key={tab.value}
           href={tab.href}
           aria-current={active === tab.value ? 'page' : undefined}
           className={cn(
-            'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
-            active === tab.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+            'rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
+            active === tab.value ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
           )}
         >
           {tab.label}

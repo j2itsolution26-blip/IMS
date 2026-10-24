@@ -104,7 +104,7 @@ export default async function SalesPage({
         <div className="flex flex-wrap items-end gap-2">
           <PeriodPicker current={period} allowCustom customFrom={custom?.from} customTo={custom?.to} />
           {canViewProfit && (
-            <Button asChild variant="outline" size="lg" className="h-11 rounded-xl">
+            <Button asChild variant="outline" size="lg" className="h-11">
               <Link href="/shifts">
                 <Wallet /> Shift Management
               </Link>
@@ -116,7 +116,7 @@ export default async function SalesPage({
             </PlanGate>
           )}
           {userCan(user, 'pos.create') && (
-            <Button asChild size="lg" className="h-11 rounded-xl">
+            <Button asChild size="lg" className="h-11">
               <Link href="/pos">
                 <ShoppingCart /> New sale
               </Link>
@@ -144,7 +144,7 @@ export default async function SalesPage({
         </div>
       </div>
 
-      <div className="mb-4 rounded-xl border bg-card p-3 shadow-card [&>div]:mb-0">
+      <div className="mb-4 rounded-card border bg-card p-3 shadow-card [&>div]:mb-0">
         <FilterBar
           searchPlaceholder="Search invoice number…"
           selects={[
@@ -178,7 +178,7 @@ export default async function SalesPage({
         />
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+      <div className="overflow-hidden rounded-card border bg-card shadow-card">
         {result.rows.length === 0 ? (
           <EmptyState
             icon={Receipt}

@@ -81,7 +81,7 @@ export default async function ShiftManagementPage({ searchParams }: { searchPara
         />
       </section>
 
-      <div className="no-print mb-4 rounded-xl border bg-card p-3 shadow-card [&>div]:mb-0">
+      <div className="no-print mb-4 rounded-card border bg-card p-3 shadow-card [&>div]:mb-0">
         <FilterBar
           searchPlaceholder="Cashier or shift no. (SH-…)"
           selects={[
@@ -144,7 +144,7 @@ export default async function ShiftManagementPage({ searchParams }: { searchPara
         </p>
       )}
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+      <div className="overflow-hidden rounded-card border bg-card shadow-card">
         {result.shifts.length === 0 ? (
           <EmptyState
             icon={Coins}

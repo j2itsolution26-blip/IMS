@@ -23,8 +23,8 @@ export function ThemeToggle({ variant = 'dropdown' }: { variant?: 'dropdown' | '
   if (variant === 'segmented') {
     if (!mounted) {
       return (
-        <div className="flex h-9 w-full items-center justify-between rounded-lg bg-white/5 p-1">
-          <div className="h-7 w-full rounded-md bg-white/5 animate-pulse" />
+        <div className="flex h-9 w-full items-center justify-between rounded-full bg-white/5 p-1">
+          <div className="h-7 w-full rounded-full bg-white/5 animate-pulse" />
         </div>
       );
     }
@@ -39,7 +39,7 @@ export function ThemeToggle({ variant = 'dropdown' }: { variant?: 'dropdown' | '
       <div
         role="radiogroup"
         aria-label="Theme selection"
-        className="flex h-9 w-full items-center rounded-lg bg-white/5 p-1 text-sidebar-muted-foreground"
+        className="flex h-9 w-full items-center rounded-full bg-white/5 p-1 text-sidebar-muted-foreground"
       >
         {options.map(({ id, label, icon: Icon }) => {
           const active = theme === id;
@@ -51,7 +51,7 @@ export function ThemeToggle({ variant = 'dropdown' }: { variant?: 'dropdown' | '
               aria-checked={active}
               onClick={() => setTheme(id)}
               className={cn(
-                'flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-all duration-150',
+                'flex flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium transition-all duration-150',
                 active
                   ? 'bg-white/10 text-sidebar-foreground'
                   : 'hover:text-sidebar-foreground hover:bg-white/5',

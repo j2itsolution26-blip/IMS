@@ -30,7 +30,7 @@ export function PosEntryButton({
 
   if (hasOpenShift) {
     return (
-      <Button asChild size="lg" className={cn('h-12 rounded-xl px-6 text-base', className)}>
+      <Button asChild size="lg" className={cn('h-12 px-6 text-base', className)}>
         <Link href="/pos">
           <PlayCircle /> Resume shift
         </Link>
@@ -40,7 +40,7 @@ export function PosEntryButton({
 
   return (
     <>
-      <Button size="lg" className={cn('h-12 rounded-xl px-6 text-base', className)} onClick={() => setOpen(true)}>
+      <Button size="lg" className={cn('h-12 px-6 text-base', className)} onClick={() => setOpen(true)}>
         <ShoppingCart /> Open Point of Sale
       </Button>
       <OpenShiftDialog

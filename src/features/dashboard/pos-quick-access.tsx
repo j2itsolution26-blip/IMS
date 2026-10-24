@@ -70,7 +70,7 @@ export function PosQuickAccess({
   return (
     <section
       aria-labelledby="pos-quick-access"
-      className="mb-4 rounded-xl border bg-card p-4 shadow-card sm:p-5"
+      className="mb-4 rounded-card border bg-card p-4 shadow-card sm:p-5"
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">

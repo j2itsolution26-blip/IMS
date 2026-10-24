@@ -42,7 +42,7 @@ function SegmentLinks({
   options: { label: string; href: string; active: boolean }[];
 }) {
   return (
-    <div role="group" aria-label={label} className="inline-flex rounded-lg border bg-muted/40 p-0.5">
+    <div role="group" aria-label={label} className="inline-flex rounded-full bg-muted p-0.5">
       {options.map((option) => (
         <Link
           key={option.label}
@@ -50,7 +50,7 @@ function SegmentLinks({
           scroll={false}
           aria-current={option.active ? 'true' : undefined}
           className={cn(
-            'rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'rounded-full px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             option.active ? 'bg-card text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground',
           )}
         >

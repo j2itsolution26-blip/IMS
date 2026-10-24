@@ -24,7 +24,7 @@ export function ShiftGate({ suggestedAmount, currency }: { suggestedAmount: numb
 
   return (
     <>
-      <Card className="mx-auto max-w-sm rounded-xl p-8 text-center">
+      <Card className="mx-auto max-w-sm p-8 text-center">
         <Lock className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" aria-hidden="true" />
         <p className="font-medium">Open your shift to start selling</p>
         <p className="mt-1 text-sm text-muted-foreground">Count the cash in the drawer first. Sales need an open shift.</p>

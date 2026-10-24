@@ -16,7 +16,7 @@ const TONE_ICON: Record<KpiTone, string> = {
   destructive: 'bg-destructive/10 text-destructive-text',
 };
 
-const CARD = 'flex h-full flex-col rounded-xl border bg-card p-4 shadow-card';
+const CARD = 'flex h-full flex-col rounded-card border bg-card p-4 shadow-card';
 
 export interface KpiCardProps {
   label: string;
@@ -108,7 +108,7 @@ export function KpiCard({
   return href ? (
     <Link
       href={href}
-      className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      className="block rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       {body}
     </Link>

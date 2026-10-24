@@ -120,7 +120,7 @@ export function InventorySearchFilter({
         aria-label="Filter by stock level"
         // Tabs share the width evenly on a phone and only scroll — inside the
         // control, never the page — on the very narrowest screens.
-        className="flex w-full min-w-0 shrink-0 gap-0.5 overflow-x-auto overscroll-x-contain rounded-lg bg-muted p-1 scrollbar-none sm:gap-1 lg:w-auto"
+        className="flex w-full min-w-0 shrink-0 gap-0.5 overflow-x-auto overscroll-x-contain rounded-full bg-muted p-1 scrollbar-none sm:gap-1 lg:w-auto"
       >
         {tabs.map((tab) => {
           const active = currentStatus === tab.value;
@@ -133,7 +133,7 @@ export function InventorySearchFilter({
               disabled={pending}
               onClick={() => setParam('status', tab.value, 'ALL')}
               className={cn(
-                'flex min-h-9 flex-1 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors sm:gap-1.5 sm:px-3 sm:text-sm lg:flex-none',
+                'flex min-h-9 flex-1 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1.5 text-[13px] font-medium transition-colors sm:gap-1.5 sm:px-3 sm:text-sm lg:flex-none',
                 active
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',

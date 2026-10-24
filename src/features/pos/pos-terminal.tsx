@@ -1343,7 +1343,7 @@ function ProductTile({
     <div
       onClick={soldOut ? undefined : onAdd}
       className={cn(
-        'group flex h-full flex-col overflow-hidden rounded-xl border bg-card text-left shadow-card transition-[border-color,box-shadow,background-color] duration-150',
+        'group flex h-full flex-col overflow-hidden rounded-card border bg-card text-left shadow-card transition-[border-color,box-shadow,background-color] duration-150',
         soldOut ? 'opacity-70' : 'cursor-pointer hover:border-primary/40 hover:shadow-sm',
         inCart > 0 && 'border-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]',
       )}

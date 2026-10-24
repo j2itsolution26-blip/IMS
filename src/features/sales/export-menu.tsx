@@ -39,7 +39,7 @@ export function ExportMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="lg" className="h-11 rounded-xl">
+        <Button variant="outline" size="lg" className="h-11">
           <Download /> Export <ChevronDown className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>

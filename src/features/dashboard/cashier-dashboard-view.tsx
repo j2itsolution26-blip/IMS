@@ -166,7 +166,7 @@ function ShiftCard({
     ['Cash refunds', `−${formatCurrency(summary.cashRefunds, currency)}`],
   ];
   return (
-    <section aria-labelledby="shift-card-title" className="mb-4 rounded-xl border bg-card p-4 shadow-card sm:p-5">
+    <section aria-labelledby="shift-card-title" className="mb-4 rounded-card border bg-card p-4 shadow-card sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 id="shift-card-title" className="text-base font-semibold">
@@ -225,7 +225,7 @@ function Stat({
   const body = (
     <div
       className={cn(
-        'flex h-full min-w-0 flex-col rounded-xl border bg-card p-3 shadow-card transition-colors sm:p-4',
+        'flex h-full min-w-0 flex-col rounded-card border bg-card p-3 shadow-card transition-colors sm:p-4',
         href && 'hover:border-primary/40',
       )}
     >

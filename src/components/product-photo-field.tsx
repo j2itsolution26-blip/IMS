@@ -440,7 +440,7 @@ export function ProductPhotoField({
   return (
     <div className="space-y-2">
       {working && processed && (
-        <div role="tablist" aria-label="Compare photos" className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1 text-xs font-medium">
+        <div role="tablist" aria-label="Compare photos" className="grid grid-cols-2 gap-1 rounded-full bg-muted p-1 text-xs font-medium">
           {(['original', 'processed'] as const).map((option) => (
             <button
               key={option}
@@ -449,7 +449,7 @@ export function ProductPhotoField({
               aria-selected={showing === option}
               onClick={() => setShowing(option)}
               className={cn(
-                'rounded-md px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                'rounded-full px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 showing === option ? 'bg-card text-foreground shadow-2xs' : 'text-muted-foreground hover:text-foreground',
               )}
             >

@@ -83,6 +83,8 @@ const config: Config = {
         },
       },
       borderRadius: {
+        // Card surfaces: 16px on phones, 20px from the sm breakpoint up.
+        card: 'var(--radius-card)',
         xl: 'calc(var(--radius) + 2px)',
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',

@@ -208,7 +208,7 @@ export function InventoryDashboardView({
 
       {/* Attention list */}
       <section id="attention" aria-labelledby="attention-heading" className="mb-4 scroll-mt-20">
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <div className="overflow-hidden rounded-card border bg-card shadow-card">
           <div className="flex flex-wrap items-end justify-between gap-3 border-b p-4">
             <div className="min-w-0">
               <h2 id="attention-heading" className="text-base font-semibold leading-tight">

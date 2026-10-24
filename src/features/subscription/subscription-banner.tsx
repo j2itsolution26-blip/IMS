@@ -38,7 +38,7 @@ export function SubscriptionBanner({ access, canManageBilling, now }: { access: 
 export function StoreSuspended() {
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
-      <div role="alert" className="w-full max-w-md rounded-xl border bg-card p-6 text-center shadow-card">
+      <div role="alert" className="w-full max-w-md rounded-card border bg-card p-6 text-center shadow-card">
         <span className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive-text">
           <Ban className="h-5 w-5" aria-hidden="true" />
         </span>

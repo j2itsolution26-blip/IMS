@@ -336,7 +336,7 @@ export function Sidebar({
   );
 }
 
-const ROW = 'relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+const ROW = 'relative flex w-full items-center gap-3 rounded-full px-3 py-2 text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 const ROW_IDLE = 'text-sidebar-muted-foreground hover:bg-white/5 hover:text-sidebar-foreground';
 const ROW_ACTIVE = 'bg-sidebar-accent/15 text-sidebar-foreground font-semibold';
 
@@ -386,8 +386,6 @@ function NavLinkItem({
         active ? ROW_ACTIVE : ROW_IDLE,
       )}
     >
-      {/* Active indicator bar */}
-      {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-sidebar-accent" />}
 
       <link.icon
         className={cn('h-4 w-4 shrink-0 transition-colors', active ? 'text-sidebar-accent' : 'text-sidebar-muted-foreground')}
@@ -509,7 +507,6 @@ function NavGroupItem({
               aria-label={group.label}
               className={cn(ROW, 'justify-center px-2', childActive ? ROW_ACTIVE : ROW_IDLE)}
             >
-              {childActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-sidebar-accent" />}
               <group.icon
                 className={cn('h-4 w-4 shrink-0', childActive ? 'text-sidebar-accent' : 'text-sidebar-muted-foreground')}
                 aria-hidden="true"

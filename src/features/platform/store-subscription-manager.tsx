@@ -132,7 +132,7 @@ export function CreateStoreButton() {
 
   return (
     <>
-      <Button size="lg" className="h-11 rounded-xl" onClick={() => setOpen(true)}>
+      <Button size="lg" className="h-11" onClick={() => setOpen(true)}>
         <Plus /> Create store
       </Button>
       <Dialog open={open} onOpenChange={close}>

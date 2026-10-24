@@ -26,7 +26,7 @@ export function Panel({
     // min-w-0 matters: a grid and flex child defaults to min-width:auto, so
     // without it a wide table or chart pushes the whole page sideways on a
     // phone instead of scrolling inside its own panel.
-    <Card className={cn('flex min-w-0 flex-col overflow-hidden rounded-xl', className)}>
+    <Card className={cn('flex min-w-0 flex-col overflow-hidden rounded-card', className)}>
       <div className="flex items-start justify-between gap-3 border-b p-4">
         <div className="min-w-0">
           <h2 className="text-base font-semibold leading-tight">{title}</h2>

@@ -86,7 +86,7 @@ export default async function ReportPage({
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+      <div className="overflow-hidden rounded-card border bg-card shadow-card">
         {result.rows.length === 0 ? (
           <EmptyState
             icon={FileBarChart}

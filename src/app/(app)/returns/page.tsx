@@ -68,7 +68,7 @@ export default async function ReturnsPage({
         </Card>
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+      <div className="overflow-hidden rounded-card border bg-card shadow-card">
         {returns.length === 0 ? (
           <EmptyState
             icon={RotateCcw}
