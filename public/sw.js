@@ -20,7 +20,7 @@
  * sale in progress, and nobody has to reinstall the app.
  */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const STATIC_CACHE = `tpm-static-${VERSION}`;
 const SHELL_CACHE = `tpm-shell-${VERSION}`;
 const OFFLINE_URL = '/offline.html';

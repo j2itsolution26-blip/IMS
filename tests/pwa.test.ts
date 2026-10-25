@@ -42,6 +42,7 @@ test('the service worker caches only build assets and brand files, and guards pa
   assert.equal(strategyFor(request('/_next/static/chunks/main-abc123.js'), ORIGIN), 'cache-first');
   assert.equal(strategyFor(request('/_next/static/media/poppins.woff2'), ORIGIN), 'cache-first');
   assert.equal(strategyFor(request('/brand/icon-192.png'), ORIGIN), 'stale-while-revalidate');
+  assert.equal(strategyFor(request('/brand/icon-192.png?v=2'), ORIGIN), 'stale-while-revalidate');
   assert.equal(strategyFor(request('/pos', { mode: 'navigate' }), ORIGIN), 'navigate');
 });
 
@@ -68,7 +69,8 @@ test('the manifest makes a standalone app with real, correctly sized icons', () 
 
   const sizes = new Set<string>();
   for (const icon of m.icons ?? []) {
-    assert.equal(pngSize(path.join(root, 'public', icon.src)), icon.sizes, icon.src);
+    // Strip the cache-busting query; it isn't part of the file name.
+    assert.equal(pngSize(path.join(root, 'public', icon.src.split('?')[0])), icon.sizes, icon.src);
     sizes.add(icon.sizes ?? '');
   }
   assert.ok(sizes.has('192x192') && sizes.has('512x512'));
