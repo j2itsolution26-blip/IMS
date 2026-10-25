@@ -410,44 +410,6 @@ export function maskReference(reference: string): string {
   return reference.length <= 4 ? reference : `••••${reference.slice(-4)}`;
 }
 
-/**
- * Where the owner stands on paying, in one word for the summary. Derived from
- * the billing flag only: with no open invoice nothing is owed — never a
- * price, even on a trial.
- */
-export type PaymentState = 'NOTHING_OWED' | 'INVOICE_OPEN' | 'DUE_SOON' | 'AWAITING_VERIFICATION' | 'OVERDUE';
-
-export const PAYMENT_STATE_LABEL: Record<PaymentState, string> = {
-  NOTHING_OWED: 'Nothing owed',
-  INVOICE_OPEN: 'Invoice open',
-  DUE_SOON: 'Payment due soon',
-  AWAITING_VERIFICATION: 'Awaiting verification',
-  OVERDUE: 'Overdue',
-};
-
-export const PAYMENT_STATE_TONE: Record<PaymentState, 'success' | 'info' | 'warning' | 'danger'> = {
-  NOTHING_OWED: 'success',
-  INVOICE_OPEN: 'info',
-  DUE_SOON: 'warning',
-  AWAITING_VERIFICATION: 'warning',
-  OVERDUE: 'danger',
-};
-
-export function paymentState(flag: BillingFlag | null): PaymentState {
-  switch (flag) {
-    case null:
-      return 'NOTHING_OWED';
-    case 'PLAN_SELECTED':
-      return 'INVOICE_OPEN';
-    case 'PAYMENT_DUE':
-      return 'DUE_SOON';
-    case 'PAYMENT_PENDING':
-      return 'AWAITING_VERIFICATION';
-    case 'PAST_DUE':
-      return 'OVERDUE';
-  }
-}
-
 /** The annual saving as a whole percentage of a year of monthly payments; null when there is none. */
 export function annualSavingsPercent(pricing: Pick<PlanPricing, 'monthly' | 'annualSavings'>): number | null {
   if (pricing.monthly === null || pricing.annualSavings === null) return null;
@@ -562,4 +524,156 @@ export function billingBannerKind(input: { accessState: StoreAccess['state']; bi
   if (input.accessState === 'GRACE') return 'GRACE';
   if (!input.selfService) return 'PRICING_UNAVAILABLE';
   return input.accessState === 'TRIAL' ? 'TRIAL' : 'ACTIVE';
+}
+
+/**
+ * The one status the overview shows. An open invoice's state outranks the
+ * lifecycle (an owner who owes money sees that first), suspension outranks
+ * everything. Derived only from stored state — never assumed.
+ */
+export type OverviewStatus = 'SUSPENDED' | 'OVERDUE' | 'UNDER_REVIEW' | 'AWAITING_PAYMENT' | 'READ_ONLY' | 'GRACE' | 'TRIAL' | 'ACTIVE';
+
+export const OVERVIEW_STATUS_LABEL: Record<OverviewStatus, string> = {
+  SUSPENDED: 'Suspended',
+  OVERDUE: 'Overdue',
+  UNDER_REVIEW: 'Under review',
+  AWAITING_PAYMENT: 'Awaiting payment',
+  READ_ONLY: 'Read-only',
+  GRACE: 'Grace period',
+  TRIAL: 'Trial',
+  ACTIVE: 'Active',
+};
+
+export const OVERVIEW_STATUS_TONE: Record<OverviewStatus, 'success' | 'info' | 'warning' | 'danger'> = {
+  SUSPENDED: 'danger',
+  OVERDUE: 'danger',
+  UNDER_REVIEW: 'info',
+  AWAITING_PAYMENT: 'warning',
+  READ_ONLY: 'danger',
+  GRACE: 'warning',
+  TRIAL: 'info',
+  ACTIVE: 'success',
+};
+
+export function overviewStatus(accessState: StoreAccess['state'], billing: BillingFlag | null): OverviewStatus {
+  if (accessState === 'SUSPENDED') return 'SUSPENDED';
+  if (billing === 'PAST_DUE') return 'OVERDUE';
+  if (billing === 'PAYMENT_PENDING') return 'UNDER_REVIEW';
+  if (billing === 'PAYMENT_DUE' || billing === 'PLAN_SELECTED') return 'AWAITING_PAYMENT';
+  if (accessState === 'READ_ONLY') return 'READ_ONLY';
+  if (accessState === 'GRACE') return 'GRACE';
+  return accessState === 'TRIAL' ? 'TRIAL' : 'ACTIVE';
+}
+
+/** One step of an invoice's payment lifecycle, as the records show it. */
+export type TimelineStepKey = 'ISSUED' | 'REPORTED' | 'REVIEW' | 'DECISION' | 'ACTIVATED';
+export type TimelineStepState = 'done' | 'current' | 'upcoming' | 'failed';
+
+export interface TimelineStep {
+  key: TimelineStepKey;
+  state: TimelineStepState;
+  /** When it happened, when a record says so. */
+  at: Date | null;
+  /** The rejection reason, on a rejected decision. */
+  reason?: string;
+}
+
+export interface TimelinePayment {
+  status: 'PENDING' | 'VERIFIED' | 'REJECTED';
+  voidedAt: Date | null;
+  createdAt: Date;
+  verifiedAt: Date | null;
+  rejectedAt: Date | null;
+  rejectReason: string | null;
+}
+
+/**
+ * An invoice's payment lifecycle from its records: issued, payment reported,
+ * under review, verified or rejected, plan activated. Only the newest
+ * non-void payment counts. A step is "done" only when a record shows it —
+ * in particular the plan is activated only once the invoice is PAID, which
+ * happens solely when the administrator verifies a payment.
+ */
+export function paymentTimeline(input: {
+  issuedAt: Date;
+  invoiceStatus: 'OPEN' | 'PAID' | 'VOID';
+  paidAt: Date | null;
+  /** This invoice's payments, any order. */
+  payments: TimelinePayment[];
+}): TimelineStep[] {
+  const latest =
+    [...input.payments].filter((payment) => payment.voidedAt === null).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ??
+    null;
+  const step = (key: TimelineStepKey, state: TimelineStepState, at: Date | null = null, reason?: string): TimelineStep =>
+    reason === undefined ? { key, state, at } : { key, state, at, reason };
+  const issued = step('ISSUED', 'done', input.issuedAt);
+
+  if (input.invoiceStatus === 'PAID') {
+    const verified = latest?.status === 'VERIFIED' ? latest : null;
+    return [
+      issued,
+      step('REPORTED', 'done', verified?.createdAt ?? null),
+      step('REVIEW', 'done', verified?.createdAt ?? null),
+      step('DECISION', 'done', verified?.verifiedAt ?? input.paidAt),
+      step('ACTIVATED', 'done', input.paidAt),
+    ];
+  }
+  if (input.invoiceStatus === 'VOID' || latest === null) {
+    return [
+      issued,
+      step('REPORTED', input.invoiceStatus === 'VOID' ? 'upcoming' : 'current'),
+      step('REVIEW', 'upcoming'),
+      step('DECISION', 'upcoming'),
+      step('ACTIVATED', 'upcoming'),
+    ];
+  }
+  if (latest.status === 'REJECTED') {
+    return [
+      issued,
+      step('REPORTED', 'done', latest.createdAt),
+      step('REVIEW', 'done', latest.createdAt),
+      step('DECISION', 'failed', latest.rejectedAt, latest.rejectReason ?? ''),
+      step('ACTIVATED', 'upcoming'),
+    ];
+  }
+  // PENDING — or, defensively, a VERIFIED payment on an invoice not yet marked paid: still not activated.
+  return [
+    issued,
+    step('REPORTED', 'done', latest.createdAt),
+    step('REVIEW', latest.status === 'PENDING' ? 'current' : 'done', latest.status === 'PENDING' ? null : latest.createdAt),
+    step('DECISION', latest.status === 'VERIFIED' ? 'done' : 'upcoming', latest.verifiedAt),
+    step('ACTIVATED', 'upcoming'),
+  ];
+}
+
+/** The days back a reported payment may be dated (the server action enforces the same). */
+export const PAYMENT_REPORT_MAX_AGE_DAYS = 90;
+
+/**
+ * Field problems in a payment report, checked in the form before sending.
+ * The server repeats every check; these only save a round trip and say what
+ * is wrong next to the field. `paidAt` is a yyyy-mm-dd date.
+ */
+export function paymentReportProblems(
+  form: { method: string; reference: string; paidAt: string; notes: string },
+  allowedMethods: string[],
+  now: Date,
+): Partial<Record<'method' | 'reference' | 'paidAt' | 'notes', string>> {
+  const problems: Partial<Record<'method' | 'reference' | 'paidAt' | 'notes', string>> = {};
+  if (!allowedMethods.includes(form.method)) problems.method = 'Choose how you paid.';
+  const reference = form.reference.trim();
+  if (reference.length < 4) problems.reference = 'Enter the full reference number from your receipt.';
+  else if (reference.length > 64) problems.reference = 'That reference is too long.';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(form.paidAt)) {
+    problems.paidAt = 'Enter the date you paid.';
+  } else {
+    const [year, month, day] = form.paidAt.split('-').map(Number);
+    const paid = new Date(year, month - 1, day);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (Number.isNaN(paid.getTime()) || paid.getDate() !== day) problems.paidAt = 'Enter the date you paid.';
+    else if (paid.getTime() > today.getTime()) problems.paidAt = 'The payment date cannot be in the future.';
+    else if (today.getTime() - paid.getTime() >= PAYMENT_REPORT_MAX_AGE_DAYS * DAY) problems.paidAt = `That date is more than ${PAYMENT_REPORT_MAX_AGE_DAYS} days ago.`;
+  }
+  if (form.notes.trim().length > 500) problems.notes = 'Keep the note under 500 characters.';
+  return problems;
 }

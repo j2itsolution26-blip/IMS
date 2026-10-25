@@ -1,5 +1,5 @@
 import type { PlanId } from '@/lib/plans';
-import type { BillingFlag, BillingInterval, InvoiceDisplayStatus, PaymentDisplayStatus } from '@/lib/billing';
+import type { BillingFlag, BillingInterval, InvoiceDisplayStatus, PaymentDisplayStatus, TimelineStepKey, TimelineStepState } from '@/lib/billing';
 import type { PaymentMethod } from '@/lib/subscription';
 
 /**
@@ -35,8 +35,13 @@ export interface OpenInvoiceInfo {
   periodEnd: string;
   dueAt: string;
   flag: BillingFlag;
+  issuedAt: string;
+  /** Open, awaiting verification or overdue. */
+  status: InvoiceDisplayStatus;
   pending: { method: PaymentMethod; reference: string; submittedAt: string } | null;
   lastRejection: { reason: string; at: string } | null;
+  /** The payment lifecycle from `paymentTimeline`. */
+  timeline: { key: TimelineStepKey; state: TimelineStepState; at: string | null; reason?: string }[];
 }
 
 export interface InvoiceRow {

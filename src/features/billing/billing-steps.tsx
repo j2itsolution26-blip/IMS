@@ -11,12 +11,12 @@ const STEPS: { icon: LucideIcon; title: string; body: string }[] = [
 /**
  * How paying works, in the order it happens. Mirrors the billing service:
  * choosing a plan only issues an invoice; nothing starts until the
- * administrator verifies the payment. GCash and bank transfer are the
- * methods the payment report accepts.
+ * administrator verifies the payment. Shown while no invoice is open; with
+ * one, the invoice section carries the same steps with the real accounts.
  */
-export function BillingSteps({ paymentInstructions }: { paymentInstructions: string | null }) {
+export function BillingSteps() {
   return (
-    <section aria-labelledby="billing-steps-heading" className="rounded-card border bg-gradient-to-r from-mint to-card p-4 shadow-card sm:p-5">
+    <section aria-labelledby="billing-steps-heading" className="rounded-card border bg-card p-4 shadow-card sm:p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:gap-6">
         <div className="shrink-0 xl:w-52">
           <h2 id="billing-steps-heading" className="text-base font-semibold">
@@ -26,7 +26,7 @@ export function BillingSteps({ paymentInstructions }: { paymentInstructions: str
         </div>
         <ol className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-2">
           {STEPS.map((step, index) => (
-            <li key={step.title} className="flex items-start gap-3 rounded-xl bg-card/70 p-3 xl:bg-transparent xl:p-0">
+            <li key={step.title} className="flex items-start gap-3 rounded-xl bg-muted/30 p-3 xl:bg-transparent xl:p-0">
               <span className="relative shrink-0">
                 <span className="flex h-10 w-10 items-center justify-center rounded-full bg-card text-primary shadow-xs ring-1 ring-mint-strong">
                   <step.icon className="h-5 w-5" aria-hidden="true" />
@@ -46,16 +46,6 @@ export function BillingSteps({ paymentInstructions }: { paymentInstructions: str
           ))}
         </ol>
       </div>
-      <details className="mt-4 rounded-xl border bg-card/70">
-        <summary className="cursor-pointer select-none rounded-xl px-3 py-2 text-sm font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          Payment instructions
-        </summary>
-        <div className="whitespace-pre-wrap border-t px-3 py-2 text-sm">
-          {paymentInstructions ?? (
-            <span className="text-muted-foreground">Not published yet. Contact support for the GCash or bank details.</span>
-          )}
-        </div>
-      </details>
     </section>
   );
 }

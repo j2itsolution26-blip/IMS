@@ -141,7 +141,7 @@ export function InvoicesTable({
   );
 }
 
-function InvoiceDetail({ invoice, storeName, onClose }: { invoice: InvoiceRow; storeName: string; onClose: () => void }) {
+export function InvoiceDetail({ invoice, storeName, onClose }: { invoice: InvoiceRow; storeName: string; onClose: () => void }) {
   const rows = (
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
       <DetailRow label="Store">{storeName}</DetailRow>

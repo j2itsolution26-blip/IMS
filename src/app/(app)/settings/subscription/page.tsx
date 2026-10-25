@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Headset, Sparkles, Wallet } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
 import { getStoreContext } from '@/lib/tenant/context';
 import { formatDateTime } from '@/lib/format';
@@ -9,12 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/misc';
 import { auditHistoryStart, usageSummary } from '@/server/services/entitlements';
-import { billingBannerKind, billingSnapshot, invoiceDisplayStatus, paymentDisplayStatus, paymentState } from '@/lib/billing';
+import { billingBannerKind, billingSnapshot, invoiceDisplayStatus, overviewStatus, paymentDisplayStatus, paymentTimeline } from '@/lib/billing';
 import { getBillingConfig } from '@/server/platform/billing-service';
 import { reportableMethods } from '@/lib/payment-accounts';
 import { runBillingRemindersForStore } from '@/server/platform/billing-reminders';
 import { countMyActiveTickets } from '@/server/support/support-service';
-import { SubscriptionSummary } from '@/features/billing/subscription-summary';
+import { BillingOverview } from '@/features/billing/billing-overview';
 import { UsageOverview } from '@/features/billing/usage-overview';
 import { PlanCards } from '@/features/billing/plan-cards';
 import { BillingSteps } from '@/features/billing/billing-steps';
@@ -117,8 +118,6 @@ export default async function SubscriptionPage() {
       })
     : 0;
 
-  const lastPaidInvoice = invoices.find((invoice) => invoice.status === 'PAID' && invoice.plan === access.plan.id) ?? null;
-
   const openInvoiceInfo: OpenInvoiceInfo | null =
     openInvoice && billing.billing
       ? {
@@ -131,6 +130,14 @@ export default async function SubscriptionPage() {
           periodEnd: openInvoice.periodEnd.toISOString(),
           dueAt: openInvoice.dueAt.toISOString(),
           flag: billing.billing,
+          issuedAt: openInvoice.createdAt.toISOString(),
+          status: invoiceDisplayStatus(openInvoice, pendingPayment !== null, now),
+          timeline: paymentTimeline({
+            issuedAt: openInvoice.createdAt,
+            invoiceStatus: openInvoice.status,
+            paidAt: openInvoice.paidAt,
+            payments: invoicePayments,
+          }).map((step) => ({ ...step, at: step.at?.toISOString() ?? null })),
           pending: pendingPayment
             ? { method: pendingPayment.method, reference: pendingPayment.reference, submittedAt: pendingPayment.createdAt.toISOString() }
             : null,
@@ -185,6 +192,14 @@ export default async function SubscriptionPage() {
     };
   });
 
+  // The period the newest verified payment covers (administrator-recorded payments have no invoice, so payments are the record).
+  const lastVerified =
+    payments
+      .filter((payment) => payment.status === 'VERIFIED' && payment.voidedAt === null)
+      .sort((a, b) => b.periodEnd.getTime() - a.periodEnd.getTime())[0] ?? null;
+  const status = overviewStatus(access.state, billing.billing);
+  const accounts = config.paymentAccounts.filter((account) => account.enabled);
+
   // The one thing to do next: pay what is owed, otherwise look at the plans.
   const primaryAction = openInvoiceInfo
     ? { href: '#outstanding-invoice', label: canManage && !openInvoiceInfo.pending && !suspended ? 'Pay invoice' : 'View invoice' }
@@ -196,28 +211,68 @@ export default async function SubscriptionPage() {
     <div className="no-print">
       <PageHeader
         title="Subscription & Billing"
-        description="Manage your plan, payments, invoices, and usage."
+        description="Your plan, what you owe, how to pay, and your billing history."
         breadcrumbs={[{ label: 'Settings', href: '/settings' }, { label: 'Subscription & Billing' }]}
-        actions={<span className="hidden text-xs text-muted-foreground md:inline">As of {formatDateTime(now)}</span>}
+        actions={
+          <>
+            {canContactSupport && (
+              <Button variant="outline" asChild>
+                <Link href="/support/new?category=BILLING">
+                  <Headset aria-hidden="true" /> Contact support
+                </Link>
+              </Button>
+            )}
+            <Button asChild>
+              <Link href={primaryAction.href}>
+                {openInvoiceInfo ? <Wallet aria-hidden="true" /> : <Sparkles aria-hidden="true" />}
+                {primaryAction.label}
+              </Link>
+            </Button>
+          </>
+        }
       />
 
-      <div className="space-y-5">
-        {/* An open invoice comes first: what is owed must not sit below the fold. */}
+      <div className="space-y-6">
+        <section aria-label="Billing overview" className="space-y-2">
+          <BillingOverview
+            access={access}
+            status={status}
+            onTrial={onTrial}
+            invoice={
+              openInvoiceInfo ? { amount: openInvoiceInfo.amount, dueAt: openInvoice!.dueAt, overdue: openInvoiceInfo.status === 'OVERDUE' } : null
+            }
+            paidPeriod={lastVerified ? { start: lastVerified.periodStart, end: lastVerified.periodEnd, months: lastVerified.months } : null}
+            now={now}
+          />
+          <p className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span>As of {formatDateTime(now)}</span>
+            {canContactSupport && openBillingTickets > 0 && (
+              <Link href="/support" className="font-medium text-primary hover:underline">
+                Open billing tickets ({openBillingTickets}) →
+              </Link>
+            )}
+          </p>
+        </section>
+
         {openInvoiceInfo && (
-          <Panel
-            id="outstanding-invoice"
-            title="Outstanding invoice"
-            description="You chose this plan and agreed to pay. Pay it, then report the payment for verification."
-            className="scroll-mt-20"
-          >
+          <section id="outstanding-invoice" aria-labelledby="outstanding-heading" className="scroll-mt-20 space-y-3">
+            <div>
+              <h2 id="outstanding-heading" className="text-lg font-semibold">
+                Outstanding invoice
+              </h2>
+              <p className="text-sm text-muted-foreground">You chose this plan and agreed to pay. Pay it, then report the payment for verification.</p>
+            </div>
             <InvoicePayment
               canManage={canManage}
               suspended={suspended}
-              paymentInstructions={config.paymentInstructions}
+              storeName={store.name}
               invoice={openInvoiceInfo}
+              printable={invoiceRows.find((row) => row.id === openInvoiceInfo.id) ?? null}
+              accounts={accounts}
+              paymentNotes={config.paymentInstructions}
               methods={reportableMethods(config.paymentAccounts)}
             />
-          </Panel>
+          </section>
         )}
 
         <Card id="plans" className="min-w-0 scroll-mt-20 overflow-hidden rounded-card">
@@ -250,37 +305,17 @@ export default async function SubscriptionPage() {
           />
         </Card>
 
-        <SubscriptionSummary
-          access={access}
-          status={store.status}
-          boughtPlan={!onTrial && store.plan !== access.plan.id ? store.plan : null}
-          billingInterval={onTrial ? null : billingInterval}
-          lastPaid={lastPaidInvoice ? { amount: Number(lastPaidInvoice.amount), interval: lastPaidInvoice.interval } : null}
-          amountDue={openInvoiceInfo ? { number: openInvoiceInfo.number, amount: openInvoiceInfo.amount, dueAt: openInvoice!.dueAt } : null}
-          payment={paymentState(billing.billing)}
-          primaryAction={primaryAction}
-          canContactSupport={canContactSupport}
-          openBillingTickets={openBillingTickets}
-          now={now}
-        />
-
-
-        <BillingSteps paymentInstructions={config.paymentInstructions} />
+        {!openInvoiceInfo && <BillingSteps />}
 
         <UsageOverview meters={meters} plan={access.plan} canManage={canManage} />
 
-        <Panel
-          id="billing-history"
-          title="Billing history"
-          description="Your invoices, payments, and plan changes."
-          className="scroll-mt-20"
-        >
+        <Panel id="billing-history" title="Billing history" description="Your invoices, payments, and plan changes." className="scroll-mt-20">
           <Tabs defaultValue="invoices">
             <div className="overflow-x-auto scrollbar-none border-b px-4 py-2">
               <TabsList>
                 <TabsTrigger value="invoices">Invoices ({invoiceRows.length})</TabsTrigger>
                 <TabsTrigger value="payments">Payments ({paymentRows.length})</TabsTrigger>
-                <TabsTrigger value="activity">Activity</TabsTrigger>
+                <TabsTrigger value="activity">Subscription activity</TabsTrigger>
               </TabsList>
             </div>
             <TabsContent value="invoices" className="mt-0">

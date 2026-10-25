@@ -13,8 +13,10 @@ import {
   maskReference,
   maxAnnualSavingsPercent,
   monthlyRecurringRevenue,
+  overviewStatus,
   paymentDisplayStatus,
-  paymentState,
+  paymentReportProblems,
+  paymentTimeline,
   planCardBadges,
   planCtaKind,
   planDifferences,
@@ -348,21 +350,6 @@ test('references are masked to their last four characters', () => {
   assert.equal(maskReference('AB12'), 'AB12');
 });
 
-test('the payment state follows the open invoice only: no invoice means nothing owed, even on a trial', () => {
-  assert.equal(paymentState(null), 'NOTHING_OWED');
-  assert.equal(paymentState('PLAN_SELECTED'), 'INVOICE_OPEN');
-  assert.equal(paymentState('PAYMENT_DUE'), 'DUE_SOON');
-  assert.equal(paymentState('PAYMENT_PENDING'), 'AWAITING_VERIFICATION');
-  assert.equal(paymentState('PAST_DUE'), 'OVERDUE');
-  const trial = billingSnapshot({
-    subscription: { plan: 'BUSINESS', status: 'TRIAL', trialEndsAt: new Date(NOW.getTime() + 10 * DAY), currentPeriodEnd: null },
-    openInvoice: null,
-    hasPendingPayment: false,
-    now: NOW,
-  });
-  assert.equal(paymentState(trial.billing), 'NOTHING_OWED');
-});
-
 test('savings percentages come from the configured prices, rounded to whole percent', () => {
   const prices = [
     { plan: 'BASIC' as const, interval: 'MONTHLY' as const, amount: 499 },
@@ -445,4 +432,107 @@ test('the billing banner states the most urgent true thing and never implies a d
       assert.ok(!['INVOICE_OVERDUE', 'PAYMENT_PENDING', 'INVOICE_DUE', 'INVOICE_OPEN'].includes(kind(state, null, selfService)));
     }
   }
+});
+
+test('the overview shows one status: suspension, then what is owed, then the lifecycle', () => {
+  assert.equal(overviewStatus('SUSPENDED', 'PAST_DUE'), 'SUSPENDED');
+  assert.equal(overviewStatus('ACTIVE', 'PAST_DUE'), 'OVERDUE');
+  assert.equal(overviewStatus('TRIAL', 'PAYMENT_PENDING'), 'UNDER_REVIEW');
+  assert.equal(overviewStatus('TRIAL', 'PAYMENT_DUE'), 'AWAITING_PAYMENT');
+  assert.equal(overviewStatus('ACTIVE', 'PLAN_SELECTED'), 'AWAITING_PAYMENT');
+  assert.equal(overviewStatus('READ_ONLY', null), 'READ_ONLY');
+  assert.equal(overviewStatus('GRACE', null), 'GRACE');
+  assert.equal(overviewStatus('TRIAL', null), 'TRIAL');
+  assert.equal(overviewStatus('ACTIVE', null), 'ACTIVE');
+  // A trial with no invoice owes nothing, whatever the dates say.
+  const trial = billingSnapshot({
+    subscription: { plan: 'BUSINESS', status: 'TRIAL', trialEndsAt: new Date(NOW.getTime() + 10 * DAY), currentPeriodEnd: null },
+    openInvoice: null,
+    hasPendingPayment: false,
+    now: NOW,
+  });
+  assert.equal(overviewStatus(trial.access.state, trial.billing), 'TRIAL');
+});
+
+const ISSUED = new Date(NOW.getTime() - 5 * DAY);
+const paymentRecord = (overrides: Partial<Parameters<typeof paymentTimeline>[0]['payments'][number]> = {}) => ({
+  status: 'PENDING' as const,
+  voidedAt: null,
+  createdAt: new Date(NOW.getTime() - 2 * DAY),
+  verifiedAt: null,
+  rejectedAt: null,
+  rejectReason: null,
+  ...overrides,
+});
+const states = (steps: ReturnType<typeof paymentTimeline>) => steps.map((step) => `${step.key}:${step.state}`);
+
+test('payment timeline: an unpaid invoice waits for a report, a pending one for review', () => {
+  assert.deepEqual(states(paymentTimeline({ issuedAt: ISSUED, invoiceStatus: 'OPEN', paidAt: null, payments: [] })), [
+    'ISSUED:done',
+    'REPORTED:current',
+    'REVIEW:upcoming',
+    'DECISION:upcoming',
+    'ACTIVATED:upcoming',
+  ]);
+  const pending = paymentTimeline({ issuedAt: ISSUED, invoiceStatus: 'OPEN', paidAt: null, payments: [paymentRecord()] });
+  assert.deepEqual(states(pending), ['ISSUED:done', 'REPORTED:done', 'REVIEW:current', 'DECISION:upcoming', 'ACTIVATED:upcoming']);
+  assert.equal(pending[0].at?.getTime(), ISSUED.getTime());
+});
+
+test('payment timeline: a rejection shows its reason, and only a paid invoice shows the plan as active', () => {
+  const rejectedAt = new Date(NOW.getTime() - DAY);
+  const rejected = paymentTimeline({
+    issuedAt: ISSUED,
+    invoiceStatus: 'OPEN',
+    paidAt: null,
+    payments: [paymentRecord({ status: 'REJECTED', rejectedAt, rejectReason: 'Reference not found.' })],
+  });
+  assert.deepEqual(states(rejected), ['ISSUED:done', 'REPORTED:done', 'REVIEW:done', 'DECISION:failed', 'ACTIVATED:upcoming']);
+  assert.equal(rejected[3].reason, 'Reference not found.');
+
+  // A newer pending report after a rejection is what counts; void reports are ignored.
+  const retried = paymentTimeline({
+    issuedAt: ISSUED,
+    invoiceStatus: 'OPEN',
+    paidAt: null,
+    payments: [
+      paymentRecord({ status: 'REJECTED', createdAt: new Date(NOW.getTime() - 3 * DAY), rejectedAt, rejectReason: 'x' }),
+      paymentRecord({ createdAt: new Date(NOW.getTime() - DAY) }),
+      paymentRecord({ status: 'VERIFIED', voidedAt: NOW, createdAt: NOW, verifiedAt: NOW }),
+    ],
+  });
+  assert.deepEqual(states(retried), ['ISSUED:done', 'REPORTED:done', 'REVIEW:current', 'DECISION:upcoming', 'ACTIVATED:upcoming']);
+
+  // A verified payment on an invoice not (yet) marked paid never shows the plan as active.
+  const notPaid = paymentTimeline({
+    issuedAt: ISSUED,
+    invoiceStatus: 'OPEN',
+    paidAt: null,
+    payments: [paymentRecord({ status: 'VERIFIED', verifiedAt: NOW })],
+  });
+  assert.equal(notPaid[4].state, 'upcoming');
+
+  const paid = paymentTimeline({
+    issuedAt: ISSUED,
+    invoiceStatus: 'PAID',
+    paidAt: NOW,
+    payments: [paymentRecord({ status: 'VERIFIED', verifiedAt: NOW })],
+  });
+  assert.ok(paid.every((step) => step.state === 'done'));
+  assert.equal(paid[4].at?.getTime(), NOW.getTime());
+});
+
+test('payment report checks match the server rules and point at the field', () => {
+  const now = new Date(2026, 9, 25, 15);
+  const ok = { method: 'GCASH', reference: 'ABC12345', paidAt: '2026-10-25', notes: '' };
+  assert.deepEqual(paymentReportProblems(ok, ['GCASH'], now), {});
+  assert.ok(paymentReportProblems({ ...ok, method: 'OTHER' }, ['GCASH', 'BANK_TRANSFER'], now).method, 'only offered methods');
+  assert.ok(paymentReportProblems({ ...ok, reference: ' 12 ' }, ['GCASH'], now).reference);
+  assert.ok(paymentReportProblems({ ...ok, reference: 'x'.repeat(65) }, ['GCASH'], now).reference);
+  assert.ok(paymentReportProblems({ ...ok, paidAt: '2026-10-26' }, ['GCASH'], now).paidAt, 'not in the future');
+  assert.ok(paymentReportProblems({ ...ok, paidAt: '2026-07-27' }, ['GCASH'], now).paidAt, 'not more than 90 days ago');
+  assert.deepEqual(paymentReportProblems({ ...ok, paidAt: '2026-07-28' }, ['GCASH'], now), {});
+  assert.ok(paymentReportProblems({ ...ok, paidAt: '2026-02-30' }, ['GCASH'], now).paidAt, 'real dates only');
+  assert.ok(paymentReportProblems({ ...ok, paidAt: '' }, ['GCASH'], now).paidAt);
+  assert.ok(paymentReportProblems({ ...ok, notes: 'x'.repeat(501) }, ['GCASH'], now).notes);
 });

@@ -15,7 +15,7 @@ import {
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { ChangePlanDialog, type PlanAction } from '@/features/billing/change-plan-dialog';
-import { BasicArt, BusinessArt, EnterpriseArt, HeroArt } from '@/features/billing/plan-art';
+import { BasicArt, BusinessArt, EnterpriseArt } from '@/features/billing/plan-art';
 import type { BillingTermsInfo, PlanPrice, SubscriptionDates } from '@/features/billing/types';
 
 const peso = (amount: number) => formatCurrency(amount, 'PHP');
@@ -152,9 +152,8 @@ export function PlanCards(props: PlanCardsProps) {
 
   return (
     <>
-      <div className="relative overflow-hidden border-b bg-gradient-to-r from-card via-card to-mint/80 px-4 pb-5 pt-6 sm:px-6">
-        <HeroArt className="absolute -bottom-1 right-0 hidden h-[150px] w-[360px] lg:block" />
-        <div className="relative lg:max-w-[calc(100%-360px)]">
+      <div className="relative flex flex-col gap-4 border-b px-4 pb-5 pt-6 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
+        <div className="relative max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Subscription plans</p>
           <h2 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Choose the right plan for your business</h2>
           <p className="mt-2 text-sm text-muted-foreground sm:text-base">
@@ -215,7 +214,7 @@ export function PlanCards(props: PlanCardsProps) {
                 )}
               >
                 <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]" aria-hidden="true">
-                  <Decoration className="absolute -bottom-2 -right-2 h-40 w-40 opacity-90" />
+                  <Decoration className="absolute -bottom-3 -right-3 h-28 w-28 opacity-50" />
                 </div>
                 {badges.popular && (
                   <span className="absolute -top-3.5 left-5 z-10 inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-md">

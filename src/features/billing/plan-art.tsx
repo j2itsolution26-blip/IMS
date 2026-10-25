@@ -26,53 +26,6 @@ function Sparkle({ x, y, r, className }: { x: number; y: number; r: number; clas
   );
 }
 
-/** A storefront with an awning, trees and a rising chart: the store growing. */
-export function HeroArt({ className }: { className?: string }) {
-  const stripes = Array.from({ length: 7 });
-  return (
-    <Art viewBox="0 0 360 150" className={className}>
-      <ellipse cx="250" cy="160" rx="170" ry="52" className="fill-mint-strong/70" />
-      <ellipse cx="120" cy="168" rx="120" ry="40" className="fill-mint/90" />
-
-      {/* Rising chart */}
-      {[0, 1, 2, 3].map((i) => (
-        <rect key={i} x={296 + i * 15} y={112 - i * 18} width="10" height={30 + i * 18} rx="2" className="fill-primary/20" />
-      ))}
-      <path d="M286 96 C306 88 322 66 346 42" className="fill-none stroke-primary/45" strokeWidth="3" strokeLinecap="round" />
-      <path d="M334 40 L348 39 L346 53" className="fill-none stroke-primary/45" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-
-      {/* Trend badge */}
-      <circle cx="58" cy="58" r="30" className="fill-mint-strong/80" />
-      <path d="M43 70 L54 58 L61 64 L74 48" className="fill-none stroke-primary/70" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M66 47 L75 47 L75 56" className="fill-none stroke-primary/70" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-
-      {/* Trees behind the store */}
-      <rect x="132" y="104" width="4" height="26" className="fill-primary/50" />
-      <ellipse cx="134" cy="98" rx="16" ry="22" className="fill-primary/55" />
-      <rect x="276" y="96" width="4" height="34" className="fill-primary/50" />
-      <ellipse cx="278" cy="86" rx="18" ry="28" className="fill-primary/45" />
-
-      {/* Store */}
-      <rect x="152" y="70" width="112" height="62" rx="3" className="fill-card stroke-mint-strong" strokeWidth="2" />
-      <rect x="146" y="44" width="124" height="12" rx="3" className="fill-primary" />
-      {stripes.map((_, i) => (
-        <g key={i}>
-          <rect x={146 + i * (124 / 7)} y="56" width={124 / 7} height="16" className={i % 2 ? 'fill-card' : 'fill-primary'} />
-          <circle cx={146 + (i + 0.5) * (124 / 7)} cy="72" r={124 / 14} className={i % 2 ? 'fill-card' : 'fill-primary'} />
-        </g>
-      ))}
-      <rect x="164" y="90" width="28" height="26" rx="2" className="fill-plan-basic-tint stroke-primary/40" strokeWidth="2" />
-      <rect x="224" y="90" width="28" height="26" rx="2" className="fill-plan-basic-tint stroke-primary/40" strokeWidth="2" />
-      <rect x="198" y="92" width="20" height="40" rx="2" className="fill-mint stroke-primary/40" strokeWidth="2" />
-
-      {/* Shrubs in front */}
-      <circle cx="146" cy="128" r="12" className="fill-success/60" />
-      <circle cx="160" cy="132" r="9" className="fill-primary/60" />
-      <circle cx="272" cy="130" r="11" className="fill-success/60" />
-    </Art>
-  );
-}
-
 /** Stacked boxes: stock on the shelf (Basic). */
 export function BasicArt({ className }: { className?: string }) {
   const cube = (x: number, y: number, s: number, key: string) => (
