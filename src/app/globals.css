@@ -46,6 +46,15 @@
     --input: 214 32% 91%;
     --ring: 142 72% 29%;
 
+    /* Mint — the soft green ground of highlighted surfaces (the billing
+       summary, the recommended plan). Navy text on it stays above 14:1. */
+    --mint: 140 55% 95%;
+    --mint-strong: 141 50% 88%;
+
+    /* Informational status (blue): 7.2:1 as text on white. */
+    --info: 217 91% 60%;
+    --info-text: 221 72% 40%;
+
     /* Sidebar tokens — fixed dark navy, deliberately not theme-switching:
        the POS sidebar reads the same whether the content area is in light
        or dark mode, so it is defined once here and NOT redefined in .dark. */
@@ -133,6 +142,13 @@
     --border: 217 33% 20%;
     --input: 217 33% 20%;
     --ring: 142 64% 45%;
+
+    /* A green-tinted step above the dark card, not a pastel. */
+    --mint: 152 38% 12%;
+    --mint-strong: 152 36% 18%;
+
+    --info: 213 94% 68%;
+    --info-text: 213 94% 72%;
 
     /* Sidebar tokens intentionally NOT redefined here — see :root note above. */
 

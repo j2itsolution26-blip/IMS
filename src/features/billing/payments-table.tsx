@@ -27,6 +27,7 @@ export function PaymentsTable({ payments }: { payments: PaymentRow[] }) {
     (payment, query) =>
       payment.reference.toLowerCase().includes(query.replace(/\s+/g, '')) || (payment.invoiceNumber ?? '').toLowerCase().includes(query),
     (payment) => payment.status,
+    (payment) => payment.paidAt,
   );
   const [open, setOpen] = React.useState<PaymentRow | null>(null);
   const statuses = (Object.keys(PAYMENT_STATUS_LABEL) as PaymentDisplayStatus[])
@@ -45,20 +46,20 @@ export function PaymentsTable({ payments }: { payments: PaymentRow[] }) {
 
   return (
     <>
-      {payments.length > 5 && (
-        <HistoryToolbar
-          idPrefix="payments"
-          search={list.search}
-          onSearch={list.setSearch}
-          searchPlaceholder="Search reference or invoice number"
-          status={list.status}
-          onStatus={list.setStatus}
-          statuses={statuses}
-        />
-      )}
+      <HistoryToolbar
+        idPrefix="payments"
+        search={list.search}
+        onSearch={list.setSearch}
+        searchPlaceholder="Search reference or invoice number"
+        status={list.status}
+        onStatus={list.setStatus}
+        statuses={statuses}
+        range={list.range}
+        onRange={list.setRange}
+      />
 
       {list.filtered.length === 0 ? (
-        <CompactEmpty icon={SearchX} title="No matching payments" description="Try another search or status." />
+        <CompactEmpty icon={SearchX} title="No matching payments" description="Try another search, status or date range." />
       ) : (
         <>
           <ul className="divide-y sm:hidden">

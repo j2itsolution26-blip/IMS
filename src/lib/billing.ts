@@ -409,3 +409,98 @@ export function usageLevel(used: number, limit: number | null): UsageLevel {
 export function maskReference(reference: string): string {
   return reference.length <= 4 ? reference : `••••${reference.slice(-4)}`;
 }
+
+/**
+ * Where the owner stands on paying, in one word for the summary. Derived from
+ * the billing flag only: with no open invoice nothing is owed — never a
+ * price, even on a trial.
+ */
+export type PaymentState = 'NOTHING_OWED' | 'INVOICE_OPEN' | 'DUE_SOON' | 'AWAITING_VERIFICATION' | 'OVERDUE';
+
+export const PAYMENT_STATE_LABEL: Record<PaymentState, string> = {
+  NOTHING_OWED: 'Nothing owed',
+  INVOICE_OPEN: 'Invoice open',
+  DUE_SOON: 'Payment due soon',
+  AWAITING_VERIFICATION: 'Awaiting verification',
+  OVERDUE: 'Overdue',
+};
+
+export const PAYMENT_STATE_TONE: Record<PaymentState, 'success' | 'info' | 'warning' | 'danger'> = {
+  NOTHING_OWED: 'success',
+  INVOICE_OPEN: 'info',
+  DUE_SOON: 'warning',
+  AWAITING_VERIFICATION: 'warning',
+  OVERDUE: 'danger',
+};
+
+export function paymentState(flag: BillingFlag | null): PaymentState {
+  switch (flag) {
+    case null:
+      return 'NOTHING_OWED';
+    case 'PLAN_SELECTED':
+      return 'INVOICE_OPEN';
+    case 'PAYMENT_DUE':
+      return 'DUE_SOON';
+    case 'PAYMENT_PENDING':
+      return 'AWAITING_VERIFICATION';
+    case 'PAST_DUE':
+      return 'OVERDUE';
+  }
+}
+
+/** The annual saving as a whole percentage of a year of monthly payments; null when there is none. */
+export function annualSavingsPercent(pricing: Pick<PlanPricing, 'monthly' | 'annualSavings'>): number | null {
+  if (pricing.monthly === null || pricing.annualSavings === null) return null;
+  const percent = Math.round((pricing.annualSavings / (pricing.monthly * 12)) * 100);
+  return percent > 0 ? percent : null;
+}
+
+/** The best annual saving across all plans, for "Save up to N%"; null when no plan saves anything. */
+export function maxAnnualSavingsPercent(prices: { plan: PlanId; interval: BillingInterval; amount: number }[]): number | null {
+  const percents = PLAN_ORDER.map((plan) => annualSavingsPercent(planPricing(prices, plan))).filter((p): p is number => p !== null);
+  return percents.length ? Math.max(...percents) : null;
+}
+
+/** The plan the cards recommend. A label only: it is never shown as selected. */
+export const POPULAR_PLAN: PlanId = 'BUSINESS';
+
+/**
+ * The badges on one plan card. "Current" is a plan the store has paid for;
+ * during a trial the trial plan is "your trial", which is not a purchase, so
+ * it can still be chosen. The popular label gives way to "current".
+ */
+export function planCardBadges(
+  plan: PlanId,
+  input: { paidPlan: PlanId | null; effectivePlan: PlanId; onTrial: boolean },
+): { current: boolean; trial: boolean; popular: boolean } {
+  const current = !input.onTrial && input.paidPlan === plan;
+  return {
+    current,
+    trial: input.onTrial && input.effectivePlan === plan,
+    popular: plan === POPULAR_PLAN && !current,
+  };
+}
+
+/** The billing history date filter. */
+export type HistoryRange = 'all' | '30d' | '90d' | 'year';
+
+export const HISTORY_RANGE_LABEL: Record<HistoryRange, string> = {
+  all: 'All time',
+  '30d': 'Last 30 days',
+  '90d': 'Last 90 days',
+  year: 'This year',
+};
+
+/** The earliest moment a range includes, or null for all time. "This year" starts on 1 January, local time. */
+export function historyRangeStart(range: HistoryRange, now: Date): Date | null {
+  switch (range) {
+    case 'all':
+      return null;
+    case '30d':
+      return new Date(now.getTime() - 30 * DAY);
+    case '90d':
+      return new Date(now.getTime() - 90 * DAY);
+    case 'year':
+      return new Date(now.getFullYear(), 0, 1);
+  }
+}

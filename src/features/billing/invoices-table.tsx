@@ -16,11 +16,21 @@ const peso = (amount: number) => formatCurrency(amount, 'PHP');
 const planLabel = (invoice: InvoiceRow) => `${PLANS[invoice.plan].name}, ${INTERVAL_LABEL[invoice.interval].toLowerCase()}`;
 
 /** The store's invoices: each a snapshot of the plan, amount, period and terms the owner agreed to. */
-export function InvoicesTable({ invoices, storeName }: { invoices: InvoiceRow[]; storeName: string }) {
+export function InvoicesTable({
+  invoices,
+  storeName,
+  emptyAction,
+}: {
+  invoices: InvoiceRow[];
+  storeName: string;
+  /** Shown under the empty state, e.g. a link to the plans. */
+  emptyAction?: React.ReactNode;
+}) {
   const list = useHistoryList(
     invoices,
     (invoice, query) => invoice.number.toLowerCase().includes(query) || planLabel(invoice).toLowerCase().includes(query),
     (invoice) => invoice.status,
+    (invoice) => invoice.issuedAt,
   );
   const [open, setOpen] = React.useState<InvoiceRow | null>(null);
   const statuses = (Object.keys(INVOICE_STATUS_LABEL) as InvoiceDisplayStatus[])
@@ -33,26 +43,27 @@ export function InvoicesTable({ invoices, storeName }: { invoices: InvoiceRow[];
         icon={FileText}
         title="No invoices yet"
         description="Choosing a plan issues an invoice for you to pay. Nothing is owed until you do."
+        action={emptyAction}
       />
     );
   }
 
   return (
     <>
-      {invoices.length > 5 && (
-        <HistoryToolbar
-          idPrefix="invoices"
-          search={list.search}
-          onSearch={list.setSearch}
-          searchPlaceholder="Search invoice number or plan"
-          status={list.status}
-          onStatus={list.setStatus}
-          statuses={statuses}
-        />
-      )}
+      <HistoryToolbar
+        idPrefix="invoices"
+        search={list.search}
+        onSearch={list.setSearch}
+        searchPlaceholder="Search invoice number or plan"
+        status={list.status}
+        onStatus={list.setStatus}
+        statuses={statuses}
+        range={list.range}
+        onRange={list.setRange}
+      />
 
       {list.filtered.length === 0 ? (
-        <CompactEmpty icon={SearchX} title="No matching invoices" description="Try another search or status." />
+        <CompactEmpty icon={SearchX} title="No matching invoices" description="Try another search, status or date range." />
       ) : (
         <>
           {/* Phones: one card per invoice, no sideways scrolling. */}
@@ -78,11 +89,12 @@ export function InvoicesTable({ invoices, storeName }: { invoices: InvoiceRow[];
           </ul>
 
           <div className="relative hidden overflow-x-auto sm:block">
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[800px] text-sm">
               <caption className="sr-only">Invoices</caption>
               <thead>
                 <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                   <th scope="col" className="h-10 px-4 font-semibold">Invoice</th>
+                  <th scope="col" className="h-10 px-4 font-semibold">Plan</th>
                   <th scope="col" className="h-10 px-4 font-semibold">Billing period</th>
                   <th scope="col" className="h-10 px-4 font-semibold">Issued</th>
                   <th scope="col" className="h-10 px-4 font-semibold">Due</th>
@@ -96,9 +108,10 @@ export function InvoicesTable({ invoices, storeName }: { invoices: InvoiceRow[];
               <tbody>
                 {list.visible.map((invoice) => (
                   <tr key={invoice.id} className="border-b last:border-0">
+                    <td className="px-4 py-2.5 font-mono text-xs">{invoice.number}</td>
                     <td className="px-4 py-2.5">
-                      <span className="block font-mono text-xs">{invoice.number}</span>
-                      <span className="text-xs text-muted-foreground">{planLabel(invoice)}</span>
+                      <span className="block font-medium">{PLANS[invoice.plan].name}</span>
+                      <span className="text-xs text-muted-foreground">{INTERVAL_LABEL[invoice.interval]}</span>
                     </td>
                     <td className="px-4 py-2.5">
                       {formatDate(invoice.periodStart)} – {formatDate(invoice.periodEnd)}

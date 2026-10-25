@@ -272,6 +272,13 @@ export async function listMyTickets(
   };
 }
 
+/** The requester's own tickets in one category that support has not finished with. */
+export async function countMyActiveTickets(requesterId: string, category: SupportCategory): Promise<number> {
+  return platformPrisma.supportTicket.count({
+    where: { requesterId, category, status: { in: ['NEW', 'OPEN', 'IN_PROGRESS', 'WAITING_FOR_USER'] } },
+  });
+}
+
 /** Tickets with a reply the requester has not opened: the Support menu badge. */
 export async function countMyUnreadReplies(requesterId: string): Promise<number> {
   const rows = await platformPrisma.supportTicket.findMany({

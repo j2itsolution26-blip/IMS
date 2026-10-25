@@ -45,6 +45,14 @@ const config: Config = {
           foreground: 'hsl(var(--warning-foreground))',
           text: 'hsl(var(--warning-text))',
         },
+        info: {
+          DEFAULT: 'hsl(var(--info))',
+          text: 'hsl(var(--info-text))',
+        },
+        mint: {
+          DEFAULT: 'hsl(var(--mint))',
+          strong: 'hsl(var(--mint-strong))',
+        },
         muted: {
           DEFAULT: 'hsl(var(--muted))',
           foreground: 'hsl(var(--muted-foreground))',

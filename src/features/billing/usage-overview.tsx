@@ -29,13 +29,13 @@ export function UsageOverview({
 }) {
   const topPlan = PLAN_ORDER[PLAN_ORDER.length - 1] === plan.id;
   return (
-    <Panel title="Usage" description={`Counted live against your ${plan.name} limits.`} className={className}>
-      <ul className="space-y-4 p-4">
+    <Panel title="Usage & limits" description={`Counted live against your ${plan.name} limits.`} className={className}>
+      <ul className="grid gap-x-6 gap-y-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
         {meters.map((meter) => (
           <UsageRow key={meter.key} meter={meter} level={usageLevel(meter.used, meter.limit)} canManage={canManage} topPlan={topPlan} planName={plan.name} />
         ))}
       </ul>
-      <ul className="mt-auto grid gap-1.5 border-t px-4 py-3 text-xs" aria-label="Features on your plan">
+      <ul className="mt-auto flex flex-wrap gap-x-5 gap-y-1.5 border-t bg-muted/30 px-4 py-3 text-xs" aria-label="Features on your plan">
         {FEATURES.map((feature) => (
           <li key={feature} className="flex items-center gap-2">
             {plan.features[feature] ? (
@@ -88,7 +88,7 @@ function UsageRow({
             : (METER_HINT[meter.key] ?? null);
 
   return (
-    <li className="space-y-1.5">
+    <li className="space-y-1.5 rounded-xl border bg-card p-3">
       <div className="flex items-baseline justify-between gap-3 text-sm">
         <span id={id} className="font-medium">
           {METER_LABEL[meter.key]}

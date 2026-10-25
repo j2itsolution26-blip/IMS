@@ -4,6 +4,7 @@ import * as React from 'react';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { HISTORY_RANGE_LABEL, historyRangeStart, type HistoryRange } from '@/lib/billing';
 
 /**
  * Pieces shared by the invoice and payment lists on the billing page. The
@@ -24,14 +25,19 @@ export function HistoryToolbar({
   status,
   onStatus,
   statuses,
+  range,
+  onRange,
 }: {
   idPrefix: string;
   search: string;
   onSearch: (value: string) => void;
   searchPlaceholder: string;
-  status: string;
-  onStatus: (value: string) => void;
-  statuses: { value: string; label: string }[];
+  /** Leave out for a list with no status filter. */
+  status?: string;
+  onStatus?: (value: string) => void;
+  statuses?: { value: string; label: string }[];
+  range: HistoryRange;
+  onRange: (value: HistoryRange) => void;
 }) {
   return (
     <div className="flex flex-col gap-2 border-b p-3 sm:flex-row sm:items-center">
@@ -49,14 +55,33 @@ export function HistoryToolbar({
           className="pl-9"
         />
       </div>
-      <label htmlFor={`${idPrefix}-status`} className="sr-only">
-        Status
+      {statuses && onStatus && (
+        <>
+          <label htmlFor={`${idPrefix}-status`} className="sr-only">
+            Status
+          </label>
+          <select id={`${idPrefix}-status`} className={selectClass} value={status} onChange={(event) => onStatus(event.target.value)}>
+            <option value="">All statuses</option>
+            {statuses.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+      <label htmlFor={`${idPrefix}-range`} className="sr-only">
+        Date range
       </label>
-      <select id={`${idPrefix}-status`} className={selectClass} value={status} onChange={(event) => onStatus(event.target.value)}>
-        <option value="">All statuses</option>
-        {statuses.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
+      <select
+        id={`${idPrefix}-range`}
+        className={selectClass}
+        value={range}
+        onChange={(event) => onRange(event.target.value as HistoryRange)}
+      >
+        {(Object.keys(HISTORY_RANGE_LABEL) as HistoryRange[]).map((value) => (
+          <option key={value} value={value}>
+            {HISTORY_RANGE_LABEL[value]}
           </option>
         ))}
       </select>
@@ -83,13 +108,28 @@ export function HistoryPager({ page, pages, total, onPage }: { page: number; pag
   );
 }
 
-/** Search, status filter and paging over a short list. Resets to page one when the filter changes. */
-export function useHistoryList<T>(rows: T[], matches: (row: T, query: string) => boolean, statusOf: (row: T) => string) {
+/**
+ * Search, status and date filters and paging over a short list. Resets to
+ * page one when a filter changes. `dateOf` is the ISO date the range filters on.
+ */
+export function useHistoryList<T>(
+  rows: T[],
+  matches: (row: T, query: string) => boolean,
+  statusOf: (row: T) => string,
+  dateOf: (row: T) => string,
+) {
   const [search, setSearch] = React.useState('');
   const [status, setStatus] = React.useState('');
+  const [range, setRange] = React.useState<HistoryRange>('all');
   const [page, setPage] = React.useState(0);
   const query = search.trim().toLowerCase();
-  const filtered = rows.filter((row) => (!status || statusOf(row) === status) && (!query || matches(row, query)));
+  const since = historyRangeStart(range, new Date())?.getTime() ?? null;
+  const filtered = rows.filter(
+    (row) =>
+      (!status || statusOf(row) === status) &&
+      (since === null || new Date(dateOf(row)).getTime() >= since) &&
+      (!query || matches(row, query)),
+  );
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const current = Math.min(page, pages - 1);
   return {
@@ -101,6 +141,11 @@ export function useHistoryList<T>(rows: T[], matches: (row: T, query: string) =>
     status,
     setStatus: (value: string) => {
       setStatus(value);
+      setPage(0);
+    },
+    range,
+    setRange: (value: HistoryRange) => {
+      setRange(value);
       setPage(0);
     },
     page: current,

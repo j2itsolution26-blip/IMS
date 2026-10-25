@@ -42,8 +42,10 @@ export function ChangePlanDialog({
   action,
   interval,
   amount,
+  annualSavings,
   subscription,
   terms,
+  paymentInstructions,
   onClose,
 }: {
   plan: PlanId;
@@ -52,8 +54,11 @@ export function ChangePlanDialog({
   action: PlanAction;
   interval: BillingInterval;
   amount: number;
+  /** For an annual choice: what it saves against twelve monthly payments, from the published prices. */
+  annualSavings: number | null;
   subscription: SubscriptionDates;
   terms: BillingTermsInfo;
+  paymentInstructions: string | null;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -119,9 +124,17 @@ export function ChangePlanDialog({
           </dd>
           <dt className="text-muted-foreground">Billing</dt>
           <dd className="font-medium">{INTERVAL_LABEL[interval]}</dd>
-          <dt className="text-muted-foreground">Amount</dt>
-          <dd className="font-semibold tabular">
+          <dt className="text-muted-foreground">Price</dt>
+          <dd className="font-medium tabular">
             {peso(amount)} <span className="font-normal text-muted-foreground">/ {per}</span>
+          </dd>
+          <dt className="text-muted-foreground">Discount</dt>
+          <dd className="font-medium tabular">
+            {annualSavings !== null ? (
+              <span className="text-success-text">{peso(annualSavings)} less than 12 monthly payments</span>
+            ) : (
+              <span className="text-muted-foreground">None</span>
+            )}
           </dd>
           <dt className="text-muted-foreground">Covers</dt>
           <dd className="font-medium">
@@ -129,6 +142,8 @@ export function ChangePlanDialog({
           </dd>
           <dt className="text-muted-foreground">Due by</dt>
           <dd className="font-medium">{formatDate(period.dueAt)}</dd>
+          <dt className="border-t pt-2 font-semibold">Total payable</dt>
+          <dd className="border-t pt-2 text-base font-bold tabular">{peso(amount)}</dd>
         </dl>
 
         <div className="space-y-2 text-sm">
@@ -174,6 +189,21 @@ export function ChangePlanDialog({
           </summary>
           <div className="max-h-48 overflow-y-auto scrollbar-thin whitespace-pre-wrap border-t px-3 py-2 text-xs leading-relaxed">
             {terms.body}
+          </div>
+        </details>
+
+        <details className="group rounded-xl border bg-muted/30">
+          <summary className="cursor-pointer select-none rounded-xl px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            How to pay
+          </summary>
+          <div className="max-h-48 space-y-2 overflow-y-auto scrollbar-thin border-t px-3 py-2 text-xs leading-relaxed">
+            <p className="whitespace-pre-wrap">
+              {paymentInstructions ??
+                'Payment details have not been published yet. After the invoice is issued, contact support for the GCash or bank details.'}
+            </p>
+            <p className="text-muted-foreground">
+              After paying, report the reference number on the invoice. The plan starts once the administrator verifies it.
+            </p>
           </div>
         </details>
 

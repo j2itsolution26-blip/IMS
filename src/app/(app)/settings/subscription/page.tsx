@@ -1,20 +1,22 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { CreditCard, FileText, LifeBuoy, ShieldCheck, Sparkles } from 'lucide-react';
 import { requirePermission, userCan } from '@/lib/session';
 import { getStoreContext } from '@/lib/tenant/context';
 import { formatDateTime } from '@/lib/format';
 import { PageHeader } from '@/components/page-header';
 import { Panel } from '@/components/panel';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/misc';
 import { auditHistoryStart, usageSummary } from '@/server/services/entitlements';
-import { billingSnapshot, invoiceDisplayStatus, paymentDisplayStatus } from '@/lib/billing';
+import { billingSnapshot, invoiceDisplayStatus, paymentDisplayStatus, paymentState } from '@/lib/billing';
 import { getBillingConfig } from '@/server/platform/billing-service';
 import { runBillingRemindersForStore } from '@/server/platform/billing-reminders';
+import { countMyActiveTickets } from '@/server/support/support-service';
 import { SubscriptionSummary } from '@/features/billing/subscription-summary';
 import { UsageOverview } from '@/features/billing/usage-overview';
 import { PlanCards } from '@/features/billing/plan-cards';
+import { BillingSteps } from '@/features/billing/billing-steps';
 import { InvoicePayment } from '@/features/billing/invoice-payment';
 import { InvoicesTable } from '@/features/billing/invoices-table';
 import { PaymentsTable } from '@/features/billing/payments-table';
@@ -102,6 +104,13 @@ export default async function SubscriptionPage() {
   const onTrial = store.status === 'TRIAL';
   const selfService = config.prices.some((price) => price.amount > 0) && config.terms !== null;
   const billingInterval = storeRow?.billingInterval ?? null;
+  // Only the signed-in user's own tickets, as on the Support page.
+  const openBillingTickets = canContactSupport
+    ? await countMyActiveTickets(user.id, 'BILLING').catch((error) => {
+        console.error('[billing] support ticket count failed', error);
+        return 0;
+      })
+    : 0;
 
   const lastPaidInvoice = invoices.find((invoice) => invoice.status === 'PAID' && invoice.plan === access.plan.id) ?? null;
 
@@ -171,63 +180,36 @@ export default async function SubscriptionPage() {
     };
   });
 
-  // The one thing to do next.
-  const primaryAction = openInvoiceInfo ? (
-    <Button asChild>
-      <Link href="#outstanding-invoice">
-        <FileText aria-hidden="true" />
-        {canManage && !openInvoiceInfo.pending && !suspended ? 'Pay invoice' : 'View invoice'}
-      </Link>
-    </Button>
-  ) : selfService && canManage && !suspended ? (
-    <Button asChild>
-      <Link href="#plans">
-        <Sparkles aria-hidden="true" />
-        {onTrial || access.state === 'READ_ONLY' ? 'Choose a plan' : 'Change plan'}
-      </Link>
-    </Button>
-  ) : null;
+  // The one thing to do next: pay what is owed, otherwise look at the plans.
+  const primaryAction = openInvoiceInfo
+    ? { href: '#outstanding-invoice', label: canManage && !openInvoiceInfo.pending && !suspended ? 'Pay invoice' : 'View invoice' }
+    : selfService && canManage && !suspended
+      ? { href: '#plans', label: onTrial || access.state === 'READ_ONLY' ? 'Choose a plan' : 'Manage plan' }
+      : { href: '#plans', label: 'View plans' };
 
   return (
     <div className="no-print">
       <PageHeader
         title="Subscription & Billing"
-        description="Manage your plan, usage, invoices, and payments."
+        description="Manage your plan, payments, invoices, and usage."
         breadcrumbs={[{ label: 'Settings', href: '/settings' }, { label: 'Subscription & Billing' }]}
-        actions={
-          <>
-            <span className="hidden text-xs text-muted-foreground md:inline">As of {formatDateTime(now)}</span>
-            {canContactSupport && (
-              <Button variant="outline" asChild>
-                <Link href="/support/new?category=BILLING">
-                  <LifeBuoy aria-hidden="true" /> Contact support
-                </Link>
-              </Button>
-            )}
-            {primaryAction}
-          </>
-        }
+        actions={<span className="hidden text-xs text-muted-foreground md:inline">As of {formatDateTime(now)}</span>}
       />
 
-      <div className="space-y-4">
-        <div className="grid gap-4 lg:grid-cols-3">
-          <SubscriptionSummary
-            className="lg:col-span-2"
-            access={access}
-            status={store.status}
-            boughtPlan={!onTrial && store.plan !== access.plan.id ? store.plan : null}
-            billingInterval={onTrial ? null : billingInterval}
-            lastPaid={lastPaidInvoice ? { amount: Number(lastPaidInvoice.amount), interval: lastPaidInvoice.interval } : null}
-            amountDue={
-              openInvoiceInfo
-                ? { number: openInvoiceInfo.number, amount: openInvoiceInfo.amount, dueAt: openInvoice!.dueAt, flag: openInvoiceInfo.flag }
-                : null
-            }
-            lastChangeAt={history[0]?.createdAt ?? null}
-            now={now}
-          />
-          <UsageOverview meters={meters} plan={access.plan} canManage={canManage} />
-        </div>
+      <div className="space-y-5">
+        <SubscriptionSummary
+          access={access}
+          status={store.status}
+          boughtPlan={!onTrial && store.plan !== access.plan.id ? store.plan : null}
+          billingInterval={onTrial ? null : billingInterval}
+          lastPaid={lastPaidInvoice ? { amount: Number(lastPaidInvoice.amount), interval: lastPaidInvoice.interval } : null}
+          amountDue={openInvoiceInfo ? { number: openInvoiceInfo.number, amount: openInvoiceInfo.amount, dueAt: openInvoice!.dueAt } : null}
+          payment={paymentState(billing.billing)}
+          primaryAction={primaryAction}
+          canContactSupport={canContactSupport}
+          openBillingTickets={openBillingTickets}
+          now={now}
+        />
 
         {openInvoiceInfo && (
           <Panel
@@ -245,15 +227,11 @@ export default async function SubscriptionPage() {
           </Panel>
         )}
 
-        <Panel
-          id="plans"
-          title="Plans"
-          description="What each plan includes. Downgrading never deletes data."
-          className="scroll-mt-20"
-        >
+        <Card id="plans" className="min-w-0 scroll-mt-20 overflow-visible rounded-card">
           <PlanCards
             prices={config.prices}
             terms={config.terms ? { version: config.terms.version, body: config.terms.body } : null}
+            paymentInstructions={config.paymentInstructions}
             canManage={canManage}
             effectivePlan={access.plan.id}
             paidPlan={onTrial ? null : store.plan}
@@ -267,39 +245,18 @@ export default async function SubscriptionPage() {
             openInvoiceNumber={openInvoice?.number ?? null}
             suspended={suspended}
           />
-          <details className="group border-t">
-            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-              How billing and payment work
-            </summary>
-            <div className="grid gap-4 px-4 pb-4 text-sm md:grid-cols-2">
-              <ol className="space-y-2">
-                <li className="flex items-start gap-2">
-                  <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                  Choose a plan and accept the billing terms. An invoice is issued; nothing is charged automatically.
-                </li>
-                <li className="flex items-start gap-2">
-                  <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                  Pay by GCash or bank transfer, then report the reference number on the invoice.
-                </li>
-                <li className="flex items-start gap-2">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                  The platform administrator verifies the payment; only then does the plan start or extend. Paying early never
-                  loses days.
-                </li>
-              </ol>
-              <div className="space-y-1.5">
-                <p className="font-medium">Payment instructions</p>
-                {config.paymentInstructions ? (
-                  <div className="whitespace-pre-wrap rounded-xl border bg-muted/30 p-3">{config.paymentInstructions}</div>
-                ) : (
-                  <p className="text-muted-foreground">Not published yet. Contact support for the GCash or bank details.</p>
-                )}
-              </div>
-            </div>
-          </details>
-        </Panel>
+        </Card>
 
-        <Panel id="billing-history" title="Billing history" className="scroll-mt-20">
+        <BillingSteps paymentInstructions={config.paymentInstructions} />
+
+        <UsageOverview meters={meters} plan={access.plan} canManage={canManage} />
+
+        <Panel
+          id="billing-history"
+          title="Billing history"
+          description="Your invoices, payments, and plan changes."
+          className="scroll-mt-20"
+        >
           <Tabs defaultValue="invoices">
             <div className="overflow-x-auto scrollbar-none border-b px-4 py-2">
               <TabsList>
@@ -309,13 +266,26 @@ export default async function SubscriptionPage() {
               </TabsList>
             </div>
             <TabsContent value="invoices" className="mt-0">
-              <InvoicesTable invoices={invoiceRows} storeName={store.name} />
+              <InvoicesTable
+                invoices={invoiceRows}
+                storeName={store.name}
+                emptyAction={
+                  selfService && canManage && !suspended ? (
+                    <Button variant="outline" size="sm" asChild>
+                      <Link href="#plans">Compare plans</Link>
+                    </Button>
+                  ) : undefined
+                }
+              />
             </TabsContent>
             <TabsContent value="payments" className="mt-0">
               <PaymentsTable payments={paymentRows} />
             </TabsContent>
             <TabsContent value="activity" className="mt-0">
-              <ActivityTimeline entries={history} historyDays={access.plan.auditHistoryDays} />
+              <ActivityTimeline
+                entries={history.map((entry) => ({ ...entry, createdAt: entry.createdAt.toISOString() }))}
+                historyDays={access.plan.auditHistoryDays}
+              />
             </TabsContent>
           </Tabs>
         </Panel>

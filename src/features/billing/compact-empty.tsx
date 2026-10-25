@@ -3,15 +3,26 @@ import type { LucideIcon } from 'lucide-react';
 
 /** Small building blocks for the billing page, safe to use from server and client components. */
 
-/** A small empty state: one line of what is missing and what to do. */
-export function CompactEmpty({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
+/** A small empty state: what is missing, why, and (optionally) what to do. */
+export function CompactEmpty({
+  icon: Icon,
+  title,
+  description,
+  action,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+}) {
   return (
-    <div className="flex items-start gap-3 px-4 py-5">
-      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground/60" aria-hidden="true" />
-      <div>
-        <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
+    <div className="flex flex-col items-center px-4 py-6 text-center">
+      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-mint text-primary">
+        <Icon className="h-5 w-5" aria-hidden="true" />
+      </span>
+      <p className="mt-2 text-sm font-semibold">{title}</p>
+      <p className="max-w-sm text-xs text-muted-foreground">{description}</p>
+      {action && <div className="mt-3">{action}</div>}
     </div>
   );
 }

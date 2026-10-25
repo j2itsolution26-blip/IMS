@@ -2,14 +2,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PAYMENT_TERMS_DAYS,
+  annualSavingsPercent,
   billingSnapshot,
   formatInvoiceNumber,
+  historyRangeStart,
   invoiceDisplayStatus,
   invoicePeriod,
   isRevenue,
   maskReference,
+  maxAnnualSavingsPercent,
   monthlyRecurringRevenue,
   paymentDisplayStatus,
+  paymentState,
+  planCardBadges,
   planDifferences,
   planDirection,
   planPricing,
@@ -339,4 +344,61 @@ test('usage levels: near at 80%, full at the limit, over beyond it', () => {
 test('references are masked to their last four characters', () => {
   assert.equal(maskReference('1234567890'), '••••7890');
   assert.equal(maskReference('AB12'), 'AB12');
+});
+
+test('the payment state follows the open invoice only: no invoice means nothing owed, even on a trial', () => {
+  assert.equal(paymentState(null), 'NOTHING_OWED');
+  assert.equal(paymentState('PLAN_SELECTED'), 'INVOICE_OPEN');
+  assert.equal(paymentState('PAYMENT_DUE'), 'DUE_SOON');
+  assert.equal(paymentState('PAYMENT_PENDING'), 'AWAITING_VERIFICATION');
+  assert.equal(paymentState('PAST_DUE'), 'OVERDUE');
+  const trial = billingSnapshot({
+    subscription: { plan: 'BUSINESS', status: 'TRIAL', trialEndsAt: new Date(NOW.getTime() + 10 * DAY), currentPeriodEnd: null },
+    openInvoice: null,
+    hasPendingPayment: false,
+    now: NOW,
+  });
+  assert.equal(paymentState(trial.billing), 'NOTHING_OWED');
+});
+
+test('savings percentages come from the configured prices, rounded to whole percent', () => {
+  const prices = [
+    { plan: 'BASIC' as const, interval: 'MONTHLY' as const, amount: 499 },
+    { plan: 'BASIC' as const, interval: 'ANNUAL' as const, amount: 4990 },
+    { plan: 'BUSINESS' as const, interval: 'MONTHLY' as const, amount: 999 },
+    { plan: 'BUSINESS' as const, interval: 'ANNUAL' as const, amount: 9990 },
+    { plan: 'ENTERPRISE' as const, interval: 'MONTHLY' as const, amount: 1499 },
+    { plan: 'ENTERPRISE' as const, interval: 'ANNUAL' as const, amount: 14990 },
+  ];
+  // 998 / 5988 = 16.67%
+  assert.equal(annualSavingsPercent(planPricing(prices, 'BASIC')), 17);
+  assert.equal(annualSavingsPercent(planPricing(prices, 'ENTERPRISE')), 17);
+  assert.equal(maxAnnualSavingsPercent(prices), 17);
+  // A bigger discount on one plan raises "up to".
+  const deal = prices.map((price) => (price.plan === 'BUSINESS' && price.interval === 'ANNUAL' ? { ...price, amount: 8990 } : price));
+  assert.equal(maxAnnualSavingsPercent(deal), 25);
+  // No annual price, or no saving: nothing is claimed.
+  assert.equal(annualSavingsPercent(planPricing(prices.filter((price) => price.interval === 'MONTHLY'), 'BASIC')), null);
+  assert.equal(maxAnnualSavingsPercent(prices.filter((price) => price.interval === 'MONTHLY')), null);
+  assert.equal(maxAnnualSavingsPercent([]), null);
+});
+
+test('plan card badges: the trial plan is choosable, popular gives way to current', () => {
+  const trial = { paidPlan: null, effectivePlan: 'BUSINESS' as const, onTrial: true };
+  assert.deepEqual(planCardBadges('BUSINESS', trial), { current: false, trial: true, popular: true });
+  assert.deepEqual(planCardBadges('BASIC', trial), { current: false, trial: false, popular: false });
+  const paidBusiness = { paidPlan: 'BUSINESS' as const, effectivePlan: 'BUSINESS' as const, onTrial: false };
+  assert.deepEqual(planCardBadges('BUSINESS', paidBusiness), { current: true, trial: false, popular: false });
+  const paidBasic = { paidPlan: 'BASIC' as const, effectivePlan: 'BASIC' as const, onTrial: false };
+  assert.deepEqual(planCardBadges('BASIC', paidBasic), { current: true, trial: false, popular: false });
+  // Business is still recommended, but not marked as the store's plan.
+  assert.deepEqual(planCardBadges('BUSINESS', paidBasic), { current: false, trial: false, popular: true });
+});
+
+test('history ranges: all time has no start; this year starts on 1 January', () => {
+  const now = new Date(2026, 9, 25, 12);
+  assert.equal(historyRangeStart('all', now), null);
+  assert.equal(historyRangeStart('30d', now)?.getTime(), now.getTime() - 30 * DAY);
+  assert.equal(historyRangeStart('90d', now)?.getTime(), now.getTime() - 90 * DAY);
+  assert.equal(historyRangeStart('year', now)?.getTime(), new Date(2026, 0, 1).getTime());
 });
