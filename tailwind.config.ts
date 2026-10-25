@@ -61,6 +61,36 @@ const config: Config = {
           tint: 'hsl(var(--plan-enterprise-tint))',
           border: 'hsl(var(--plan-enterprise-border))',
         },
+        'sec-subscription': {
+          DEFAULT: 'hsl(var(--sec-subscription))',
+          text: 'hsl(var(--sec-subscription-text))',
+          tint: 'hsl(var(--sec-subscription-tint))',
+        },
+        'sec-usage': {
+          DEFAULT: 'hsl(var(--sec-usage))',
+          text: 'hsl(var(--sec-usage-text))',
+          tint: 'hsl(var(--sec-usage-tint))',
+        },
+        'sec-invoices': {
+          DEFAULT: 'hsl(var(--sec-invoices))',
+          text: 'hsl(var(--sec-invoices-text))',
+          tint: 'hsl(var(--sec-invoices-tint))',
+        },
+        'sec-payments': {
+          DEFAULT: 'hsl(var(--sec-payments))',
+          text: 'hsl(var(--sec-payments-text))',
+          tint: 'hsl(var(--sec-payments-tint))',
+        },
+        'sec-history': {
+          DEFAULT: 'hsl(var(--sec-history))',
+          text: 'hsl(var(--sec-history-text))',
+          tint: 'hsl(var(--sec-history-tint))',
+        },
+        'sec-plans': {
+          DEFAULT: 'hsl(var(--sec-plans))',
+          text: 'hsl(var(--sec-plans-text))',
+          tint: 'hsl(var(--sec-plans-tint))',
+        },
         mint: {
           DEFAULT: 'hsl(var(--mint))',
           strong: 'hsl(var(--mint-strong))',

@@ -68,6 +68,28 @@
     --plan-enterprise-tint: 265 100% 98%;
     --plan-enterprise-border: 263 80% 91%;
 
+    /* Section accents on the administrator's store page. Accent fills are
+       for icons, bars and borders; -text is the step used for words (amber
+       and cyan accents are under 4.5:1 on white, their text steps are not). */
+    --sec-subscription: 221 83% 53%;
+    --sec-subscription-text: 221 83% 45%;
+    --sec-subscription-tint: 214 100% 97%;
+    --sec-usage: 142 72% 29%;
+    --sec-usage-text: 142 72% 26%;
+    --sec-usage-tint: 138 76% 97%;
+    --sec-invoices: 32 95% 44%;
+    --sec-invoices-text: 26 90% 37%;
+    --sec-invoices-tint: 48 100% 96%;
+    --sec-payments: 262 83% 58%;
+    --sec-payments-text: 263 70% 50%;
+    --sec-payments-tint: 250 100% 98%;
+    --sec-history: 192 91% 36%;
+    --sec-history-text: 192 82% 31%;
+    --sec-history-tint: 183 100% 96%;
+    --sec-plans: 243 75% 59%;
+    --sec-plans-text: 243 75% 50%;
+    --sec-plans-tint: 226 100% 97%;
+
     /* Sidebar tokens — fixed dark navy, deliberately not theme-switching:
        the POS sidebar reads the same whether the content area is in light
        or dark mode, so it is defined once here and NOT redefined in .dark. */
@@ -171,6 +193,25 @@
     --plan-enterprise-text: 263 90% 80%;
     --plan-enterprise-tint: 263 35% 14%;
     --plan-enterprise-border: 263 30% 27%;
+
+    --sec-subscription: 217 91% 60%;
+    --sec-subscription-text: 213 94% 72%;
+    --sec-subscription-tint: 221 40% 14%;
+    --sec-usage: 142 64% 45%;
+    --sec-usage-text: 142 69% 58%;
+    --sec-usage-tint: 145 35% 12%;
+    --sec-invoices: 38 92% 50%;
+    --sec-invoices-text: 43 96% 62%;
+    --sec-invoices-tint: 35 40% 12%;
+    --sec-payments: 262 83% 68%;
+    --sec-payments-text: 263 90% 80%;
+    --sec-payments-tint: 263 35% 14%;
+    --sec-history: 188 86% 45%;
+    --sec-history-text: 187 85% 60%;
+    --sec-history-tint: 190 40% 12%;
+    --sec-plans: 239 84% 67%;
+    --sec-plans-text: 234 89% 78%;
+    --sec-plans-tint: 240 35% 15%;
 
     /* Sidebar tokens intentionally NOT redefined here — see :root note above. */
 

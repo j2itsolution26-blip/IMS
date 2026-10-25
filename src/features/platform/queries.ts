@@ -4,6 +4,7 @@ import { platformPrisma } from '@/lib/prisma';
 import { OWNER_ROLE_SLUG, SYSTEM_ADMIN_ROLE_SLUG } from '@/lib/permissions';
 import type { StoreSubscription } from '@/lib/store-access';
 import { tallyStores, type StoreTally } from '@/lib/subscription';
+import { actorRole, type ActorRole } from '@/lib/store-detail-display';
 
 /**
  * Reads for the platform administrator.
@@ -251,7 +252,13 @@ export interface PlatformStoreDetail {
   usage: { products: number; staff: number; branches: number; backgroundRemovals: number };
   payments: PlatformPayment[];
   invoices: PlatformInvoice[];
-  history: AdminAuditEntry[];
+  history: StoreHistoryEntry[];
+}
+
+/** A subscription history entry on the store page, with who made it relative to the store. */
+export interface StoreHistoryEntry extends AdminAuditEntry {
+  entity: string;
+  actorRole: ActorRole;
 }
 
 export async function getStoreDetail(storeId: string, period: string): Promise<PlatformStoreDetail | null> {
@@ -283,7 +290,7 @@ export async function getStoreDetail(storeId: string, period: string): Promise<P
       where: { storeId: null, entity: { in: ['Store', 'SubscriptionPayment', 'Invoice'] }, changes: { path: ['storeId'], equals: storeId } },
       orderBy: { createdAt: 'desc' },
       take: 50,
-      select: { id: true, action: true, summary: true, createdAt: true, user: { select: { name: true } } },
+      select: { id: true, action: true, entity: true, summary: true, createdAt: true, user: { select: { id: true, name: true, storeId: true } } },
     }),
     platformPrisma.invoice.findMany({
       where: { storeId },
@@ -316,6 +323,14 @@ export async function getStoreDetail(storeId: string, period: string): Promise<P
       amount: amount.toFixed(2),
       hasPendingPayment: pendingPayments.length > 0,
     })),
-    history: history.map((row) => ({ id: row.id, action: row.action, summary: row.summary, actorName: row.user?.name ?? null, createdAt: row.createdAt })),
+    history: history.map((row) => ({
+      id: row.id,
+      action: row.action,
+      entity: row.entity,
+      summary: row.summary,
+      actorName: row.user?.name ?? null,
+      actorRole: actorRole(row.user, { id: store.id, ownerId: store.ownerId }),
+      createdAt: row.createdAt,
+    })),
   };
 }
