@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/misc';
 import { auditHistoryStart, usageSummary } from '@/server/services/entitlements';
-import { billingSnapshot, invoiceDisplayStatus, paymentDisplayStatus, paymentState } from '@/lib/billing';
+import { billingBannerKind, billingSnapshot, invoiceDisplayStatus, paymentDisplayStatus, paymentState } from '@/lib/billing';
 import { getBillingConfig } from '@/server/platform/billing-service';
 import { runBillingRemindersForStore } from '@/server/platform/billing-reminders';
 import { countMyActiveTickets } from '@/server/support/support-service';
@@ -17,6 +17,7 @@ import { SubscriptionSummary } from '@/features/billing/subscription-summary';
 import { UsageOverview } from '@/features/billing/usage-overview';
 import { PlanCards } from '@/features/billing/plan-cards';
 import { BillingSteps } from '@/features/billing/billing-steps';
+import { BillingBanner } from '@/features/billing/billing-banner';
 import { InvoicePayment } from '@/features/billing/invoice-payment';
 import { InvoicesTable } from '@/features/billing/invoices-table';
 import { PaymentsTable } from '@/features/billing/payments-table';
@@ -103,6 +104,9 @@ export default async function SubscriptionPage() {
   const suspended = access.state === 'SUSPENDED';
   const onTrial = store.status === 'TRIAL';
   const selfService = config.prices.some((price) => price.amount > 0) && config.terms !== null;
+  const pricesPublished = config.prices.some((price) => price.amount > 0);
+  const unpublished =
+    !pricesPublished && !config.terms ? 'prices and billing terms' : !pricesPublished ? 'prices' : !config.terms ? 'billing terms' : null;
   const billingInterval = storeRow?.billingInterval ?? null;
   // Only the signed-in user's own tickets, as on the Support page.
   const openBillingTickets = canContactSupport
@@ -197,20 +201,7 @@ export default async function SubscriptionPage() {
       />
 
       <div className="space-y-5">
-        <SubscriptionSummary
-          access={access}
-          status={store.status}
-          boughtPlan={!onTrial && store.plan !== access.plan.id ? store.plan : null}
-          billingInterval={onTrial ? null : billingInterval}
-          lastPaid={lastPaidInvoice ? { amount: Number(lastPaidInvoice.amount), interval: lastPaidInvoice.interval } : null}
-          amountDue={openInvoiceInfo ? { number: openInvoiceInfo.number, amount: openInvoiceInfo.amount, dueAt: openInvoice!.dueAt } : null}
-          payment={paymentState(billing.billing)}
-          primaryAction={primaryAction}
-          canContactSupport={canContactSupport}
-          openBillingTickets={openBillingTickets}
-          now={now}
-        />
-
+        {/* An open invoice comes first: what is owed must not sit below the fold. */}
         {openInvoiceInfo && (
           <Panel
             id="outstanding-invoice"
@@ -227,7 +218,7 @@ export default async function SubscriptionPage() {
           </Panel>
         )}
 
-        <Card id="plans" className="min-w-0 scroll-mt-20 overflow-visible rounded-card">
+        <Card id="plans" className="min-w-0 scroll-mt-20 overflow-hidden rounded-card">
           <PlanCards
             prices={config.prices}
             terms={config.terms ? { version: config.terms.version, body: config.terms.body } : null}
@@ -244,8 +235,33 @@ export default async function SubscriptionPage() {
             }}
             openInvoiceNumber={openInvoice?.number ?? null}
             suspended={suspended}
+            banner={
+              <BillingBanner
+                kind={billingBannerKind({ accessState: access.state, billing: billing.billing, selfService })}
+                planName={access.plan.name}
+                endsAt={access.state === 'GRACE' ? access.graceEndsAt : access.endsAt}
+                invoice={openInvoiceInfo ? { number: openInvoiceInfo.number, amount: openInvoiceInfo.amount, dueAt: openInvoice!.dueAt } : null}
+                selfService={selfService}
+                unpublished={unpublished}
+              />
+            }
           />
         </Card>
+
+        <SubscriptionSummary
+          access={access}
+          status={store.status}
+          boughtPlan={!onTrial && store.plan !== access.plan.id ? store.plan : null}
+          billingInterval={onTrial ? null : billingInterval}
+          lastPaid={lastPaidInvoice ? { amount: Number(lastPaidInvoice.amount), interval: lastPaidInvoice.interval } : null}
+          amountDue={openInvoiceInfo ? { number: openInvoiceInfo.number, amount: openInvoiceInfo.amount, dueAt: openInvoice!.dueAt } : null}
+          payment={paymentState(billing.billing)}
+          primaryAction={primaryAction}
+          canContactSupport={canContactSupport}
+          openBillingTickets={openBillingTickets}
+          now={now}
+        />
+
 
         <BillingSteps paymentInstructions={config.paymentInstructions} />
 

@@ -504,3 +504,62 @@ export function historyRangeStart(range: HistoryRange, now: Date): Date | null {
       return new Date(now.getFullYear(), 0, 1);
   }
 }
+
+/**
+ * What a plan card's main button is. The store's own plan is never offered
+ * as an upgrade: a paid plan reads "Current plan", the trial plan "Current
+ * plan (Trial)" — the card then offers renewing, or choosing it to keep it
+ * after the trial, as a secondary action. A plan without a published price
+ * for the selected billing period cannot be chosen.
+ */
+export type PlanCtaKind = 'CURRENT' | 'CURRENT_TRIAL' | 'CHOOSE' | 'UPGRADE' | 'DOWNGRADE' | 'UNAVAILABLE';
+
+export function planCtaKind(
+  plan: PlanId,
+  input: { paidPlan: PlanId | null; effectivePlan: PlanId; onTrial: boolean; priced: boolean },
+): PlanCtaKind {
+  const badges = planCardBadges(plan, input);
+  if (badges.current) return 'CURRENT';
+  if (badges.trial) return 'CURRENT_TRIAL';
+  if (!input.priced) return 'UNAVAILABLE';
+  if (input.onTrial || !input.paidPlan) return 'CHOOSE';
+  const direction = planDirection(input.paidPlan, plan);
+  return direction === 'CURRENT' ? 'CURRENT' : direction;
+}
+
+/**
+ * The one message above the plan cards: the most urgent true thing about
+ * the store's billing. An invoice outranks everything but suspension; with
+ * no invoice nothing is ever described as owed.
+ */
+export type BillingBannerKind =
+  | 'SUSPENDED'
+  | 'INVOICE_OVERDUE'
+  | 'PAYMENT_PENDING'
+  | 'INVOICE_DUE'
+  | 'INVOICE_OPEN'
+  | 'READ_ONLY'
+  | 'GRACE'
+  | 'PRICING_UNAVAILABLE'
+  | 'TRIAL'
+  | 'ACTIVE';
+
+export function billingBannerKind(input: { accessState: StoreAccess['state']; billing: BillingFlag | null; selfService: boolean }): BillingBannerKind {
+  if (input.accessState === 'SUSPENDED') return 'SUSPENDED';
+  switch (input.billing) {
+    case 'PAST_DUE':
+      return 'INVOICE_OVERDUE';
+    case 'PAYMENT_PENDING':
+      return 'PAYMENT_PENDING';
+    case 'PAYMENT_DUE':
+      return 'INVOICE_DUE';
+    case 'PLAN_SELECTED':
+      return 'INVOICE_OPEN';
+    case null:
+      break;
+  }
+  if (input.accessState === 'READ_ONLY') return 'READ_ONLY';
+  if (input.accessState === 'GRACE') return 'GRACE';
+  if (!input.selfService) return 'PRICING_UNAVAILABLE';
+  return input.accessState === 'TRIAL' ? 'TRIAL' : 'ACTIVE';
+}

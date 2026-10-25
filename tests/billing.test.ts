@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   PAYMENT_TERMS_DAYS,
   annualSavingsPercent,
+  billingBannerKind,
   billingSnapshot,
   formatInvoiceNumber,
   historyRangeStart,
@@ -15,6 +16,7 @@ import {
   paymentDisplayStatus,
   paymentState,
   planCardBadges,
+  planCtaKind,
   planDifferences,
   planDirection,
   planPricing,
@@ -401,4 +403,46 @@ test('history ranges: all time has no start; this year starts on 1 January', () 
   assert.equal(historyRangeStart('30d', now)?.getTime(), now.getTime() - 30 * DAY);
   assert.equal(historyRangeStart('90d', now)?.getTime(), now.getTime() - 90 * DAY);
   assert.equal(historyRangeStart('year', now)?.getTime(), new Date(2026, 0, 1).getTime());
+});
+
+test('plan card buttons: a store is never offered its own plan as an upgrade', () => {
+  const trial = { paidPlan: null, effectivePlan: 'BUSINESS' as const, onTrial: true, priced: true };
+  assert.equal(planCtaKind('BUSINESS', trial), 'CURRENT_TRIAL');
+  assert.equal(planCtaKind('BASIC', trial), 'CHOOSE');
+  assert.equal(planCtaKind('ENTERPRISE', trial), 'CHOOSE');
+  const basic = { paidPlan: 'BASIC' as const, effectivePlan: 'BASIC' as const, onTrial: false, priced: true };
+  assert.equal(planCtaKind('BASIC', basic), 'CURRENT');
+  assert.equal(planCtaKind('BUSINESS', basic), 'UPGRADE');
+  const enterprise = { paidPlan: 'ENTERPRISE' as const, effectivePlan: 'ENTERPRISE' as const, onTrial: false, priced: true };
+  assert.equal(planCtaKind('BASIC', enterprise), 'DOWNGRADE');
+  assert.equal(planCtaKind('ENTERPRISE', enterprise), 'CURRENT');
+});
+
+test('plan card buttons: no published price means no choice, but the current plan still reads as current', () => {
+  const trial = { paidPlan: null, effectivePlan: 'BUSINESS' as const, onTrial: true, priced: false };
+  assert.equal(planCtaKind('BASIC', trial), 'UNAVAILABLE');
+  assert.equal(planCtaKind('BUSINESS', trial), 'CURRENT_TRIAL');
+  assert.equal(planCtaKind('BASIC', { paidPlan: 'BASIC', effectivePlan: 'BASIC', onTrial: false, priced: false }), 'CURRENT');
+});
+
+test('the billing banner states the most urgent true thing and never implies a debt without an invoice', () => {
+  const kind = (accessState: 'ACTIVE' | 'TRIAL' | 'GRACE' | 'READ_ONLY' | 'SUSPENDED', billing: Parameters<typeof billingBannerKind>[0]['billing'], selfService = true) =>
+    billingBannerKind({ accessState, billing, selfService });
+  assert.equal(kind('SUSPENDED', 'PAST_DUE'), 'SUSPENDED');
+  assert.equal(kind('ACTIVE', 'PAST_DUE'), 'INVOICE_OVERDUE');
+  assert.equal(kind('TRIAL', 'PAYMENT_PENDING'), 'PAYMENT_PENDING');
+  assert.equal(kind('TRIAL', 'PAYMENT_DUE'), 'INVOICE_DUE');
+  assert.equal(kind('TRIAL', 'PLAN_SELECTED'), 'INVOICE_OPEN');
+  assert.equal(kind('READ_ONLY', null, false), 'READ_ONLY');
+  assert.equal(kind('GRACE', null), 'GRACE');
+  assert.equal(kind('TRIAL', null, false), 'PRICING_UNAVAILABLE');
+  assert.equal(kind('ACTIVE', null, false), 'PRICING_UNAVAILABLE');
+  assert.equal(kind('TRIAL', null), 'TRIAL');
+  assert.equal(kind('ACTIVE', null), 'ACTIVE');
+  // Without an invoice, no state that speaks of payment is chosen.
+  for (const state of ['ACTIVE', 'TRIAL', 'GRACE', 'READ_ONLY', 'SUSPENDED'] as const) {
+    for (const selfService of [true, false]) {
+      assert.ok(!['INVOICE_OVERDUE', 'PAYMENT_PENDING', 'INVOICE_DUE', 'INVOICE_OPEN'].includes(kind(state, null, selfService)));
+    }
+  }
 });

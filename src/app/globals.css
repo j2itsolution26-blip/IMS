@@ -55,6 +55,19 @@
     --info: 217 91% 60%;
     --info-text: 221 72% 40%;
 
+    /* Plan identities on the pricing cards: Basic blue, Enterprise purple
+       (Business uses the emerald primary and mint). Solid fills carry white
+       text at 5.0:1 (blue) and 9.2:1 (purple); -text steps clear 6:1 on
+       their own tint. */
+    --plan-basic: 217 91% 47%;
+    --plan-basic-text: 221 83% 40%;
+    --plan-basic-tint: 214 100% 97%;
+    --plan-basic-border: 214 90% 89%;
+    --plan-enterprise: 262 70% 42%;
+    --plan-enterprise-text: 262 60% 42%;
+    --plan-enterprise-tint: 265 100% 98%;
+    --plan-enterprise-border: 263 80% 91%;
+
     /* Sidebar tokens — fixed dark navy, deliberately not theme-switching:
        the POS sidebar reads the same whether the content area is in light
        or dark mode, so it is defined once here and NOT redefined in .dark. */
@@ -149,6 +162,15 @@
 
     --info: 213 94% 68%;
     --info-text: 213 94% 72%;
+
+    --plan-basic: 217 91% 47%;
+    --plan-basic-text: 213 94% 74%;
+    --plan-basic-tint: 217 45% 13%;
+    --plan-basic-border: 217 40% 25%;
+    --plan-enterprise: 262 62% 50%;
+    --plan-enterprise-text: 263 90% 80%;
+    --plan-enterprise-tint: 263 35% 14%;
+    --plan-enterprise-border: 263 30% 27%;
 
     /* Sidebar tokens intentionally NOT redefined here — see :root note above. */
 

@@ -1,28 +1,66 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Check, Crown, Info, Minus, Package, Users, type LucideIcon } from 'lucide-react';
+import { Check, ChevronRight, Crown, Gem, Minus, Package, Users, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { FEATURE_LABEL, PLANS, PLAN_ORDER, type Feature, type LimitKey, type PlanId } from '@/lib/plans';
 import {
   annualSavingsPercent,
   maxAnnualSavingsPercent,
   planCardBadges,
-  planDirection,
+  planCtaKind,
   planPricing,
   type BillingInterval,
 } from '@/lib/billing';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { ACTION_VERB, ChangePlanDialog, type PlanAction } from '@/features/billing/change-plan-dialog';
+import { ChangePlanDialog, type PlanAction } from '@/features/billing/change-plan-dialog';
+import { BasicArt, BusinessArt, EnterpriseArt, HeroArt } from '@/features/billing/plan-art';
 import type { BillingTermsInfo, PlanPrice, SubscriptionDates } from '@/features/billing/types';
 
 const peso = (amount: number) => formatCurrency(amount, 'PHP');
 
-const PLAN_ICON: Record<PlanId, LucideIcon> = { BASIC: Package, BUSINESS: Users, ENTERPRISE: Building2 };
-
 const INTERVAL_OPTION: Record<BillingInterval, string> = { MONTHLY: 'Monthly', ANNUAL: 'Yearly' };
+
+/**
+ * Each plan's colour identity: Basic blue, Business green, Enterprise purple.
+ * Presentation only — what a plan includes lives in lib/plans.
+ */
+const THEME: Record<
+  PlanId,
+  { icon: LucideIcon; art: React.ComponentType<{ className?: string }>; tag: string; card: string; soft: string; check: string; fill: string; hover: string }
+> = {
+  BASIC: {
+    icon: Package,
+    art: BasicArt,
+    tag: 'Get started',
+    card: 'border-plan-basic-border bg-gradient-to-b from-plan-basic-tint to-card hover:shadow-lg hover:shadow-plan-basic/10',
+    soft: 'bg-plan-basic/10 text-plan-basic-text',
+    check: 'text-plan-basic-text',
+    fill: 'bg-plan-basic text-white',
+    hover: 'hover:bg-plan-basic/90',
+  },
+  BUSINESS: {
+    icon: Users,
+    art: BusinessArt,
+    tag: 'Most popular',
+    card: 'border-2 border-primary/60 bg-gradient-to-b from-mint to-card shadow-lg shadow-primary/10 hover:shadow-xl hover:shadow-primary/15',
+    soft: 'bg-primary/10 text-primary',
+    check: 'text-success-text',
+    fill: 'bg-primary text-primary-foreground',
+    hover: 'hover:bg-primary/90',
+  },
+  ENTERPRISE: {
+    icon: Gem,
+    art: EnterpriseArt,
+    tag: 'Best for large businesses',
+    card: 'border-plan-enterprise-border bg-gradient-to-b from-plan-enterprise-tint to-card hover:shadow-lg hover:shadow-plan-enterprise/10',
+    soft: 'bg-plan-enterprise/10 text-plan-enterprise-text',
+    check: 'text-plan-enterprise-text',
+    fill: 'bg-plan-enterprise text-white',
+    hover: 'hover:bg-plan-enterprise/90',
+  },
+};
 
 const LIMIT_ROWS: { key: LimitKey; one: string; many: string }[] = [
   { key: 'branches', one: 'branch', many: 'branches' },
@@ -39,6 +77,19 @@ function limitLine(value: number | null, row: { one: string; many: string }): { 
   return { text: `Up to ${formatNumber(value, 0)} ${row.many}`, included: true };
 }
 
+/** What a plan includes, from the plan configuration: included lines first, then what it lacks. */
+function featureLines(id: PlanId): { text: string; included: boolean }[] {
+  const plan = PLANS[id];
+  const lines = [
+    ...LIMIT_ROWS.map((row) => limitLine(plan.limits[row.key], row)),
+    ...FEATURE_ROWS.map((feature) => ({ text: FEATURE_LABEL[feature], included: plan.features[feature] })),
+    { text: plan.auditHistoryDays === null ? 'Full audit history' : `${plan.auditHistoryDays}-day audit history`, included: true },
+  ];
+  return [...lines.filter((line) => line.included), ...lines.filter((line) => !line.included)];
+}
+
+const CTA_VERB: Record<'CHOOSE' | 'UPGRADE' | 'DOWNGRADE', string> = { CHOOSE: 'Choose', UPGRADE: 'Upgrade to', DOWNGRADE: 'Downgrade to' };
+
 export interface PlanCardsProps {
   prices: PlanPrice[];
   terms: BillingTermsInfo | null;
@@ -54,16 +105,31 @@ export interface PlanCardsProps {
   subscription: SubscriptionDates;
   openInvoiceNumber: string | null;
   suspended: boolean;
+  /** The billing status message, rendered on the server. */
+  banner: React.ReactNode;
 }
 
 /**
- * Basic / Business / Enterprise, read from the plan configuration and the
- * published price list. Choosing one opens the confirmation dialog; the
- * server re-checks the price, terms version and store state.
+ * The pricing section: hero, billing message, and Basic / Business /
+ * Enterprise read from the plan configuration and the published price list.
+ * Choosing a plan opens the confirmation dialog; the server re-checks the
+ * price, terms version and store state, and only issues an invoice.
  */
 export function PlanCards(props: PlanCardsProps) {
-  const { prices, terms, paymentInstructions, canManage, effectivePlan, paidPlan, onTrial, billingInterval, subscription, openInvoiceNumber, suspended } =
-    props;
+  const {
+    prices,
+    terms,
+    paymentInstructions,
+    canManage,
+    effectivePlan,
+    paidPlan,
+    onTrial,
+    billingInterval,
+    subscription,
+    openInvoiceNumber,
+    suspended,
+    banner,
+  } = props;
   const selfService = prices.some((price) => price.amount > 0) && terms !== null;
   const intervals = (['MONTHLY', 'ANNUAL'] as const).filter((interval) => prices.some((price) => price.interval === interval && price.amount > 0));
   const [interval, setInterval] = React.useState<BillingInterval>(
@@ -72,166 +138,181 @@ export function PlanCards(props: PlanCardsProps) {
   const [choice, setChoice] = React.useState<{ plan: PlanId; action: PlanAction; amount: number; savings: number | null } | null>(null);
   const bestSaving = maxAnnualSavingsPercent(prices);
 
+  // Why the buttons are off, when they are. Suspension and an open invoice are also explained in the banner.
   const blocked: string | null = !selfService
     ? null
     : suspended
-      ? 'This store is suspended, so plans cannot be changed. Contact support.'
+      ? 'This store is suspended, so plans cannot be changed.'
       : openInvoiceNumber
         ? `Invoice ${openInvoiceNumber} is open. Pay it or withdraw it before choosing another plan.`
         : !canManage
           ? 'Only the store owner can change the plan.'
           : null;
+  const canChoose = selfService && blocked === null;
 
   return (
     <>
-      <div className="flex flex-col gap-3 border-b p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold leading-tight">Choose the right plan for your business</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+      <div className="relative overflow-hidden border-b bg-gradient-to-r from-card via-card to-mint/80 px-4 pb-5 pt-6 sm:px-6">
+        <HeroArt className="absolute -bottom-1 right-0 hidden h-[150px] w-[360px] lg:block" />
+        <div className="relative lg:max-w-[calc(100%-360px)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Subscription plans</p>
+          <h2 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Choose the right plan for your business</h2>
+          <p className="mt-2 text-sm text-muted-foreground sm:text-base">
             Upgrade, downgrade, or continue with your current plan. Every plan includes core POS, inventory, and sales. Downgrading never
             deletes data.
           </p>
-        </div>
-        {selfService && intervals.length > 1 && (
-          <div className="flex shrink-0 items-center gap-2">
-            <div role="group" aria-label="Billing period" className="inline-flex rounded-full border bg-card p-1 shadow-xs">
-              {intervals.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  aria-pressed={interval === option}
-                  onClick={() => setInterval(option)}
-                  className={cn(
-                    'min-h-9 rounded-full px-5 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    interval === option ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  {INTERVAL_OPTION[option]}
-                </button>
-              ))}
+          {intervals.length > 1 && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <div role="group" aria-label="Billing period" className="inline-flex rounded-full border bg-card p-1 shadow-xs">
+                {intervals.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-pressed={interval === option}
+                    onClick={() => setInterval(option)}
+                    className={cn(
+                      'min-h-9 rounded-full px-5 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      interval === option ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {INTERVAL_OPTION[option]}
+                  </button>
+                ))}
+              </div>
+              {bestSaving !== null && (
+                <span className="rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success-text">Save up to {bestSaving}% yearly</span>
+              )}
             </div>
-            {bestSaving !== null && <Badge variant="success">Save up to {bestSaving}%</Badge>}
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      <div className="space-y-4 p-4 sm:p-5">
-        {!selfService ? (
-          <p role="status" className="flex items-start gap-2 rounded-xl border bg-muted/40 p-3 text-sm">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-            <span>
-              Self-service plan changes are unavailable until the platform administrator publishes prices
-              {terms ? '' : ' and billing terms'}. Nothing is owed. You can still pay the administrator directly; they will record it for
-              you.
-            </span>
-          </p>
-        ) : (
-          <>
-            {intervals.length === 1 && <p className="text-sm text-muted-foreground">Billed {INTERVAL_OPTION[interval].toLowerCase()}.</p>}
-            {blocked && (
-              <p role="status" className="flex items-start gap-2 rounded-xl border bg-muted/40 p-3 text-sm">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                {blocked}
-              </p>
-            )}
-          </>
-        )}
+      <div className="space-y-5 p-4 sm:p-6">
+        {banner}
 
-        <ul className="grid gap-4 pt-2 md:grid-cols-3">
+        <ul className="grid gap-5 pt-3 md:grid-cols-2 xl:grid-cols-3">
           {PLAN_ORDER.map((id) => {
             const plan = PLANS[id];
-            const Icon = PLAN_ICON[id];
+            const theme = THEME[id];
+            const Icon = theme.icon;
+            const Decoration = theme.art;
             const pricing = planPricing(prices, id);
             const savePercent = annualSavingsPercent(pricing);
             const amount = interval === 'MONTHLY' ? pricing.monthly : pricing.annual;
             const badges = planCardBadges(id, { paidPlan, effectivePlan, onTrial });
-            const action: PlanAction = onTrial || !paidPlan ? 'CHOOSE' : planDirection(paidPlan, id);
+            const cta = planCtaKind(id, { paidPlan, effectivePlan, onTrial, priced: selfService && amount !== null });
+            const choose = (action: PlanAction) =>
+              amount !== null && setChoice({ plan: id, action, amount, savings: interval === 'ANNUAL' ? pricing.annualSavings : null });
+            const chip = badges.current ? 'Current plan' : badges.trial ? 'Your trial' : id === 'BUSINESS' ? null : theme.tag;
             return (
               <li
                 key={id}
                 aria-current={badges.current ? 'true' : undefined}
                 className={cn(
-                  'relative flex flex-col rounded-2xl border bg-card p-5 transition-shadow hover:shadow-md',
-                  badges.popular && 'border-2 border-primary/70 bg-gradient-to-b from-mint to-card shadow-md',
-                  badges.current && 'ring-2 ring-primary/40',
+                  'relative row-span-4 grid grid-rows-subgrid gap-y-4 rounded-3xl border p-5 transition-shadow duration-200 sm:p-6',
+                  theme.card,
+                  id === 'ENTERPRISE' && 'md:col-span-2 md:w-[calc(50%-0.625rem)] md:justify-self-center xl:col-span-1 xl:w-auto xl:justify-self-stretch',
                 )}
               >
+                <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]" aria-hidden="true">
+                  <Decoration className="absolute -bottom-2 -right-2 h-40 w-40 opacity-90" />
+                </div>
                 {badges.popular && (
-                  <span className="absolute -top-3 left-4 inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground shadow-sm">
+                  <span className="absolute -top-3.5 left-5 z-10 inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-md">
                     <Crown className="h-3.5 w-3.5" aria-hidden="true" /> Most popular
                   </span>
                 )}
 
-                <div className="flex items-start gap-3">
-                  <span
-                    className={cn(
-                      'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl',
-                      badges.popular ? 'bg-primary/15 text-primary' : 'bg-mint text-primary',
-                    )}
-                  >
-                    <Icon className="h-5 w-5" aria-hidden="true" />
+                {/* Row 1: identity */}
+                <div className="relative flex items-start gap-4">
+                  <span className={cn('flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl', theme.soft)}>
+                    <Icon className="h-7 w-7" aria-hidden="true" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-lg font-bold leading-tight">{plan.name}</h3>
-                      {badges.current ? <Badge>Current plan</Badge> : badges.trial ? <Badge>Your trial</Badge> : null}
+                    <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                      <h3 className="text-xl font-bold leading-tight">{plan.name}</h3>
+                      {chip && <span className={cn('rounded-full px-2.5 py-1 text-xs font-semibold', theme.soft)}>{chip}</span>}
                     </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{plan.description}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{plan.description}</p>
                   </div>
                 </div>
 
-                {selfService && (
-                  <div className="mt-4 min-h-[4.25rem]">
-                    {amount !== null ? (
-                      <>
-                        <p className="flex items-baseline gap-1">
-                          <span className="tabular text-3xl font-extrabold tracking-tight">{peso(amount)}</span>
-                          <span className="text-sm text-muted-foreground">/ {interval === 'MONTHLY' ? 'month' : 'year'}</span>
-                        </p>
-                        <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-                          {interval === 'MONTHLY' && pricing.annual !== null && <span className="tabular">or {peso(pricing.annual)} / year</span>}
-                          {interval === 'ANNUAL' && pricing.annualPerMonth !== null && (
-                            <span className="tabular">{peso(pricing.annualPerMonth)} a month, billed yearly</span>
-                          )}
-                          {savePercent !== null && <Badge variant="success">Save {savePercent}%</Badge>}
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Not offered {interval === 'MONTHLY' ? 'monthly' : 'yearly'}.</p>
-                    )}
-                  </div>
-                )}
+                {/* Row 2: price */}
+                <div className="relative">
+                  {amount !== null ? (
+                    <>
+                      <p className="flex items-baseline gap-1.5">
+                        <span className="tabular text-4xl font-extrabold tracking-tight">{peso(amount)}</span>
+                        <span className="text-base text-muted-foreground">/ {interval === 'MONTHLY' ? 'month' : 'year'}</span>
+                      </p>
+                      <p className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground">
+                        {interval === 'MONTHLY' && pricing.annual !== null && <span className="tabular">{peso(pricing.annual)} / year</span>}
+                        {interval === 'ANNUAL' && pricing.annualPerMonth !== null && (
+                          <span className="tabular">{peso(pricing.annualPerMonth)} a month, billed yearly</span>
+                        )}
+                        {savePercent !== null && (
+                          <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-semibold', theme.soft)}>Save {savePercent}%</span>
+                        )}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xl font-bold text-muted-foreground">
+                        {pricing.monthly === null && pricing.annual === null ? 'Pricing not yet available' : `Not offered ${INTERVAL_OPTION[interval].toLowerCase()}`}
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">Prices are set by the platform administrator.</p>
+                    </>
+                  )}
+                </div>
 
-                <ul className="mt-4 space-y-2 text-sm">
-                  {LIMIT_ROWS.map((row) => {
-                    const line = limitLine(plan.limits[row.key], row);
-                    return <FeatureLine key={row.key} included={line.included} text={line.text} />;
-                  })}
-                  {FEATURE_ROWS.map((feature) => (
-                    <FeatureLine key={feature} included={plan.features[feature]} text={FEATURE_LABEL[feature]} />
+                {/* Row 3: what it includes */}
+                <ul className="relative space-y-2.5 text-sm">
+                  {featureLines(id).map((line) => (
+                    <li key={line.text} className={cn('flex items-start gap-2.5', !line.included && 'text-muted-foreground')}>
+                      {line.included ? (
+                        <Check className={cn('mt-0.5 h-4 w-4 shrink-0', theme.check)} strokeWidth={3} aria-hidden="true" />
+                      ) : (
+                        <Minus className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      )}
+                      <span>
+                        {line.text}
+                        {!line.included && <span className="sr-only"> (not included)</span>}
+                      </span>
+                    </li>
                   ))}
-                  <FeatureLine
-                    included
-                    text={plan.auditHistoryDays === null ? 'Full audit history' : `${plan.auditHistoryDays}-day audit history`}
-                  />
                 </ul>
 
-                {selfService && canManage && (
-                  <Button
-                    className="mt-5 min-h-11 w-full"
-                    variant={badges.popular || action === 'UPGRADE' ? 'default' : 'outline'}
-                    disabled={amount === null || blocked !== null}
-                    onClick={() =>
-                      amount !== null && setChoice({ plan: id, action, amount, savings: interval === 'ANNUAL' ? pricing.annualSavings : null })
-                    }
-                  >
-                    {ACTION_VERB[action]} {plan.name}
-                  </Button>
-                )}
+                {/* Row 4: action */}
+                <div className="relative self-end">
+                  {cta === 'CURRENT' || cta === 'CURRENT_TRIAL' ? (
+                    <>
+                      <div className={cn('flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold shadow-sm', theme.fill)}>
+                        <Crown className="h-4 w-4" aria-hidden="true" />
+                        {cta === 'CURRENT' ? 'Current plan' : 'Current plan (Trial)'}
+                      </div>
+                      {canChoose && amount !== null && (
+                        <Button variant="link" className="mt-1 h-auto w-full py-1.5 text-xs" onClick={() => choose(cta === 'CURRENT' ? 'CURRENT' : 'CHOOSE')}>
+                          {cta === 'CURRENT' ? `Renew ${plan.name} early` : `Choose ${plan.name} to keep it after your trial`}
+                        </Button>
+                      )}
+                    </>
+                  ) : cta === 'UNAVAILABLE' ? (
+                    <Button variant="outline" disabled className="min-h-12 w-full rounded-xl bg-card/70">
+                      {selfService ? `Not offered ${INTERVAL_OPTION[interval].toLowerCase()}` : 'Not available yet'}
+                    </Button>
+                  ) : (
+                    <Button className={cn('min-h-12 w-full rounded-xl text-sm font-semibold', theme.fill, theme.hover)} disabled={!canChoose} onClick={() => choose(cta)}>
+                      {CTA_VERB[cta]} {plan.name}
+                      <ChevronRight aria-hidden="true" />
+                    </Button>
+                  )}
+                </div>
               </li>
             );
           })}
         </ul>
+
+        {blocked && <p className="text-center text-sm text-muted-foreground">{blocked}</p>}
       </div>
 
       {choice && terms && (
@@ -249,21 +330,5 @@ export function PlanCards(props: PlanCardsProps) {
         />
       )}
     </>
-  );
-}
-
-function FeatureLine({ included, text }: { included: boolean; text: string }) {
-  return (
-    <li className={cn('flex items-start gap-2.5', !included && 'text-muted-foreground')}>
-      {included ? (
-        <Check className="mt-0.5 h-4 w-4 shrink-0 text-success-text" strokeWidth={2.5} aria-hidden="true" />
-      ) : (
-        <Minus className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-      )}
-      <span>
-        {text}
-        {!included && <span className="sr-only"> (not included)</span>}
-      </span>
-    </li>
   );
 }

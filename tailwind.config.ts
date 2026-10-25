@@ -49,6 +49,18 @@ const config: Config = {
           DEFAULT: 'hsl(var(--info))',
           text: 'hsl(var(--info-text))',
         },
+        'plan-basic': {
+          DEFAULT: 'hsl(var(--plan-basic))',
+          text: 'hsl(var(--plan-basic-text))',
+          tint: 'hsl(var(--plan-basic-tint))',
+          border: 'hsl(var(--plan-basic-border))',
+        },
+        'plan-enterprise': {
+          DEFAULT: 'hsl(var(--plan-enterprise))',
+          text: 'hsl(var(--plan-enterprise-text))',
+          tint: 'hsl(var(--plan-enterprise-tint))',
+          border: 'hsl(var(--plan-enterprise-border))',
+        },
         mint: {
           DEFAULT: 'hsl(var(--mint))',
           strong: 'hsl(var(--mint-strong))',
