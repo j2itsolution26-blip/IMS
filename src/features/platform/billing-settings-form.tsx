@@ -9,7 +9,22 @@ import { Label } from '@/components/ui/label';
 import { PLANS, PLAN_ORDER, type PlanId } from '@/lib/plans';
 import { INTERVAL_LABEL, type BillingInterval } from '@/lib/billing';
 import { formatDateTime } from '@/lib/format';
-import { publishTermsAction, setPaymentInstructionsAction, setPlanPriceAction } from '@/features/platform/subscription-actions';
+import { Plus, Trash2 } from 'lucide-react';
+import { Switch } from '@/components/ui/misc';
+import {
+  MAX_PAYMENT_ACCOUNTS,
+  PAYMENT_ACCOUNT_KIND_LABEL,
+  formatGcashNumber,
+  validatePaymentAccounts,
+  type PaymentAccount,
+  type PaymentAccountKind,
+} from '@/lib/payment-accounts';
+import {
+  publishTermsAction,
+  setPaymentAccountsAction,
+  setPaymentInstructionsAction,
+  setPlanPriceAction,
+} from '@/features/platform/subscription-actions';
 
 const INTERVALS: BillingInterval[] = ['MONTHLY', 'ANNUAL'];
 
@@ -128,6 +143,150 @@ export function TermsForm({ current }: { current: { version: number; body: strin
   );
 }
 
+type AccountDraft = Omit<PaymentAccount, 'bankName' | 'note'> & { bankName: string; note: string };
+
+const toDraft = (account: PaymentAccount): AccountDraft => ({
+  ...account,
+  bankName: account.bankName ?? '',
+  note: account.note ?? '',
+  accountNumber: account.kind === 'GCASH' ? formatGcashNumber(account.accountNumber) : account.accountNumber,
+});
+
+const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `acct-${Date.now().toString(36)}`);
+
+/**
+ * The GCash and bank accounts owners pay into, shown to them as cards with
+ * copy buttons. Saved as one list; the server validates every field again.
+ */
+export function PaymentAccountsForm({ current }: { current: PaymentAccount[] }) {
+  const router = useRouter();
+  const [rows, setRows] = React.useState<AccountDraft[]>(() => current.map(toDraft));
+  const [errors, setErrors] = React.useState<Record<string, string>>({});
+  const [busy, setBusy] = React.useState(false);
+  const saved = React.useMemo(() => JSON.stringify(current.map(toDraft)), [current]);
+  const changed = JSON.stringify(rows) !== saved;
+
+  const update = (index: number, patch: Partial<AccountDraft>) => {
+    setRows((list) => list.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+    setErrors((existing) => Object.fromEntries(Object.entries(existing).filter(([key]) => !key.startsWith(`${index}.`) && key !== 'list')));
+  };
+  const add = (kind: PaymentAccountKind) =>
+    setRows((list) => [...list, { id: newId(), kind, bankName: '', accountName: '', accountNumber: '', note: '', enabled: true }]);
+  const remove = (index: number) => {
+    setRows((list) => list.filter((_, i) => i !== index));
+    setErrors({});
+  };
+
+  const save = async () => {
+    const payload = rows.map((row) => ({ ...row, bankName: row.kind === 'BANK_TRANSFER' ? row.bankName : null, note: row.note || null }));
+    const local = validatePaymentAccounts(payload);
+    if (!local.ok) {
+      setErrors(local.errors);
+      return;
+    }
+    setBusy(true);
+    const result = await setPaymentAccountsAction({ accounts: payload });
+    setBusy(false);
+    if (!result.ok) {
+      const fromServer = Object.fromEntries(
+        Object.entries(result.fieldErrors ?? {}).map(([key, messages]) => [key.replace(/^accounts\./, ''), messages[0]]),
+      );
+      setErrors({ list: result.error, ...fromServer });
+      return;
+    }
+    toast.success('Payment accounts saved.');
+    router.refresh();
+  };
+
+  const errorFor = (index: number, name: string) => errors[`${index}.${name}`];
+  const inputProps = (index: number, name: 'bankName' | 'accountName' | 'accountNumber' | 'note') => ({
+    id: `acct-${index}-${name}`,
+    value: rows[index][name],
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => update(index, { [name]: event.target.value }),
+    'aria-invalid': Boolean(errorFor(index, name)),
+    'aria-describedby': errorFor(index, name) ? `acct-${index}-${name}-error` : undefined,
+  });
+  const field = (index: number, name: string, label: string, input: React.ReactNode) => (
+    <div className="space-y-1">
+      <Label htmlFor={`acct-${index}-${name}`}>{label}</Label>
+      {input}
+      {errorFor(index, name) && (
+        <p id={`acct-${index}-${name}-error`} className="text-xs text-destructive-text">
+          {errorFor(index, name)}
+        </p>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-3 p-4">
+      <p className="text-sm text-muted-foreground">
+        Owners see each account marked &ldquo;Show to owners&rdquo; as a card with copy buttons, and can report a payment only with
+        those methods. Until one is shown, they can report any method. Check every number carefully: owners send money to it.
+      </p>
+
+      {rows.length === 0 && <p className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">No accounts yet.</p>}
+
+      <ul className="space-y-3">
+        {rows.map((row, index) => (
+          <li key={row.id} className="rounded-xl border p-3 sm:p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold">{PAYMENT_ACCOUNT_KIND_LABEL[row.kind]}</p>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={row.enabled} onCheckedChange={(value) => update(index, { enabled: value })} />
+                  Show to owners
+                </label>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => remove(index)}
+                  aria-label={`Remove ${PAYMENT_ACCOUNT_KIND_LABEL[row.kind]} account ${index + 1}`}
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {row.kind === 'BANK_TRANSFER' &&
+                field(index, 'bankName', 'Bank', <Input {...inputProps(index, 'bankName')} maxLength={60} placeholder="e.g. BDO, BPI" />)}
+              {field(index, 'accountName', 'Account name', <Input {...inputProps(index, 'accountName')} maxLength={80} autoComplete="off" />)}
+              {field(
+                index,
+                'accountNumber',
+                row.kind === 'GCASH' ? 'GCash number' : 'Account number',
+                <Input
+                  {...inputProps(index, 'accountNumber')}
+                  maxLength={row.kind === 'GCASH' ? 17 : 30}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder={row.kind === 'GCASH' ? '0917 123 4567' : undefined}
+                  className="font-mono"
+                />,
+              )}
+              {field(index, 'note', 'Note for owners (optional)', <Input {...inputProps(index, 'note')} maxLength={120} placeholder="e.g. Savings account" />)}
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {errors.list && <p className="text-sm text-destructive-text">{errors.list}</p>}
+
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={() => add('GCASH')} disabled={rows.length >= MAX_PAYMENT_ACCOUNTS}>
+          <Plus aria-hidden="true" /> Add GCash
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => add('BANK_TRANSFER')} disabled={rows.length >= MAX_PAYMENT_ACCOUNTS}>
+          <Plus aria-hidden="true" /> Add bank account
+        </Button>
+        <Button size="sm" className="ml-auto" onClick={save} loading={busy} disabled={!changed}>
+          Save accounts
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** What owners see under "How to pay" on an open invoice. */
 export function InstructionsForm({ current }: { current: string | null }) {
   const router = useRouter();
@@ -149,7 +308,8 @@ export function InstructionsForm({ current }: { current: string | null }) {
   return (
     <div className="space-y-3 p-4">
       <p className="text-sm text-muted-foreground">
-        For example the GCash number and account name, and bank, account name and number. Shown to owners with an open invoice.
+        Extra notes owners see with the payment accounts, e.g. cut-off times or what to put in the transfer message. Until payment
+        accounts are added above, write the GCash and bank details here.
       </p>
       <Label htmlFor="pay-instructions" className="sr-only">
         Payment instructions

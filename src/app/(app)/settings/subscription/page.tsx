@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/misc';
 import { auditHistoryStart, usageSummary } from '@/server/services/entitlements';
 import { billingBannerKind, billingSnapshot, invoiceDisplayStatus, paymentDisplayStatus, paymentState } from '@/lib/billing';
 import { getBillingConfig } from '@/server/platform/billing-service';
+import { reportableMethods } from '@/lib/payment-accounts';
 import { runBillingRemindersForStore } from '@/server/platform/billing-reminders';
 import { countMyActiveTickets } from '@/server/support/support-service';
 import { SubscriptionSummary } from '@/features/billing/subscription-summary';
@@ -214,6 +215,7 @@ export default async function SubscriptionPage() {
               suspended={suspended}
               paymentInstructions={config.paymentInstructions}
               invoice={openInvoiceInfo}
+              methods={reportableMethods(config.paymentAccounts)}
             />
           </Panel>
         )}

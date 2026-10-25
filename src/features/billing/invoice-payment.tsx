@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PLANS } from '@/lib/plans';
 import { BILLING_LABEL, INTERVAL_LABEL, type BillingFlag } from '@/lib/billing';
-import { PAYMENT_METHOD_LABEL } from '@/lib/subscription';
+import { PAYMENT_METHOD_LABEL, type PaymentMethod } from '@/lib/subscription';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { submitPaymentAction, withdrawInvoiceAction } from '@/features/billing/actions';
@@ -38,11 +38,14 @@ export function InvoicePayment({
   suspended,
   paymentInstructions,
   invoice,
+  methods,
 }: {
   canManage: boolean;
   suspended: boolean;
   paymentInstructions: string | null;
   invoice: OpenInvoiceInfo;
+  /** The methods a payment can be reported with (see `reportableMethods`); the server enforces the same list. */
+  methods: PaymentMethod[];
 }) {
   const router = useRouter();
   const [withdrawing, setWithdrawing] = React.useState(false);
@@ -122,7 +125,7 @@ export function InvoicePayment({
             This store is suspended, so payments cannot be reported here. Contact support.
           </p>
         ) : canManage ? (
-          <SubmitPaymentForm invoiceId={invoice.id} />
+          <SubmitPaymentForm invoiceId={invoice.id} methods={methods} />
         ) : (
           <p className="rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">Only the store owner can report a payment.</p>
         )}
@@ -148,10 +151,15 @@ export function InvoicePayment({
   );
 }
 
-function SubmitPaymentForm({ invoiceId }: { invoiceId: string }) {
+function SubmitPaymentForm({ invoiceId, methods }: { invoiceId: string; methods: PaymentMethod[] }) {
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
-  const [form, setForm] = React.useState({ method: 'GCASH', reference: '', paidAt: today, notes: '' });
+  const [form, setForm] = React.useState<{ method: string; reference: string; paidAt: string; notes: string }>({
+    method: methods[0] ?? 'GCASH',
+    reference: '',
+    paidAt: today,
+    notes: '',
+  });
   const [errors, setErrors] = React.useState<Record<string, string[] | undefined>>({});
   const [formError, setFormError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -194,9 +202,9 @@ function SubmitPaymentForm({ invoiceId }: { invoiceId: string }) {
         <div className="space-y-1.5">
           <Label htmlFor="pay-method">Method</Label>
           <select id="pay-method" className={fieldClass} value={form.method} onChange={set('method')}>
-            {Object.entries(PAYMENT_METHOD_LABEL).map(([value, label]) => (
+            {methods.map((value) => (
               <option key={value} value={value}>
-                {label}
+                {PAYMENT_METHOD_LABEL[value]}
               </option>
             ))}
           </select>

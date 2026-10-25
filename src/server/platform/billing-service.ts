@@ -9,6 +9,7 @@ import { PLANS } from '@/lib/plans';
 import { INTERVAL_LABEL, INTERVAL_MONTHS, formatInvoiceNumber, invoicePeriod } from '@/lib/billing';
 import { PAYMENT_METHOD_LABEL, normalizeReference } from '@/lib/subscription';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { parseStoredPaymentAccounts, reportableMethods, validatePaymentAccounts, type PaymentAccount } from '@/lib/payment-accounts';
 import { syncLimits } from '@/server/platform/store-setup';
 import { TX, audit, iso, lockStore, snapshot, type Actor, type Tx } from '@/server/platform/subscription-service';
 import { raisePlatformNotification, type NewPlatformNotification } from '@/server/platform/platform-notification-service';
@@ -32,6 +33,8 @@ import { platformNotificationKey } from '@/lib/notifications';
  */
 
 export const PAYMENT_INSTRUCTIONS_KEY = 'billing.paymentInstructions';
+/** The GCash and bank accounts owners pay into, as validated JSON (see lib/payment-accounts). */
+export const PAYMENT_ACCOUNTS_KEY = 'billing.paymentAccounts';
 
 const money = (amount: Prisma.Decimal | number) => formatCurrency(Number(amount), 'PHP');
 
@@ -41,19 +44,26 @@ export interface BillingConfig {
   prices: { plan: StorePlan; interval: BillingInterval; amount: number; currency: string }[];
   terms: { version: number; body: string; createdAt: Date } | null;
   paymentInstructions: string | null;
+  /** Every listed account, enabled or not. Owners must only be shown the enabled ones. */
+  paymentAccounts: PaymentAccount[];
 }
 
 /** Everything an owner needs to choose a plan. Missing pieces stay null or empty — nothing is assumed. */
 export async function getBillingConfig(): Promise<BillingConfig> {
-  const [prices, terms, instructions] = await Promise.all([
+  const [prices, terms, settings] = await Promise.all([
     platformPrisma.planPrice.findMany({ select: { plan: true, interval: true, amount: true, currency: true } }),
     platformPrisma.billingTerms.findFirst({ orderBy: { version: 'desc' }, select: { version: true, body: true, createdAt: true } }),
-    platformPrisma.platformSetting.findUnique({ where: { key: PAYMENT_INSTRUCTIONS_KEY }, select: { value: true } }),
+    platformPrisma.platformSetting.findMany({
+      where: { key: { in: [PAYMENT_INSTRUCTIONS_KEY, PAYMENT_ACCOUNTS_KEY] } },
+      select: { key: true, value: true },
+    }),
   ]);
+  const setting = (key: string) => settings.find((row) => row.key === key)?.value ?? null;
   return {
     prices: prices.map((price) => ({ ...price, amount: Number(price.amount) })),
     terms,
-    paymentInstructions: instructions?.value.trim() || null,
+    paymentInstructions: setting(PAYMENT_INSTRUCTIONS_KEY)?.trim() || null,
+    paymentAccounts: parseStoredPaymentAccounts(setting(PAYMENT_ACCOUNTS_KEY)),
   };
 }
 
@@ -130,6 +140,37 @@ export async function setPaymentInstructions(actor: Actor, input: { value: strin
     });
     await platformAudit(tx, actor, value ? 'Updated the payment instructions' : 'Cleared the payment instructions', {});
   }, TX);
+}
+
+/**
+ * Replaces the list of accounts owners pay into. The whole list is validated
+ * again here, whatever the form checked. The audit entry names each account
+ * by kind and the last four digits only.
+ */
+export async function setPaymentAccounts(actor: Actor, input: { accounts: unknown }): Promise<{ count: number }> {
+  const result = validatePaymentAccounts(input.accounts);
+  if (!result.ok) {
+    const fieldErrors = Object.fromEntries(Object.entries(result.errors).map(([key, message]) => [`accounts.${key}`, [message]]));
+    throw new ValidationError(result.errors.list ?? 'Please correct the highlighted fields.', fieldErrors);
+  }
+  const { accounts } = result;
+  const value = JSON.stringify(accounts);
+  await platformPrisma.$transaction(async (tx) => {
+    const before = await tx.platformSetting.findUnique({ where: { key: PAYMENT_ACCOUNTS_KEY }, select: { value: true } });
+    if ((before?.value ?? '[]') === value) throw new ConflictError('Nothing changed.');
+    await tx.platformSetting.upsert({
+      where: { key: PAYMENT_ACCOUNTS_KEY },
+      create: { key: PAYMENT_ACCOUNTS_KEY, value, updatedById: actor.id },
+      update: { value, updatedById: actor.id },
+    });
+    const describe = (list: PaymentAccount[]) =>
+      list.map((account) => `${PAYMENT_METHOD_LABEL[account.kind]} ••••${account.accountNumber.replace(/\D/g, '').slice(-4)}${account.enabled ? '' : ' (hidden)'}`);
+    await platformAudit(tx, actor, `Updated the payment accounts (${accounts.filter((account) => account.enabled).length} shown to owners)`, {
+      before: describe(parseStoredPaymentAccounts(before?.value)),
+      after: describe(accounts),
+    });
+  }, TX);
+  return { count: accounts.length };
 }
 
 // --- Owner: choose a plan, submit a payment ------------------------------------
@@ -332,6 +373,13 @@ export async function submitPayment(owner: Owner, input: PaymentSubmission, now 
       });
       if (!invoice) throw new NotFoundError('Invoice');
       if (invoice.status !== 'OPEN') throw new ConflictError('This invoice is already closed.');
+      // Only the methods the administrator lists (all of them until any are listed).
+      const accountsRow = await tx.platformSetting.findUnique({ where: { key: PAYMENT_ACCOUNTS_KEY }, select: { value: true } });
+      if (!reportableMethods(parseStoredPaymentAccounts(accountsRow?.value)).includes(input.method)) {
+        throw new ValidationError('That payment method is not accepted. Pay to one of the listed accounts.', {
+          method: ['Choose one of the listed payment methods.'],
+        });
+      }
       if (invoice.payments.length > 0) throw new ConflictError('A payment for this invoice is already awaiting verification.');
 
       const payment = await tx.subscriptionPayment.create({

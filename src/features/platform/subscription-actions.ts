@@ -21,6 +21,7 @@ import {
 import {
   publishTerms,
   rejectPayment,
+  setPaymentAccounts,
   setPaymentInstructions,
   setPlanPrice,
   verifyPayment,
@@ -231,6 +232,18 @@ export async function setPaymentInstructionsAction(input: unknown): Promise<Acti
     const values = parseInput(instructionsSchema, input);
     await setPaymentInstructions(actor, values);
     refreshBilling();
+  });
+}
+
+// The list is validated field by field in the service (lib/payment-accounts); here only its outer shape.
+const accountsSchema = z.object({ accounts: z.array(z.unknown()).max(20) });
+export async function setPaymentAccountsAction(input: unknown): Promise<ActionResult<{ count: number }>> {
+  return runAction(async () => {
+    const actor = await requireManager('change the payment accounts');
+    const values = parseInput(accountsSchema, input);
+    const result = await setPaymentAccounts(actor, values);
+    refreshBilling();
+    return result;
   });
 }
 

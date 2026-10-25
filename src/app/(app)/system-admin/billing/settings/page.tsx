@@ -3,7 +3,7 @@ import { requirePermission } from '@/lib/session';
 import { getBillingConfig } from '@/server/platform/billing-service';
 import { PageHeader } from '@/components/page-header';
 import { Panel } from '@/components/panel';
-import { InstructionsForm, PriceGrid, TermsForm } from '@/features/platform/billing-settings-form';
+import { InstructionsForm, PaymentAccountsForm, PriceGrid, TermsForm } from '@/features/platform/billing-settings-form';
 
 export const metadata: Metadata = { title: 'Billing settings' };
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,10 @@ export default async function BillingSettingsPage() {
             current={config.terms ? { ...config.terms, createdAt: config.terms.createdAt.toISOString() } : null}
           />
         </Panel>
-        <Panel title="Payment instructions">
+        <Panel title="Payment accounts" description="Where owners send their payment. Shown to owners as cards they can copy from.">
+          <PaymentAccountsForm current={config.paymentAccounts} />
+        </Panel>
+        <Panel title="Payment instructions" description="Additional notes shown with the accounts.">
           <InstructionsForm current={config.paymentInstructions} />
         </Panel>
       </div>
