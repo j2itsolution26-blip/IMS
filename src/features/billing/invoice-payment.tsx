@@ -40,7 +40,7 @@ import { cn } from '@/lib/utils';
 import { submitPaymentAction, withdrawInvoiceAction } from '@/features/billing/actions';
 import { InvoiceStatusBadge } from '@/features/billing/status-badges';
 import { InvoiceDetail } from '@/features/billing/invoices-table';
-import { THEME, featureLines } from '@/features/billing/plan-cards';
+import { THEME, featureLines } from '@/features/billing/plan-card';
 import type { CheckoutAccount, InvoiceRow, OpenInvoiceInfo } from '@/features/billing/types';
 
 const peso = (amount: number) => formatCurrency(amount, 'PHP');

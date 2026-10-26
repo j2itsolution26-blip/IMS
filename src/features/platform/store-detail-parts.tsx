@@ -1,23 +1,12 @@
 import * as React from 'react';
-import {
-  Building2,
-  CalendarClock,
-  Check,
-  CreditCard,
-  FileText,
-  Gem,
-  Minus,
-  Package,
-  Receipt,
-  RefreshCcw,
-  Users,
-  type LucideIcon,
-} from 'lucide-react';
+import Link from 'next/link';
+import { Building2, CalendarClock, CreditCard, FileText, Gem, Package, Receipt, RefreshCcw, type LucideIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/misc';
 import { METER_HINT, METER_LABEL } from '@/features/subscription/plan-display';
-import { usageLevel } from '@/lib/billing';
-import { FEATURE_LABEL, PLANS, PLAN_ORDER, type Feature, type LimitKey, type PlanId } from '@/lib/plans';
+import { PlanCard, PlanCardGrid, PlanCardPill, THEME } from '@/features/billing/plan-card';
+import { planCardBadges, planPricing, usageLevel, type BillingInterval } from '@/lib/billing';
+import { PLANS, PLAN_ORDER, type LimitKey, type PlanId } from '@/lib/plans';
 import { ACTOR_ROLE_LABEL, historyKind, type ActorRole, type DisplayTone, type HistoryKind } from '@/lib/store-detail-display';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -114,90 +103,79 @@ export function ToneBadge({ tone, children, className }: { tone: DisplayTone; ch
 
 // --- Plans ---------------------------------------------------------------------
 
-const PLAN_STYLE: Record<PlanId, { icon: LucideIcon; tile: string; check: string; ring: string; badge: string }> = {
-  BASIC: { icon: Package, tile: 'bg-plan-basic/10 text-plan-basic-text', check: 'text-plan-basic-text', ring: 'ring-plan-basic/50 border-plan-basic/50', badge: 'bg-plan-basic text-white' },
-  BUSINESS: { icon: Users, tile: 'bg-primary/10 text-primary', check: 'text-success-text', ring: 'ring-primary/50 border-primary/60', badge: 'bg-primary text-primary-foreground' },
-  ENTERPRISE: { icon: Gem, tile: 'bg-plan-enterprise/10 text-plan-enterprise-text', check: 'text-plan-enterprise-text', ring: 'ring-plan-enterprise/50 border-plan-enterprise/50', badge: 'bg-plan-enterprise text-white' },
-};
-
-/** The plan's name as a coloured pill, in its own identity. */
+/** The plan's name as a coloured pill, in the same identity as the plan cards. */
 export function PlanBadge({ plan, className }: { plan: PlanId; className?: string }) {
-  const Icon = PLAN_STYLE[plan].icon;
+  const Icon = THEME[plan].icon;
   return (
-    <span className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold', PLAN_STYLE[plan].badge, className)}>
+    <span className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold', THEME[plan].fill, className)}>
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
       {PLANS[plan].name}
     </span>
   );
 }
 
-const LIMIT_ROWS: { key: LimitKey; label: string }[] = [
-  { key: 'branches', label: 'Branches' },
-  { key: 'staff', label: 'Staff accounts' },
-  { key: 'products', label: 'Products' },
-  { key: 'backgroundRemovalsPerMonth', label: 'Background removals / month' },
-];
-const FEATURE_ROWS: Feature[] = ['reportExports', 'customRoles'];
-
-/** Basic / Business / Enterprise side by side, read-only, from the plan configuration. */
-export function PlanCardsReadOnly({ current }: { current: PlanId }) {
+/**
+ * The plans as the owner sees them — the same shared card — with the
+ * store's plan in effect marked. Read-only: no purchase actions. Plan
+ * changes stay with the header's Change plan control, prices with Billing
+ * settings.
+ */
+export function AdminPlanCards({
+  prices,
+  effectivePlan,
+  paidPlan,
+  onTrial,
+  canManage,
+}: {
+  prices: { plan: PlanId; interval: BillingInterval; amount: number }[];
+  /** The plan in force for this store (the trial plan during a trial). */
+  effectivePlan: PlanId;
+  /** The plan the store bought; null during a trial. */
+  paidPlan: PlanId | null;
+  onTrial: boolean;
+  canManage: boolean;
+}) {
+  const interval: BillingInterval = prices.some((price) => price.interval === 'MONTHLY' && price.amount > 0) || !prices.some((price) => price.amount > 0) ? 'MONTHLY' : 'ANNUAL';
   return (
-    <ul className="grid gap-4 p-4 sm:p-5 md:grid-cols-3">
-      {PLAN_ORDER.map((id) => {
-        const plan = PLANS[id];
-        const style = PLAN_STYLE[id];
-        const Icon = style.icon;
-        const isCurrent = id === current;
-        return (
-          <li
-            key={id}
-            aria-current={isCurrent ? 'true' : undefined}
-            className={cn('flex flex-col rounded-2xl border bg-card p-4 transition-shadow hover:shadow-md', isCurrent && cn('ring-2', style.ring))}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <span className={cn('flex h-9 w-9 items-center justify-center rounded-lg', style.tile)}>
-                  <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
-                </span>
-                <h3 className="font-semibold">{plan.name}</h3>
-              </div>
-              {isCurrent && <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-semibold', style.badge)}>Current plan</span>}
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">{plan.description}</p>
-            <dl className="mt-3 space-y-1.5 border-t pt-3 text-sm">
-              {LIMIT_ROWS.map((row) => {
-                const value = plan.limits[row.key];
-                return (
-                  <div key={row.key} className="flex items-baseline justify-between gap-3">
-                    <dt className="text-muted-foreground">{row.label}</dt>
-                    <dd className={cn('tabular-nums font-medium', value === 0 && 'text-muted-foreground')}>
-                      {value === null ? 'Unlimited' : value === 0 ? 'None' : formatNumber(value, 0)}
-                    </dd>
-                  </div>
-                );
-              })}
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="text-muted-foreground">Audit history</dt>
-                <dd className="font-medium">{plan.auditHistoryDays === null ? 'Full' : `${plan.auditHistoryDays} days`}</dd>
-              </div>
-            </dl>
-            <ul className="mt-3 space-y-1 text-sm">
-              {FEATURE_ROWS.map((feature) => (
-                <li key={feature} className={cn('flex items-center gap-2', !plan.features[feature] && 'text-muted-foreground')}>
-                  {plan.features[feature] ? (
-                    <Check className={cn('h-4 w-4', style.check)} strokeWidth={3} aria-hidden="true" />
-                  ) : (
-                    <Minus className="h-4 w-4" aria-hidden="true" />
-                  )}
-                  {FEATURE_LABEL[feature]}
-                  <span className="sr-only">{plan.features[feature] ? ': included' : ': not included'}</span>
-                </li>
-              ))}
-            </ul>
-          </li>
-        );
-      })}
-    </ul>
+    <div className="space-y-4 p-4 sm:p-6">
+      <PlanCardGrid>
+        {PLAN_ORDER.map((id) => {
+          const badges = planCardBadges(id, { paidPlan, effectivePlan, onTrial });
+          const inEffect = id === effectivePlan;
+          return (
+            <PlanCard
+              key={id}
+              plan={id}
+              pricing={planPricing(prices, id)}
+              interval={interval}
+              chip={inEffect ? (onTrial ? 'Trial plan' : 'Plan in effect') : id === 'BUSINESS' ? null : THEME[id].tag}
+              popular={badges.popular}
+              current={inEffect}
+              action={
+                inEffect ? (
+                  <PlanCardPill plan={id}>{onTrial ? 'Plan in effect (Trial)' : 'Plan in effect'}</PlanCardPill>
+                ) : (
+                  <p className="flex min-h-12 items-center justify-center rounded-xl border border-dashed bg-card/60 px-4 text-center text-xs text-muted-foreground">
+                    {paidPlan === id ? 'Bought, not in effect' : 'Not this store’s plan'}
+                  </p>
+                )
+              }
+            />
+          );
+        })}
+      </PlanCardGrid>
+      <p className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>Limits and features come from the plan configuration; prices from Billing settings.</span>
+        {canManage && (
+          <span className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>To move this store, use Change plan at the top of the page.</span>
+            <Link href="/system-admin/billing/settings" className="font-semibold text-primary hover:underline">
+              Manage prices
+            </Link>
+          </span>
+        )}
+      </p>
+    </div>
   );
 }
 

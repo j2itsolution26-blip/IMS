@@ -14,10 +14,11 @@ import { StoreControls, VoidPaymentButton } from '@/features/platform/store-subs
 import { usagePeriod } from '@/server/services/entitlements';
 import { VoidInvoiceButton } from '@/features/platform/billing-queue';
 import { INTERVAL_LABEL } from '@/lib/billing';
+import { getBillingConfig } from '@/server/platform/billing-service';
 import {
   HistoryTimeline,
   PlanBadge,
-  PlanCardsReadOnly,
+  AdminPlanCards,
   SECTION_ICON,
   SectionCard,
   SectionEmpty,
@@ -44,7 +45,7 @@ const TONE_TEXT = {
 export default async function StoreDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const admin = await requirePermission('platform.view');
   const { id } = await params;
-  const detail = await getStoreDetail(id, usagePeriod());
+  const [detail, config] = await Promise.all([getStoreDetail(id, usagePeriod()), getBillingConfig()]);
   if (!detail) notFound();
 
   const { store, usage, payments, invoices, history } = detail;
@@ -420,7 +421,13 @@ export default async function StoreDetailPage({ params }: { params: Promise<{ id
         </SectionCard>
 
         <SectionCard section="plans" icon={SECTION_ICON.plans} title="Plans" description="What each plan allows. The store's plan in effect is highlighted." className="lg:col-span-3">
-          <PlanCardsReadOnly current={access.plan.id} />
+          <AdminPlanCards
+            prices={config.prices}
+            effectivePlan={access.plan.id}
+            paidPlan={store.status === 'TRIAL' ? null : store.plan}
+            onTrial={store.status === 'TRIAL'}
+            canManage={canManage}
+          />
         </SectionCard>
       </div>
     </>
