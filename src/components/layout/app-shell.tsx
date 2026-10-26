@@ -20,6 +20,8 @@ interface AppShellProps {
   lowStockCount: number;
   /** Unread support replies (store accounts) or tickets awaiting an answer (administrators). */
   supportCount: number;
+  /** Owner payments awaiting verification (administrators only). */
+  paymentsCount: number;
   companyName: string;
   user?: UserInfo;
   userSlot: React.ReactNode;
@@ -40,6 +42,7 @@ export function AppShell({
   permissions,
   lowStockCount,
   supportCount,
+  paymentsCount,
   companyName,
   user,
   userSlot,
@@ -90,6 +93,7 @@ export function AppShell({
         permissions={permissions}
         lowStockCount={lowStockCount}
         supportCount={supportCount}
+        paymentsCount={paymentsCount}
         companyName={companyName}
         user={user}
         open={sidebarOpen}

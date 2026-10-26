@@ -28,7 +28,7 @@ import {
 import { getBillingConfig } from '@/server/platform/billing-service';
 import { runBillingReminders } from '@/server/platform/billing-reminders';
 import { KpiCard } from '@/components/kpi-card';
-import { Panel, PanelEmpty } from '@/components/panel';
+import { Panel, PanelEmpty, PanelLink } from '@/components/panel';
 import { PeriodPicker } from '@/components/period-picker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -167,7 +167,8 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
           value={formatNumber(pending.length, 0)}
           icon={Wallet}
           tone={pending.length > 0 ? 'warning' : 'default'}
-          hint="Reported by owners"
+          hint="Submitted by owners"
+          footer={{ label: 'Payment verification', href: '/system-admin/payments' }}
         />
         <KpiCard
           label="Past due"
@@ -196,6 +197,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
           title="Payments to verify"
           description="Check the money arrived before verifying. Oldest first."
           className="xl:col-span-2"
+          action={<PanelLink href="/system-admin/payments">Review with receipts</PanelLink>}
         >
           {pending.length === 0 ? (
             <PanelEmpty icon={Wallet} title="Nothing to verify" description="Payments owners report will wait here for your check." />

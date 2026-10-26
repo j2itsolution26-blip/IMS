@@ -227,8 +227,8 @@ test('navigation: store roles see Support, administrators see the Support inbox,
     }
   }
   const support = NAVIGATION.flatMap((s) => s.items).find((item) => item.label === 'Support') as NavLink;
-  assert.equal(navBadgeCount(support, { lowStock: 4, support: 2 }), 2);
-  assert.equal(navBadgeCount({ ...support, badge: undefined }, { lowStock: 4, support: 2 }), 0);
+  assert.equal(navBadgeCount(support, { lowStock: 4, support: 2, payments: 3 }), 2);
+  assert.equal(navBadgeCount({ ...support, badge: undefined }, { lowStock: 4, support: 2, payments: 3 }), 0);
 });
 
 test('a suspended store can still reach its support pages, and only those', () => {

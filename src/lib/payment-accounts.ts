@@ -1,4 +1,5 @@
 import type { PaymentMethod } from './subscription';
+import { isQrPath } from './billing-files';
 
 /**
  * The accounts owners pay their subscription into: GCash numbers and bank
@@ -28,6 +29,12 @@ export interface PaymentAccount {
   /** A short line owners see under the account, e.g. "Savings account, BGC branch". */
   note: string | null;
   enabled: boolean;
+  /**
+   * The GCash QR code image in the private billing bucket; null for a bank
+   * account, or until one is uploaded. Set only by the QR upload on the
+   * server — saving the list keeps the stored value, whatever the form sends.
+   */
+  qrPath: string | null;
 }
 
 export const MAX_PAYMENT_ACCOUNTS = 6;
@@ -114,8 +121,11 @@ export function validatePaymentAccounts(input: unknown): PaymentAccountsResult {
       else seen.set(key, index);
     }
 
+    // Only a well-formed QR path on a GCash account is kept; anything else is dropped, never trusted.
+    const qrPath = kind === 'GCASH' && typeof row.qrPath === 'string' && isQrPath(row.qrPath) ? row.qrPath : null;
+
     if (id && kind) {
-      accounts.push({ id, kind, bankName, accountName, accountNumber, note, enabled: row.enabled === true });
+      accounts.push({ id, kind, bankName, accountName, accountNumber, note, enabled: row.enabled === true, qrPath });
     }
   });
 
@@ -139,13 +149,46 @@ export function parseStoredPaymentAccounts(raw: string | null | undefined): Paym
 }
 
 /**
- * The methods an owner may report a payment with. Once the administrator
- * lists enabled accounts, only those kinds; while none are enabled, every
- * method the app has always accepted — an owner is never left unable to
- * report a payment.
+ * The accounts an owner can actually pay into: enabled, and for GCash with
+ * its QR code uploaded. Anything less is an unusable payment instruction.
+ */
+export function checkoutAccounts(accounts: PaymentAccount[]): PaymentAccount[] {
+  return accounts.filter((account) => account.enabled && (account.kind !== 'GCASH' || account.qrPath !== null));
+}
+
+/**
+ * The methods an owner may report a payment with: the kinds of the usable
+ * accounts. None while nothing is usable — checkout stays closed rather than
+ * accepting a payment to nowhere.
  */
 export function reportableMethods(accounts: PaymentAccount[]): PaymentMethod[] {
-  const enabled = accounts.filter((account) => account.enabled);
-  if (enabled.length === 0) return ['GCASH', 'BANK_TRANSFER', 'OTHER'];
-  return PAYMENT_ACCOUNT_KINDS.filter((kind) => enabled.some((account) => account.kind === kind));
+  const usable = checkoutAccounts(accounts);
+  return PAYMENT_ACCOUNT_KINDS.filter((kind) => usable.some((account) => account.kind === kind));
+}
+
+/** What keeps checkout closed or incomplete, for the administrator's settings page. */
+export function checkoutProblems(accounts: PaymentAccount[]): string[] {
+  const problems: string[] = [];
+  for (const account of accounts) {
+    if (account.enabled && account.kind === 'GCASH' && !account.qrPath) {
+      problems.push(`GCash ${formatGcashNumber(account.accountNumber)} is hidden from owners until its QR code is uploaded.`);
+    }
+  }
+  if (checkoutAccounts(accounts).length === 0) {
+    problems.unshift('Owners cannot pay yet: add an enabled GCash account with its QR code, or an enabled bank account.');
+  }
+  return problems;
+}
+
+/**
+ * The list an administrator saves, with each account's QR code taken from
+ * what is stored for the same account id — never from the form — so a saved
+ * list can never point an account at another file.
+ */
+export function keepStoredQrPaths(accounts: PaymentAccount[], stored: PaymentAccount[]): PaymentAccount[] {
+  const byId = new Map(stored.map((account) => [account.id, account]));
+  return accounts.map((account) => {
+    const before = byId.get(account.id);
+    return { ...account, qrPath: account.kind === 'GCASH' && before?.kind === 'GCASH' ? before.qrPath : null };
+  });
 }

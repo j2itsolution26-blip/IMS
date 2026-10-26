@@ -100,6 +100,11 @@ export function ChangePlanDialog({
       : action === 'DOWNGRADE'
         ? `Nothing changes until the payment is verified. Then ${name}'s lower limits apply straight away, including for days left on your current period, and your paid time runs to ${formatDate(period.periodEnd)}. Nothing is deleted: records over a limit stay, but no more can be added.`
         : `Nothing changes until the payment is verified. Then ${name} applies straight away, and your paid time runs to ${formatDate(period.periodEnd)}.`;
+  // A lapsed store's paid time starts when the payment is verified, not when the invoice is issued.
+  const running =
+    (subscription.status === 'TRIAL' && subscription.trialEndsAt && new Date(subscription.trialEndsAt).getTime() > Date.now()) ||
+    (subscription.status === 'ACTIVE' && subscription.currentPeriodEnd && new Date(subscription.currentPeriodEnd).getTime() > Date.now());
+  const lapsedNote = running ? null : 'Your paid time is counted from the day your payment is verified, so a late verification never costs you days.';
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
@@ -155,6 +160,7 @@ export function ChangePlanDialog({
             The full {INTERVAL_LABEL[interval].toLowerCase()} price applies; there is no proration or credit for time left on your current plan. Dates are a
             preview and are confirmed when the invoice is issued.
           </p>
+          {lapsedNote && <p className="pl-6 text-xs text-muted-foreground">{lapsedNote}</p>}
         </div>
 
         {differences.length > 0 && (

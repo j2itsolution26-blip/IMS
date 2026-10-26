@@ -18,10 +18,11 @@ import {
   Tags,
   Users,
   Wallet,
+  ReceiptText,
 } from 'lucide-react';
 import { FINANCIAL_PERMISSION, type PermissionKey } from '@/lib/permissions';
 
-export type NavBadge = 'lowStock' | 'support';
+export type NavBadge = 'lowStock' | 'support' | 'payments';
 export type NavBadgeCounts = Record<NavBadge, number>;
 
 /** The count a link shows; zero shows nothing. */
@@ -34,7 +35,7 @@ export interface NavLink {
   href: string;
   icon: LucideIcon;
   permission: PermissionKey;
-  /** Renders a live count next to the item: low stock, or support (unread replies / tickets awaiting an answer). */
+  /** Renders a live count next to the item: low stock, support (unread replies / tickets awaiting an answer), or payments awaiting verification. */
   badge?: NavBadge;
   /** Exact match only — stops `/settings` lighting up while on `/settings/users`. */
   exact?: boolean;
@@ -105,6 +106,7 @@ export const NAVIGATION: NavSection[] = [
       { label: 'Overview', href: '/system-admin', icon: ShieldCheck, permission: 'platform.view', exact: true },
       { label: 'Stores', href: '/system-admin/stores', icon: Store, permission: 'platform.view' },
       { label: 'Billing', href: '/system-admin/billing', icon: CreditCard, permission: 'platform.view' },
+      { label: 'Payment verification', href: '/system-admin/payments', icon: ReceiptText, permission: 'platform.view', badge: 'payments' },
       { label: 'Support inbox', href: '/system-admin/support', icon: Inbox, permission: 'platform.view', badge: 'support' },
       { label: 'Owner accounts', href: '/system-admin/owners', icon: Users, permission: 'platform.view' },
       { label: 'Audit log', href: '/system-admin/audit', icon: ScrollText, permission: 'platform.view' },

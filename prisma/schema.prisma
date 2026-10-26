@@ -44,8 +44,8 @@ model Store {
   ownerId String? @unique
   owner   User?   @relation("StoreOwner", fields: [ownerId], references: [id], onDelete: SetNull)
 
-  plan             StorePlan   @default(BASIC)
-  status           StoreStatus @default(TRIAL)
+  plan             StorePlan        @default(BASIC)
+  status           StoreStatus      @default(TRIAL)
   trialEndsAt      DateTime?
   currentPeriodEnd DateTime?
   // The interval of the paid period in force, set when a payment for an
@@ -58,7 +58,7 @@ model Store {
   productLimit Int?
   staffLimit   Int?
 
-  members               User[]                 @relation("StoreMembers")
+  members               User[]                       @relation("StoreMembers")
   roles                 Role[]
   categories            Category[]
   products              Product[]
@@ -79,6 +79,7 @@ model Store {
   settings              Setting[]
   usage                 StoreUsage[]
   subscriptionPayments  SubscriptionPayment[]
+  paymentReceipts       SubscriptionPaymentReceipt[]
   invoices              Invoice[]
   supportTickets        SupportTicket[]
 
@@ -146,10 +147,14 @@ model SubscriptionPayment {
   currency    String                    @default("PHP")
   method      SubscriptionPaymentMethod
   // The GCash or bank reference, normalised (trimmed, uppercase, no spaces):
-  // the same transfer can never be recorded twice.
+  // the same transfer can never be recorded twice. Unique per method among
+  // payments that were not rejected (partial index, migration
+  // 20261101090000), so corrected proof may repeat a rejected reference.
   reference   String
   paidAt      DateTime
-  // The subscription time this payment bought.
+  // The subscription time this payment bought. For an owner-submitted
+  // payment the period is the invoice's until it is verified, then the
+  // period actually bought from that moment (set in the same update).
   months      Int
   periodStart DateTime
   periodEnd   DateTime
@@ -178,13 +183,45 @@ model SubscriptionPayment {
   rejectedBy   User?                     @relation("PaymentRejectedBy", fields: [rejectedById], references: [id], onDelete: Restrict)
   rejectReason String?
 
+  // The owner's proof of payment. Required for every owner submission from
+  // migration 20261101090000 on (deferred trigger); manual payments have none.
+  receipt SubscriptionPaymentReceipt?
+
   createdAt DateTime @default(now())
 
-  @@unique([method, reference])
   @@index([status])
   @@index([invoiceId])
   @@index([storeId, createdAt])
   @@map("subscription_payments")
+}
+
+// A receipt or screenshot an owner uploaded as proof of one payment. The file
+// lives in a private bucket under a random name and is handed out only as a
+// short-lived signed link, to that store's owner or a platform administrator.
+// Append-only (trigger): a correction is a new payment with a new receipt.
+// Reached only through the billing service (MODEL_SCOPES: denied).
+model SubscriptionPaymentReceipt {
+  id           String              @id @default(cuid())
+  paymentId    String              @unique
+  payment      SubscriptionPayment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  storeId      String
+  store        Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  // Path inside the private bucket; a random name, never the uploaded one.
+  storagePath  String              @unique
+  originalName String
+  // Taken from the file's own bytes, not from the browser.
+  mimeType     String
+  sizeBytes    Int
+  // Lets the administrator see when the same image was sent for two payments.
+  sha256       String
+  uploadedById String
+  uploadedBy   User                @relation("PaymentReceiptUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@index([storeId, createdAt])
+  @@index([sha256])
+  @@map("subscription_payment_receipts")
 }
 
 enum SubscriptionPaymentStatus {
@@ -507,30 +544,30 @@ model User {
   // administrators, who hold no store permissions. Migration 20261023090000
   // keeps a user's store equal to their role's, and only the System
   // Administrator role has none.
-  storeId         String?
-  store           Store?    @relation("StoreMembers", fields: [storeId], references: [id], onDelete: Restrict)
-  ownedStore      Store?    @relation("StoreOwner")
-  name            String
-  email           String    @unique
+  storeId            String?
+  store              Store?    @relation("StoreMembers", fields: [storeId], references: [id], onDelete: Restrict)
+  ownedStore         Store?    @relation("StoreOwner")
+  name               String
+  email              String    @unique
   // Sign-in name, stored trimmed and lowercase so uniqueness is
   // case-insensitive (a CHECK constraint in migration 20261020090000 holds
   // it to that form). `displayUsername` keeps the capitalisation as typed.
-  username        String    @unique
-  displayUsername String?
-  emailVerified   Boolean   @default(false)
-  image           String?
-  phone           String?
-  isActive        Boolean   @default(true)
-  lastLoginAt     DateTime?
+  username           String    @unique
+  displayUsername    String?
+  emailVerified      Boolean   @default(false)
+  image              String?
+  phone              String?
+  isActive           Boolean   @default(true)
+  lastLoginAt        DateTime?
   // Hash of the POS lock-screen PIN (same hasher as passwords). Optional: with
   // no PIN the lock screen asks for the account password.
-  posPinHash      String?
+  posPinHash         String?
   // Set by the server when an administrator chose this account's password
   // (a new store owner, or an owner password reset). While true, every page,
   // action and store query is refused except changing the password — see
   // `getCurrentUser`. Cleared only by that change, in the same transaction
   // that stores the new hash. Never accepted from client input.
-  mustChangePassword Boolean @default(false)
+  mustChangePassword Boolean   @default(false)
 
   roleId String
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
@@ -542,25 +579,26 @@ model User {
   inventoryTransaction InventoryTransaction[]
   returns              Return[]
   payments             Payment[]
-  shifts               CashierShift[]         @relation("ShiftCashier")
-  closedShifts         CashierShift[]         @relation("ShiftClosedBy")
-  reviewedShifts       CashierShift[]         @relation("ShiftReviewedBy")
+  shifts               CashierShift[]               @relation("ShiftCashier")
+  closedShifts         CashierShift[]               @relation("ShiftClosedBy")
+  reviewedShifts       CashierShift[]               @relation("ShiftReviewedBy")
   cashMovements        CashMovement[]
   shiftAdjustments     ShiftAdjustment[]
-  readNotifications    Notification[]         @relation("NotificationReadBy")
+  readNotifications    Notification[]               @relation("NotificationReadBy")
   passkeys             Passkey[]
-  recordedPayments     SubscriptionPayment[]  @relation("PaymentRecordedBy")
-  voidedPayments       SubscriptionPayment[]  @relation("PaymentVoidedBy")
-  verifiedPayments     SubscriptionPayment[]  @relation("PaymentVerifiedBy")
-  rejectedPayments     SubscriptionPayment[]  @relation("PaymentRejectedBy")
-  acceptedInvoices     Invoice[]              @relation("InvoiceAcceptedBy")
-  voidedInvoices       Invoice[]              @relation("InvoiceVoidedBy")
-  platformReads        PlatformNotificationRead[] @relation("PlatformNotificationReads")
-  completedSetup       Installation[]         @relation("InstallationCompletedBy")
-  supportTickets       SupportTicket[]        @relation("SupportRequester")
-  assignedSupport      SupportTicket[]        @relation("SupportAssignee")
-  supportMessages      SupportMessage[]       @relation("SupportMessageAuthor")
-  supportAttachments   SupportAttachment[]    @relation("SupportAttachmentUploader")
+  recordedPayments     SubscriptionPayment[]        @relation("PaymentRecordedBy")
+  voidedPayments       SubscriptionPayment[]        @relation("PaymentVoidedBy")
+  verifiedPayments     SubscriptionPayment[]        @relation("PaymentVerifiedBy")
+  rejectedPayments     SubscriptionPayment[]        @relation("PaymentRejectedBy")
+  paymentReceipts      SubscriptionPaymentReceipt[] @relation("PaymentReceiptUploadedBy")
+  acceptedInvoices     Invoice[]                    @relation("InvoiceAcceptedBy")
+  voidedInvoices       Invoice[]                    @relation("InvoiceVoidedBy")
+  platformReads        PlatformNotificationRead[]   @relation("PlatformNotificationReads")
+  completedSetup       Installation[]               @relation("InstallationCompletedBy")
+  supportTickets       SupportTicket[]              @relation("SupportRequester")
+  assignedSupport      SupportTicket[]              @relation("SupportAssignee")
+  supportMessages      SupportMessage[]             @relation("SupportMessageAuthor")
+  supportAttachments   SupportAttachment[]          @relation("SupportAttachmentUploader")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1101,6 +1139,7 @@ enum NotificationType {
   INVOICE_CREATED
   PAYMENT_VERIFIED
   PAYMENT_REJECTED
+  PAYMENT_SUBMITTED
   SUPPORT_REPLY
   SHIFT_OPENED
   SHIFT_CLOSED

@@ -4,12 +4,20 @@ import { randomBytes } from 'node:crypto';
 import { Prisma, type BillingInterval, type StorePlan, type SubscriptionPaymentMethod } from '@prisma/client';
 import { platformPrisma } from '@/lib/prisma';
 import { getRequestContext } from '@/lib/session';
-import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { PLANS } from '@/lib/plans';
-import { INTERVAL_LABEL, INTERVAL_MONTHS, formatInvoiceNumber, invoicePeriod } from '@/lib/billing';
+import { INTERVAL_LABEL, INTERVAL_MONTHS, formatInvoiceNumber, invoiceExpiresAt, invoicePeriod, isInvoiceExpired } from '@/lib/billing';
 import { PAYMENT_METHOD_LABEL, normalizeReference } from '@/lib/subscription';
 import { formatCurrency, formatDate } from '@/lib/format';
-import { parseStoredPaymentAccounts, reportableMethods, validatePaymentAccounts, type PaymentAccount } from '@/lib/payment-accounts';
+import {
+  keepStoredQrPaths,
+  parseStoredPaymentAccounts,
+  reportableMethods,
+  validatePaymentAccounts,
+  type PaymentAccount,
+} from '@/lib/payment-accounts';
+import { isQrPath, isReceiptPathOf } from '@/lib/billing-files';
+import type { StoredImage } from '@/server/platform/billing-storage';
 import { syncLimits } from '@/server/platform/store-setup';
 import { TX, audit, iso, lockStore, snapshot, type Actor, type Tx } from '@/server/platform/subscription-service';
 import { raisePlatformNotification, type NewPlatformNotification } from '@/server/platform/platform-notification-service';
@@ -142,21 +150,36 @@ export async function setPaymentInstructions(actor: Actor, input: { value: strin
   }, TX);
 }
 
+/** Serialises saves of the accounts list, so a QR upload and a list save never overwrite each other. */
+async function lockAccountsSetting(tx: Tx) {
+  await tx.$queryRaw`SELECT "key" FROM "platform_settings" WHERE "key" = ${PAYMENT_ACCOUNTS_KEY} FOR UPDATE`;
+}
+
 /**
  * Replaces the list of accounts owners pay into. The whole list is validated
  * again here, whatever the form checked. The audit entry names each account
  * by kind and the last four digits only.
  */
-export async function setPaymentAccounts(actor: Actor, input: { accounts: unknown }): Promise<{ count: number }> {
+export async function setPaymentAccounts(
+  actor: Actor,
+  input: { accounts: unknown },
+): Promise<{ count: number; removedQrPaths: string[] }> {
   const result = validatePaymentAccounts(input.accounts);
   if (!result.ok) {
     const fieldErrors = Object.fromEntries(Object.entries(result.errors).map(([key, message]) => [`accounts.${key}`, [message]]));
     throw new ValidationError(result.errors.list ?? 'Please correct the highlighted fields.', fieldErrors);
   }
-  const { accounts } = result;
-  const value = JSON.stringify(accounts);
+  let accounts = result.accounts;
+  let removedQrPaths: string[] = [];
   await platformPrisma.$transaction(async (tx) => {
+    await lockAccountsSetting(tx);
     const before = await tx.platformSetting.findUnique({ where: { key: PAYMENT_ACCOUNTS_KEY }, select: { value: true } });
+    const stored = parseStoredPaymentAccounts(before?.value);
+    // QR codes are changed only by setPaymentAccountQr; the form's value is never used.
+    accounts = keepStoredQrPaths(result.accounts, stored);
+    const kept = new Set(accounts.map((account) => account.qrPath).filter(Boolean));
+    removedQrPaths = stored.map((account) => account.qrPath).filter((path): path is string => path !== null && !kept.has(path));
+    const value = JSON.stringify(accounts);
     if ((before?.value ?? '[]') === value) throw new ConflictError('Nothing changed.');
     await tx.platformSetting.upsert({
       where: { key: PAYMENT_ACCOUNTS_KEY },
@@ -170,7 +193,45 @@ export async function setPaymentAccounts(actor: Actor, input: { accounts: unknow
       after: describe(accounts),
     });
   }, TX);
-  return { count: accounts.length };
+  return { count: accounts.length, removedQrPaths };
+}
+
+/**
+ * Sets (or, with null, removes) the QR code image of one GCash account. The
+ * image was already checked and uploaded by the caller; its path must be a
+ * QR path. Returns the path it replaced, for the caller to delete once this
+ * has committed.
+ */
+export async function setPaymentAccountQr(
+  actor: Actor,
+  input: { accountId: string; image: StoredImage | null },
+): Promise<{ replacedPath: string | null }> {
+  if (input.image && !isQrPath(input.image.storagePath)) throw new ValidationError('That is not a QR code upload.', { qr: ['Upload the image again.'] });
+  return platformPrisma.$transaction(async (tx) => {
+    await lockAccountsSetting(tx);
+    const row = await tx.platformSetting.findUnique({ where: { key: PAYMENT_ACCOUNTS_KEY }, select: { value: true } });
+    const accounts = parseStoredPaymentAccounts(row?.value);
+    const account = accounts.find((item) => item.id === input.accountId);
+    if (!account) throw new NotFoundError('Payment account');
+    if (account.kind !== 'GCASH') throw new ConflictError('Only a GCash account has a QR code.');
+    const qrPath = input.image?.storagePath ?? null;
+    if (account.qrPath === qrPath) throw new ConflictError('Nothing changed.');
+
+    const next = accounts.map((item) => (item.id === account.id ? { ...item, qrPath } : item));
+    await tx.platformSetting.upsert({
+      where: { key: PAYMENT_ACCOUNTS_KEY },
+      create: { key: PAYMENT_ACCOUNTS_KEY, value: JSON.stringify(next), updatedById: actor.id },
+      update: { value: JSON.stringify(next), updatedById: actor.id },
+    });
+    const last4 = account.accountNumber.slice(-4);
+    await platformAudit(
+      tx,
+      actor,
+      qrPath ? `${account.qrPath ? 'Replaced' : 'Uploaded'} the QR code of GCash ••••${last4}` : `Removed the QR code of GCash ••••${last4}`,
+      { account: `GCASH ••••${last4}`, image: input.image ? { type: input.image.mimeType, size: input.image.sizeBytes, sha256: input.image.sha256 } : null },
+    );
+    return { replacedPath: account.qrPath };
+  }, TX);
 }
 
 // --- Owner: choose a plan, submit a payment ------------------------------------
@@ -210,12 +271,37 @@ async function notifyAdmin(tx: Tx, item: NewPlatformNotification, readBy?: strin
 async function notifyStore(
   tx: Tx,
   storeId: string,
-  item: { type: 'INVOICE_CREATED' | 'PAYMENT_VERIFIED' | 'PAYMENT_REJECTED' | 'BILLING_REMINDER'; title: string; body: string; dedupeKey: string },
+  item: {
+    type: 'INVOICE_CREATED' | 'PAYMENT_SUBMITTED' | 'PAYMENT_VERIFIED' | 'PAYMENT_REJECTED' | 'BILLING_REMINDER';
+    title: string;
+    body: string;
+    dedupeKey: string;
+  },
 ) {
   await tx.notification.createMany({
     data: [{ storeId, type: item.type, title: item.title, body: item.body, href: '/settings/subscription', dedupeKey: item.dedupeKey }],
     skipDuplicates: true,
   });
+}
+
+/** Whether the account is the owner of the store (not merely a member with billing permission). */
+export async function isStoreOwner(userId: string, storeId: string): Promise<boolean> {
+  const store = await platformPrisma.store.findUnique({ where: { id: storeId }, select: { ownerId: true } });
+  return store?.ownerId === userId;
+}
+
+/**
+ * Locks the owner's store and confirms the caller is its owner account. Only
+ * the owner chooses plans and pays, whatever billing permission a staff role
+ * was given; staff may still view billing.
+ */
+async function lockOwnedStore(tx: Tx, owner: Owner) {
+  const store = await lockStore(tx, owner.storeId);
+  const row = await tx.store.findUnique({ where: { id: store.id }, select: { ownerId: true } });
+  if (!row?.ownerId || row.ownerId !== owner.id) {
+    throw new ForbiddenError('Only the store owner can choose a plan or submit a payment.');
+  }
+  return store;
 }
 
 const isOpenInvoiceConflict = (error: unknown) =>
@@ -238,7 +324,7 @@ export async function selectPlan(
   }
   try {
     return await platformPrisma.$transaction(async (tx) => {
-      const store = await lockStore(tx, owner.storeId);
+      const store = await lockOwnedStore(tx, owner);
       if (store.status === 'SUSPENDED') {
         throw new ConflictError('This store is suspended. Contact the platform administrator.');
       }
@@ -314,7 +400,7 @@ export async function selectPlan(
 /** The owner withdraws an unpaid plan choice before paying. Refused once a payment is awaiting review. */
 export async function withdrawInvoice(owner: Owner, input: { invoiceId: string }, now = new Date()): Promise<void> {
   await platformPrisma.$transaction(async (tx) => {
-    const store = await lockStore(tx, owner.storeId);
+    const store = await lockOwnedStore(tx, owner);
     const invoice = await tx.invoice.findFirst({
       where: { id: input.invoiceId, storeId: store.id },
       select: { id: true, number: true, status: true, payments: { where: { status: 'PENDING' }, select: { id: true } } },
@@ -344,12 +430,21 @@ export interface PaymentSubmission {
   reference: string;
   paidAt: Date;
   notes?: string;
+  /** The proof of payment, already checked and uploaded into this store's receipt folder by the caller. */
+  receipt: StoredImage;
 }
 
+const isReferenceConflict = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError &&
+  error.code === 'P2002' &&
+  /reference/i.test(JSON.stringify(error.meta ?? {}));
+
 /**
- * The owner reports a payment against their open invoice. It waits as
- * PENDING until the administrator checks the money arrived; nothing about the
- * subscription changes until then.
+ * The owner reports a payment against their open invoice, with the receipt
+ * as proof. It waits as PENDING until the administrator checks the money
+ * arrived in the receiving account; nothing about the subscription changes
+ * until then. The receipt row is written in the same transaction, and the
+ * database refuses a submission without one.
  */
 export async function submitPayment(owner: Owner, input: PaymentSubmission, now = new Date()): Promise<{ id: string }> {
   const reference = normalizeReference(input.reference);
@@ -357,9 +452,12 @@ export async function submitPayment(owner: Owner, input: PaymentSubmission, now 
   if (Number.isNaN(input.paidAt.getTime()) || input.paidAt.getTime() > now.getTime() + 10 * 60_000) {
     throw new ValidationError('Use the date you paid.', { paidAt: ['The payment date cannot be in the future.'] });
   }
+  if (!input.receipt || !isReceiptPathOf(input.receipt.storagePath, owner.storeId)) {
+    throw new ValidationError('Attach your payment receipt.', { receipt: ['Attach a screenshot of your GCash receipt.'] });
+  }
   try {
     return await platformPrisma.$transaction(async (tx) => {
-      const store = await lockStore(tx, owner.storeId);
+      const store = await lockOwnedStore(tx, owner);
       if (store.status === 'SUSPENDED') {
         throw new ConflictError('This store is suspended. Contact the platform administrator.');
       }
@@ -367,15 +465,24 @@ export async function submitPayment(owner: Owner, input: PaymentSubmission, now 
         where: { id: input.invoiceId, storeId: store.id },
         select: {
           id: true, number: true, status: true, plan: true, interval: true, amount: true, currency: true,
-          periodStart: true, periodEnd: true,
+          periodStart: true, periodEnd: true, dueAt: true,
           payments: { where: { status: 'PENDING' }, select: { id: true } },
         },
       });
       if (!invoice) throw new NotFoundError('Invoice');
       if (invoice.status !== 'OPEN') throw new ConflictError('This invoice is already closed.');
-      // Only the methods the administrator lists (all of them until any are listed).
+      if (isInvoiceExpired(invoice, now)) {
+        throw new ConflictError(
+          `This invoice expired on ${formatDate(invoiceExpiresAt(invoice.dueAt))}. Withdraw it and choose your plan again for a new invoice.`,
+        );
+      }
+      // Only the methods of accounts owners can actually pay into; none while nothing is set up.
       const accountsRow = await tx.platformSetting.findUnique({ where: { key: PAYMENT_ACCOUNTS_KEY }, select: { value: true } });
-      if (!reportableMethods(parseStoredPaymentAccounts(accountsRow?.value)).includes(input.method)) {
+      const methods = reportableMethods(parseStoredPaymentAccounts(accountsRow?.value));
+      if (methods.length === 0) {
+        throw new ConflictError('Payments cannot be accepted yet: the payment details have not been set up. Please contact support.');
+      }
+      if (!methods.includes(input.method)) {
         throw new ValidationError('That payment method is not accepted. Pay to one of the listed accounts.', {
           method: ['Choose one of the listed payment methods.'],
         });
@@ -401,29 +508,56 @@ export async function submitPayment(owner: Owner, input: PaymentSubmission, now 
         },
         select: { id: true },
       });
+      await tx.subscriptionPaymentReceipt.create({
+        data: {
+          paymentId: payment.id,
+          storeId: store.id,
+          storagePath: input.receipt.storagePath,
+          originalName: input.receipt.originalName,
+          mimeType: input.receipt.mimeType,
+          sizeBytes: input.receipt.sizeBytes,
+          sha256: input.receipt.sha256,
+          uploadedById: owner.id,
+        },
+      });
 
       // The reference is a transfer identifier, not a credential; it is shown
       // to the administrator to find the money, as for manual payments.
-      const summary = `Submitted a ${PAYMENT_METHOD_LABEL[input.method]} payment of ${money(invoice.amount)} for invoice ${invoice.number}; awaiting verification`;
+      const summary = `Submitted a ${PAYMENT_METHOD_LABEL[input.method]} payment of ${money(invoice.amount)} for invoice ${invoice.number} with a receipt; awaiting verification`;
       await ownerAudit(tx, owner, store, {
         action: 'PAYMENT',
         entity: 'SubscriptionPayment',
         entityId: payment.id,
         summary,
-        changes: { invoice: invoice.number, method: input.method, reference, paidAt: iso(input.paidAt) },
+        changes: {
+          invoice: invoice.number,
+          method: input.method,
+          reference,
+          paidAt: iso(input.paidAt),
+          receipt: { type: input.receipt.mimeType, size: input.receipt.sizeBytes, sha256: input.receipt.sha256 },
+        },
+      });
+      await notifyStore(tx, store.id, {
+        type: 'PAYMENT_SUBMITTED',
+        title: 'Payment submitted for verification',
+        body: `We received your ${PAYMENT_METHOD_LABEL[input.method]} payment of ${money(invoice.amount)} for invoice ${invoice.number}. Your plan changes once it is verified.`,
+        dedupeKey: `payment:${payment.id}:submitted`,
       });
       await notifyAdmin(tx, {
         kind: 'PAYMENT_SUBMITTED',
         title: `Payment to verify: ${store.name}`,
         body: `${PAYMENT_METHOD_LABEL[input.method]} ${money(invoice.amount)}, reference ${reference}, for invoice ${invoice.number}.`,
-        href: '/system-admin/billing',
+        href: `/system-admin/payments/${payment.id}`,
         storeId: store.id,
         dedupeKey: `payment:${payment.id}:submitted`,
       });
       return payment;
     }, TX);
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002' && /one_pending_per_invoice|invoiceId/.test(JSON.stringify(error.meta ?? {}))) {
+      throw new ConflictError('A payment for this invoice is already awaiting verification.');
+    }
+    if (isReferenceConflict(error)) {
       throw new ValidationError('That reference has already been recorded.', {
         reference: ['This reference was already used for a payment.'],
       });
@@ -436,10 +570,13 @@ export async function submitPayment(owner: Owner, input: PaymentSubmission, now 
 
 /**
  * Confirms the money arrived. In one transaction: the payment becomes
- * VERIFIED, its invoice PAID, and the store moves to the invoice's plan,
- * ACTIVE, paid until the later of its current paid-until date and the
- * invoice's period end. A payment can be verified once only (row lock plus
- * database trigger).
+ * VERIFIED, its invoice PAID, and the store moves to the invoice's plan and
+ * interval, ACTIVE. The period bought is worked out now, by the same rule as
+ * the invoice: it continues a trial or paid period still running (a renewal
+ * never loses time already paid), and otherwise starts at this approval.
+ * The payment records that period. A payment can be verified once only (the
+ * store's row lock, a re-check of every state, and a database trigger), so a
+ * retry or a second administrator cannot extend the subscription twice.
  */
 export async function verifyPayment(actor: Actor, input: { paymentId: string }, now = new Date()): Promise<void> {
   const target = await platformPrisma.subscriptionPayment.findUnique({ where: { id: input.paymentId }, select: { storeId: true } });
@@ -450,27 +587,41 @@ export async function verifyPayment(actor: Actor, input: { paymentId: string }, 
     const payment = await tx.subscriptionPayment.findUnique({
       where: { id: input.paymentId },
       select: {
-        id: true, status: true, amount: true, method: true, reference: true, voidedAt: true,
-        invoice: { select: { id: true, number: true, status: true, plan: true, interval: true, periodEnd: true } },
+        id: true, storeId: true, status: true, amount: true, currency: true, method: true, reference: true, voidedAt: true, createdAt: true,
+        invoice: {
+          select: { id: true, storeId: true, number: true, status: true, plan: true, interval: true, amount: true, currency: true, dueAt: true },
+        },
       },
     });
     if (!payment) throw new NotFoundError('Payment');
     if (payment.status !== 'PENDING') throw new ConflictError('This payment has already been reviewed.');
+    if (payment.voidedAt) throw new ConflictError('This payment is void.');
     if (!payment.invoice) throw new ConflictError('This payment is not linked to an invoice.');
+    if (payment.invoice.storeId !== store.id || payment.storeId !== store.id) {
+      throw new ConflictError('This payment and its invoice belong to different stores; it cannot be verified.');
+    }
     if (payment.invoice.status !== 'OPEN') throw new ConflictError('Its invoice is already closed; reject this payment instead.');
+    // There are no partial payments: one payment settles the invoice in full.
+    // Compared as decimals, never as floating-point numbers.
+    if (!payment.amount.equals(payment.invoice.amount) || payment.currency !== payment.invoice.currency) {
+      throw new ConflictError(
+        `The payment (${money(payment.amount)}) does not match the invoice amount (${money(payment.invoice.amount)}); reject it instead.`,
+      );
+    }
+    // Submissions close when the invoice expires; anything later needs a new invoice.
+    if (payment.createdAt.getTime() > invoiceExpiresAt(payment.invoice.dueAt).getTime()) {
+      throw new ConflictError('This payment was submitted after its invoice expired; reject it and void the invoice.');
+    }
     if (store.status === 'SUSPENDED') throw new ConflictError('This store is suspended. Reactivate it before verifying a payment.');
 
     const before = snapshot(store);
     // A renewal extends a paid period still running; otherwise this starts one.
     const renewal = store.status === 'ACTIVE' && store.currentPeriodEnd !== null && store.currentPeriodEnd.getTime() > now.getTime();
-    const periodEnd =
-      store.currentPeriodEnd && store.currentPeriodEnd.getTime() > payment.invoice.periodEnd.getTime()
-        ? store.currentPeriodEnd
-        : payment.invoice.periodEnd;
+    const { periodStart, periodEnd } = invoicePeriod({ subscription: store, interval: payment.invoice.interval, now });
 
     await tx.subscriptionPayment.update({
       where: { id: payment.id },
-      data: { status: 'VERIFIED', verifiedAt: now, verifiedById: actor.id },
+      data: { status: 'VERIFIED', verifiedAt: now, verifiedById: actor.id, periodStart, periodEnd },
     });
     await tx.invoice.update({ where: { id: payment.invoice.id }, data: { status: 'PAID', paidAt: now } });
     await tx.store.update({
@@ -487,7 +638,8 @@ export async function verifyPayment(actor: Actor, input: { paymentId: string }, 
       changes: {
         before,
         after: { plan: payment.invoice.plan, status: 'ACTIVE', currentPeriodEnd: iso(periodEnd), billingInterval: payment.invoice.interval },
-        invoice: payment.invoice.number,
+        invoice: { number: payment.invoice.number, from: 'OPEN', to: 'PAID' },
+        payment: { from: 'PENDING', to: 'VERIFIED', periodStart: iso(periodStart), periodEnd: iso(periodEnd) },
       },
     });
     await notifyStore(tx, store.id, {
@@ -537,12 +689,12 @@ export async function rejectPayment(actor: Actor, input: { paymentId: string; re
       entity: 'SubscriptionPayment',
       entityId: payment.id,
       summary: `Rejected ${PAYMENT_METHOD_LABEL[payment.method]} payment ${payment.reference} (${money(payment.amount)})${payment.invoice ? ` for invoice ${payment.invoice.number}` : ''}: ${reason}`,
-      changes: { reason },
+      changes: { reason, payment: { from: 'PENDING', to: 'REJECTED' } },
     });
     await notifyStore(tx, store.id, {
       type: 'PAYMENT_REJECTED',
       title: 'Payment could not be verified',
-      body: `${reason} Your invoice is still open; pay and submit the reference again.`,
+      body: `${reason} Your invoice is still open; you can submit corrected proof of payment.`,
       dedupeKey: `payment:${payment.id}:rejected`,
     });
     await notifyAdmin(

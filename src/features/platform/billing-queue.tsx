@@ -87,7 +87,7 @@ function ReviewDialog({ review, onClose }: { review: NonNullable<Review>; onClos
     setError(null);
     const result =
       kind === 'verify'
-        ? await verifyPaymentAction({ paymentId: row.id, storeId: row.storeId })
+        ? await verifyPaymentAction({ paymentId: row.id, storeId: row.storeId, confirmedReceived: checked })
         : await rejectPaymentAction({ paymentId: row.id, storeId: row.storeId, reason });
     setBusy(false);
     if (!result.ok) {

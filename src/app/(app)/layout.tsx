@@ -8,6 +8,7 @@ import { StoreSuspended, SubscriptionBanner } from '@/features/subscription/subs
 import { SuspendedGate } from '@/features/support/suspended-gate';
 import { countMyUnreadReplies } from '@/server/support/support-service';
 import { countAwaitingAdmin } from '@/server/support/support-admin-service';
+import { pendingPaymentCount } from '@/server/platform/payment-review-queries';
 
 /**
  * Authenticated shell.
@@ -19,7 +20,7 @@ import { countAwaitingAdmin } from '@/server/support/support-admin-service';
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
 
-  const [lowStockCount, settings, supportCount] = await Promise.all([
+  const [lowStockCount, settings, supportCount, paymentsCount] = await Promise.all([
     countActionableStock().catch(() => 0),
     getSettings(),
     // Administrators: tickets awaiting an answer. Store accounts: replies they have not read.
@@ -28,6 +29,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       : userCan(user, 'support.create')
         ? countMyUnreadReplies(user.id).catch(() => 0)
         : 0,
+    // Administrators: owner payments awaiting verification.
+    userCan(user, 'platform.view') ? pendingPaymentCount().catch(() => 0) : 0,
   ]);
 
   return (
@@ -35,6 +38,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       permissions={Array.from(user.permissions)}
       lowStockCount={lowStockCount}
       supportCount={supportCount}
+      paymentsCount={paymentsCount}
       companyName={readString(settings, 'company.name') || 'Store'}
       user={{
         name: user.name,

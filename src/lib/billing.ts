@@ -277,15 +277,33 @@ export function purchasablePlans(prices: { plan: PlanId; interval: BillingInterv
  * VOID; "awaiting verification" and "overdue" are an open invoice seen
  * against its payments and the clock.
  */
-export type InvoiceDisplayStatus = 'OPEN' | 'AWAITING_VERIFICATION' | 'OVERDUE' | 'PAID' | 'VOID';
+export type InvoiceDisplayStatus = 'OPEN' | 'AWAITING_VERIFICATION' | 'OVERDUE' | 'EXPIRED' | 'PAID' | 'VOID';
 
 export const INVOICE_STATUS_LABEL: Record<InvoiceDisplayStatus, string> = {
-  OPEN: 'Open',
-  AWAITING_VERIFICATION: 'Awaiting verification',
+  OPEN: 'Unpaid',
+  AWAITING_VERIFICATION: 'Pending verification',
   OVERDUE: 'Overdue',
+  EXPIRED: 'Expired',
   PAID: 'Paid',
   VOID: 'Void',
 };
+
+/**
+ * Days after its due date that an unpaid invoice still accepts a payment
+ * submission. After that it has expired: the owner withdraws it and chooses
+ * the plan again, which issues a new invoice with current dates. A payment
+ * submitted in time can still be verified after the invoice expires.
+ */
+export const INVOICE_GRACE_DAYS = 7;
+
+/** The moment an unpaid invoice stops accepting submissions. */
+export function invoiceExpiresAt(dueAt: Date): Date {
+  return new Date(dueAt.getTime() + INVOICE_GRACE_DAYS * DAY);
+}
+
+export function isInvoiceExpired(invoice: { dueAt: Date }, now: Date): boolean {
+  return now.getTime() > invoiceExpiresAt(invoice.dueAt).getTime();
+}
 
 export function invoiceDisplayStatus(
   invoice: { status: 'OPEN' | 'PAID' | 'VOID'; dueAt: Date },
@@ -294,6 +312,7 @@ export function invoiceDisplayStatus(
 ): InvoiceDisplayStatus {
   if (invoice.status !== 'OPEN') return invoice.status;
   if (hasPendingPayment) return 'AWAITING_VERIFICATION';
+  if (isInvoiceExpired(invoice, now)) return 'EXPIRED';
   return invoice.dueAt.getTime() < now.getTime() ? 'OVERDUE' : 'OPEN';
 }
 
@@ -301,7 +320,7 @@ export function invoiceDisplayStatus(
 export type PaymentDisplayStatus = 'PENDING' | 'VERIFIED' | 'REJECTED' | 'VOID';
 
 export const PAYMENT_STATUS_LABEL: Record<PaymentDisplayStatus, string> = {
-  PENDING: 'Awaiting verification',
+  PENDING: 'Pending verification',
   VERIFIED: 'Verified',
   REJECTED: 'Rejected',
   VOID: 'Void',

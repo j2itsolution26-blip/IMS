@@ -9,18 +9,21 @@ import { Label } from '@/components/ui/label';
 import { PLANS, PLAN_ORDER, type PlanId } from '@/lib/plans';
 import { INTERVAL_LABEL, type BillingInterval } from '@/lib/billing';
 import { formatDateTime } from '@/lib/format';
-import { Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Plus, QrCode, Trash2, Upload } from 'lucide-react';
 import { Switch } from '@/components/ui/misc';
 import {
   MAX_PAYMENT_ACCOUNTS,
   PAYMENT_ACCOUNT_KIND_LABEL,
+  checkoutProblems,
   formatGcashNumber,
   validatePaymentAccounts,
   type PaymentAccount,
   type PaymentAccountKind,
 } from '@/lib/payment-accounts';
+import { BILLING_IMAGE_ACCEPT, QR_MAX_BYTES, formatMegabytes } from '@/lib/billing-files';
 import {
   publishTermsAction,
+  setPaymentAccountQrAction,
   setPaymentAccountsAction,
   setPaymentInstructionsAction,
   setPlanPriceAction,
@@ -143,9 +146,10 @@ export function TermsForm({ current }: { current: { version: number; body: strin
   );
 }
 
-type AccountDraft = Omit<PaymentAccount, 'bankName' | 'note'> & { bankName: string; note: string };
+// The QR code is not part of the list form: it is uploaded on its own, and the server keeps the stored one when the list is saved.
+type AccountDraft = Omit<PaymentAccount, 'bankName' | 'note' | 'qrPath'> & { bankName: string; note: string };
 
-const toDraft = (account: PaymentAccount): AccountDraft => ({
+const toDraft = ({ qrPath: _qrPath, ...account }: PaymentAccount): AccountDraft => ({
   ...account,
   bankName: account.bankName ?? '',
   note: account.note ?? '',
@@ -165,6 +169,8 @@ export function PaymentAccountsForm({ current }: { current: PaymentAccount[] }) 
   const [busy, setBusy] = React.useState(false);
   const saved = React.useMemo(() => JSON.stringify(current.map(toDraft)), [current]);
   const changed = JSON.stringify(rows) !== saved;
+  const savedIds = React.useMemo(() => new Set(current.map((account) => account.id)), [current]);
+  const problems = React.useMemo(() => checkoutProblems(current), [current]);
 
   const update = (index: number, patch: Partial<AccountDraft>) => {
     setRows((list) => list.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -221,9 +227,21 @@ export function PaymentAccountsForm({ current }: { current: PaymentAccount[] }) 
   return (
     <div className="space-y-3 p-4">
       <p className="text-sm text-muted-foreground">
-        Owners see each account marked &ldquo;Show to owners&rdquo; as a card with copy buttons, and can report a payment only with
-        those methods. Until one is shown, they can report any method. Check every number carefully: owners send money to it.
+        Owners see each account marked &ldquo;Show to owners&rdquo; at checkout, and can report a payment only with those methods. A
+        GCash account is shown once its QR code is uploaded. Until an account is ready, owners cannot submit payments. Check every
+        number carefully: owners send money to it.
       </p>
+
+      {problems.length > 0 && (
+        <div role="status" className="space-y-1 rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm">
+          {problems.map((problem) => (
+            <p key={problem} className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning-text" aria-hidden="true" />
+              <span>{problem}</span>
+            </p>
+          ))}
+        </div>
+      )}
 
       {rows.length === 0 && <p className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">No accounts yet.</p>}
 
@@ -266,6 +284,14 @@ export function PaymentAccountsForm({ current }: { current: PaymentAccount[] }) 
               )}
               {field(index, 'note', 'Note for owners (optional)', <Input {...inputProps(index, 'note')} maxLength={120} placeholder="e.g. Savings account" />)}
             </div>
+            {row.kind === 'GCASH' &&
+              (savedIds.has(row.id) ? (
+                <GcashQrField accountId={row.id} qrPath={current.find((account) => account.id === row.id)?.qrPath ?? null} />
+              ) : (
+                <p className="mt-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                  Save the accounts first, then upload this account&rsquo;s QR code.
+                </p>
+              ))}
           </li>
         ))}
       </ul>
@@ -282,6 +308,98 @@ export function PaymentAccountsForm({ current }: { current: PaymentAccount[] }) 
         <Button size="sm" className="ml-auto" onClick={save} loading={busy} disabled={!changed}>
           Save accounts
         </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The QR code owners scan to pay one GCash account. Checked on the server by
+ * its real bytes (JPG, PNG or WEBP, up to 2 MB) and kept in the private
+ * billing bucket; owners see it at checkout through an access-checked link.
+ */
+function GcashQrField({ accountId, qrPath }: { accountId: string; qrPath: string | null }) {
+  const router = useRouter();
+  const input = React.useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = React.useState<'upload' | 'remove' | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const send = async (form: FormData, kind: 'upload' | 'remove') => {
+    setBusy(kind);
+    setError(null);
+    const result = await setPaymentAccountQrAction(form);
+    setBusy(null);
+    if (input.current) input.current.value = '';
+    if (!result.ok) {
+      setError(result.fieldErrors?.qr?.[0] ?? result.error);
+      return;
+    }
+    toast.success(kind === 'upload' ? 'QR code saved.' : 'QR code removed.');
+    router.refresh();
+  };
+
+  const upload = (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > QR_MAX_BYTES) {
+      setError(`The QR code must be ${formatMegabytes(QR_MAX_BYTES)} or smaller.`);
+      return;
+    }
+    const form = new FormData();
+    form.set('accountId', accountId);
+    form.set('qr', file);
+    void send(form, 'upload');
+  };
+
+  const remove = () => {
+    const form = new FormData();
+    form.set('accountId', accountId);
+    form.set('remove', '1');
+    void send(form, 'remove');
+  };
+
+  // The file name changes with every upload, so the preview never shows a stale image.
+  const version = qrPath?.split('/').pop() ?? '';
+
+  return (
+    <div className="mt-3 flex flex-col gap-3 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:items-center">
+      <div className="grid h-28 w-28 shrink-0 place-items-center overflow-hidden rounded-lg border bg-white">
+        {qrPath ? (
+          // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed link; next/image cannot optimise it
+          <img src={`/api/billing/qr/${accountId}?v=${version}`} alt="GCash QR code" className="h-full w-full object-contain p-1" />
+        ) : (
+          <QrCode className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1 space-y-2">
+        <p className="text-sm font-medium">{qrPath ? 'QR code uploaded' : 'No QR code yet'}</p>
+        <p className="text-xs text-muted-foreground">
+          {qrPath
+            ? 'Owners scan this at checkout. Replace it if the GCash account changes.'
+            : 'Owners do not see this account until its QR code is uploaded. Use the QR from GCash → Receive → Download QR.'}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={input}
+            type="file"
+            accept={BILLING_IMAGE_ACCEPT}
+            className="sr-only"
+            id={`qr-${accountId}`}
+            onChange={(event) => upload(event.target.files?.[0])}
+          />
+          <Button size="sm" variant="outline" onClick={() => input.current?.click()} loading={busy === 'upload'} disabled={busy !== null}>
+            <Upload aria-hidden="true" /> {qrPath ? 'Replace QR code' : 'Upload QR code'}
+          </Button>
+          {qrPath && (
+            <Button size="sm" variant="ghost" onClick={remove} loading={busy === 'remove'} disabled={busy !== null}>
+              Remove
+            </Button>
+          )}
+        </div>
+        {error && (
+          <p role="alert" className="text-xs text-destructive-text">
+            {error}
+          </p>
+        )}
       </div>
     </div>
   );

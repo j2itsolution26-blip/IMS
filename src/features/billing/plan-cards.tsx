@@ -26,7 +26,7 @@ const INTERVAL_OPTION: Record<BillingInterval, string> = { MONTHLY: 'Monthly', A
  * Each plan's colour identity: Basic blue, Business green, Enterprise purple.
  * Presentation only — what a plan includes lives in lib/plans.
  */
-const THEME: Record<
+export const THEME: Record<
   PlanId,
   { icon: LucideIcon; art: React.ComponentType<{ className?: string }>; tag: string; card: string; soft: string; check: string; fill: string; hover: string }
 > = {
@@ -78,7 +78,7 @@ function limitLine(value: number | null, row: { one: string; many: string }): { 
 }
 
 /** What a plan includes, from the plan configuration: included lines first, then what it lacks. */
-function featureLines(id: PlanId): { text: string; included: boolean }[] {
+export function featureLines(id: PlanId): { text: string; included: boolean }[] {
   const plan = PLANS[id];
   const lines = [
     ...LIMIT_ROWS.map((row) => limitLine(plan.limits[row.key], row)),

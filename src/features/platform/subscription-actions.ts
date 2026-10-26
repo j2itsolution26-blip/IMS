@@ -21,12 +21,14 @@ import {
 import {
   publishTerms,
   rejectPayment,
+  setPaymentAccountQr,
   setPaymentAccounts,
   setPaymentInstructions,
   setPlanPrice,
   verifyPayment,
   voidInvoice,
 } from '@/server/platform/billing-service';
+import { checkQrImage, removeBillingFiles, storeQrImage } from '@/server/platform/billing-storage';
 import { raisePlatformNotification } from '@/server/platform/platform-notification-service';
 import { platformNotificationKey } from '@/lib/notifications';
 
@@ -190,6 +192,7 @@ export async function createStoreAction(input: unknown): Promise<ActionResult<{ 
 
 function refreshBilling(storeId?: string) {
   revalidatePath('/system-admin/billing');
+  revalidatePath('/system-admin/payments', 'layout');
   refresh(storeId);
 }
 
@@ -241,18 +244,50 @@ export async function setPaymentAccountsAction(input: unknown): Promise<ActionRe
   return runAction(async () => {
     const actor = await requireManager('change the payment accounts');
     const values = parseInput(accountsSchema, input);
-    const result = await setPaymentAccounts(actor, values);
+    const { count, removedQrPaths } = await setPaymentAccounts(actor, values);
+    // Accounts removed from the list take their QR code images with them.
+    await removeBillingFiles(removedQrPaths);
     refreshBilling();
-    return result;
+    return { count };
+  });
+}
+
+const qrAccountId = z.string().trim().regex(/^[A-Za-z0-9_-]{1,40}$/, 'Unknown account.');
+/**
+ * Uploads (or, with remove=1, removes) the QR code of one GCash account. The
+ * image is checked and stored first; if saving fails it is removed again,
+ * and the image it replaced is removed only once the change has committed.
+ */
+export async function setPaymentAccountQrAction(form: FormData): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const actor = await requireManager('change a GCash QR code');
+    const accountId = parseInput(qrAccountId, form.get('accountId'));
+    const remove = form.get('remove') === '1';
+    const image = remove ? null : await storeQrImage(await checkQrImage(form.get('qr')));
+    try {
+      const { replacedPath } = await setPaymentAccountQr(actor, { accountId, image });
+      if (replacedPath) await removeBillingFiles([replacedPath]);
+    } catch (error) {
+      if (image) await removeBillingFiles([image.storagePath]);
+      throw error;
+    }
+    refreshBilling();
   });
 }
 
 const reviewSchema = z.object({ paymentId: id, storeId: id });
+const verifySchema = reviewSchema.extend({
+  // The administrator states they found the money in the receiving account.
+  // A receipt alone is not proof of payment.
+  confirmedReceived: z.literal(true, {
+    errorMap: () => ({ message: 'Confirm that you found this payment in the receiving account.' }),
+  }),
+});
 export async function verifyPaymentAction(input: unknown): Promise<ActionResult<void>> {
   return runAction(async () => {
     const actor = await requireManager('verify a subscription payment');
-    const values = parseInput(reviewSchema, input);
-    await verifyPayment(actor, values);
+    const values = parseInput(verifySchema, input);
+    await verifyPayment(actor, { paymentId: values.paymentId });
     refreshBilling(values.storeId);
   });
 }

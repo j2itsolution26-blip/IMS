@@ -38,7 +38,7 @@ export interface OpenInvoiceInfo {
   issuedAt: string;
   /** Open, awaiting verification or overdue. */
   status: InvoiceDisplayStatus;
-  pending: { method: PaymentMethod; reference: string; submittedAt: string } | null;
+  pending: { method: PaymentMethod; reference: string; submittedAt: string; paidAt: string; receiptId: string | null } | null;
   lastRejection: { reason: string; at: string } | null;
   /** The payment lifecycle from `paymentTimeline`. */
   timeline: { key: TimelineStepKey; state: TimelineStepState; at: string | null; reason?: string }[];
@@ -79,4 +79,20 @@ export interface PaymentRow {
   verifiedAt: string | null;
   invoiceNumber: string | null;
   notes: string | null;
+  /** The owner's own receipt for this payment; null for staff, and for payments recorded by the administrator. */
+  receiptId: string | null;
+}
+
+/**
+ * An account owners can pay into, as checkout shows it. The QR code is an
+ * access-checked link, never the file's location in storage.
+ */
+export interface CheckoutAccount {
+  id: string;
+  kind: 'GCASH' | 'BANK_TRANSFER';
+  bankName: string | null;
+  accountName: string;
+  accountNumber: string;
+  note: string | null;
+  qrSrc: string | null;
 }

@@ -107,6 +107,7 @@ const STORE_TYPE_TONE: Record<string, NotificationTone> = {
   SHIFT_OVERDUE: 'warning',
   BILLING_REMINDER: 'warning',
   INVOICE_CREATED: 'primary',
+  PAYMENT_SUBMITTED: 'warning',
   PAYMENT_VERIFIED: 'success',
   PAYMENT_REJECTED: 'destructive',
   SUPPORT_REPLY: 'primary',

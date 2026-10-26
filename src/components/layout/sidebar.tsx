@@ -48,6 +48,8 @@ interface SidebarProps {
   permissions: string[];
   lowStockCount: number;
   supportCount: number;
+  /** Owner payments awaiting verification (administrators only). */
+  paymentsCount: number;
   companyName: string;
   user?: UserInfo;
   open: boolean;
@@ -60,6 +62,7 @@ export function Sidebar({
   permissions,
   lowStockCount,
   supportCount,
+  paymentsCount,
   companyName,
   user,
   open,
@@ -69,7 +72,10 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const granted = React.useMemo(() => new Set(permissions), [permissions]);
-  const counts = React.useMemo(() => ({ lowStock: lowStockCount, support: supportCount }), [lowStockCount, supportCount]);
+  const counts = React.useMemo(
+    () => ({ lowStock: lowStockCount, support: supportCount, payments: paymentsCount }),
+    [lowStockCount, supportCount, paymentsCount],
+  );
 
   // Escape key handler to close mobile navigation drawer
   React.useEffect(() => {

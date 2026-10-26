@@ -73,6 +73,9 @@ export const MODEL_SCOPES: Record<Prisma.ModelName, ModelScope> = {
   SupportTicket: { kind: 'denied' },
   SupportMessage: { kind: 'denied' },
   SupportAttachment: { kind: 'denied' },
+  // Payment receipts: only the billing service reads or writes them, for the
+  // store's owner or a platform administrator (src/server/platform/billing-storage.ts).
+  SubscriptionPaymentReceipt: { kind: 'denied' },
 };
 
 /** A call that tried to reach outside its store. Always a bug, never user error. */

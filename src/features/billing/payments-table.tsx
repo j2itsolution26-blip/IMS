@@ -145,7 +145,7 @@ function PaymentDetail({ payment, onClose }: { payment: PaymentRow; onClose: () 
           </DialogTitle>
           <DialogDescription>
             {payment.status === 'PENDING'
-              ? 'Reported and awaiting verification. It has not paid for anything yet.'
+              ? 'Submitted and pending verification. It has not paid for anything yet.'
               : payment.status === 'VERIFIED'
                 ? 'Verified by the platform administrator.'
                 : payment.status === 'REJECTED'
@@ -177,6 +177,18 @@ function PaymentDetail({ payment, onClose }: { payment: PaymentRow; onClose: () 
           {payment.rejectReason && <DetailRow label="Rejection reason">{payment.rejectReason}</DetailRow>}
           {payment.voidReason && <DetailRow label="Void reason">{payment.voidReason}</DetailRow>}
           {payment.notes && <DetailRow label="Note">{payment.notes}</DetailRow>}
+          {payment.receiptId && (
+            <DetailRow label="Receipt">
+              <a
+                href={`/api/billing/receipts/${payment.receiptId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-primary hover:underline"
+              >
+                View receipt
+              </a>
+            </DetailRow>
+          )}
         </dl>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

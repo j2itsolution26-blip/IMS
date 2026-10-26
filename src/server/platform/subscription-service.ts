@@ -216,8 +216,9 @@ export async function recordManualPayment(actor: Actor, input: ManualPaymentInpu
       const store = await lockStore(tx, input.storeId);
       if (store.status === 'SUSPENDED') throw new ConflictError('This store is suspended. Reactivate it before recording a payment.');
 
-      const existing = await tx.subscriptionPayment.findUnique({
-        where: { method_reference: { method: input.method, reference } },
+      // A rejected report does not hold its reference (partial unique index).
+      const existing = await tx.subscriptionPayment.findFirst({
+        where: { method: input.method, reference, status: { not: 'REJECTED' } },
         select: { createdAt: true, store: { select: { name: true } } },
       });
       if (existing) throw duplicateReference(existing.store.name, existing.createdAt);

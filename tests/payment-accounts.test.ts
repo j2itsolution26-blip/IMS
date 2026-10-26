@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   MAX_PAYMENT_ACCOUNTS,
+  checkoutAccounts,
+  checkoutProblems,
   formatGcashNumber,
+  keepStoredQrPaths,
   normalizeGcashNumber,
   parseStoredPaymentAccounts,
   reportableMethods,
@@ -53,6 +56,7 @@ test('a valid list is accepted and normalised; bank name is dropped for GCash', 
     accountNumber: '09171234567',
     note: null,
     enabled: true,
+    qrPath: null,
   });
   assert.equal(result.accounts[1].accountNumber, '0012-3456-7890');
   assert.deepEqual(validatePaymentAccounts([]), { ok: true, accounts: [] });
@@ -100,12 +104,45 @@ test('stored accounts are read back only if still valid; anything unreadable sho
   assert.deepEqual(parseStoredPaymentAccounts(JSON.stringify([gcash({ accountNumber: 'tampered' })])), []);
 });
 
-test('owners can report only the enabled methods, and every method until one is enabled', () => {
-  const accounts = (validatePaymentAccounts([gcash(), bank({ enabled: false })]) as { ok: true; accounts: PaymentAccount[] }).accounts;
+const QR = 'qr/0b6e4a8c-1d2f-4a3b-9c8d-7e6f5a4b3c2d.png';
+
+test('owners can pay only into usable accounts: enabled, and GCash with its QR code; none means checkout is closed', () => {
+  const accounts = (validatePaymentAccounts([gcash({ qrPath: QR }), bank({ enabled: false })]) as { ok: true; accounts: PaymentAccount[] }).accounts;
   assert.deepEqual(reportableMethods(accounts), ['GCASH']);
   assert.deepEqual(reportableMethods(accounts.map((account) => ({ ...account, enabled: true }))), ['GCASH', 'BANK_TRANSFER']);
-  assert.deepEqual(reportableMethods([]), ['GCASH', 'BANK_TRANSFER', 'OTHER']);
-  assert.deepEqual(reportableMethods(accounts.map((account) => ({ ...account, enabled: false }))), ['GCASH', 'BANK_TRANSFER', 'OTHER']);
+  // Nothing set up: no method at all, never "any method".
+  assert.deepEqual(reportableMethods([]), []);
+  assert.deepEqual(reportableMethods(accounts.map((account) => ({ ...account, enabled: false }))), []);
+  // An enabled GCash account without its QR code is not usable.
+  const noQr = accounts.map((account) => ({ ...account, qrPath: null }));
+  assert.deepEqual(checkoutAccounts(noQr), []);
+  assert.deepEqual(reportableMethods(noQr), []);
+  assert.match(checkoutProblems(noQr).join(' '), /Owners cannot pay yet/);
+  assert.match(checkoutProblems(noQr).join(' '), /QR code/);
+  assert.deepEqual(checkoutProblems(accounts), []);
+});
+
+test('a QR path is kept only when well formed and on a GCash account', () => {
+  const read = (row: Record<string, unknown>) =>
+    (validatePaymentAccounts([row]) as { ok: true; accounts: PaymentAccount[] }).accounts[0].qrPath;
+  assert.equal(read(gcash({ qrPath: QR })), QR);
+  for (const bad of ['receipts/store1/0b6e4a8c-1d2f-4a3b-9c8d-7e6f5a4b3c2d.png', 'qr/../secret.png', 'qr/x.png', '/qr/a.png', 42]) {
+    assert.equal(read(gcash({ qrPath: bad })), null, String(bad));
+  }
+  assert.equal(read(bank({ qrPath: QR })), null);
+});
+
+test('saving the list keeps each account\'s stored QR code, whatever the form sends', () => {
+  const stored = (validatePaymentAccounts([gcash({ qrPath: QR })]) as { ok: true; accounts: PaymentAccount[] }).accounts;
+  const sent = (
+    validatePaymentAccounts([gcash({ qrPath: 'qr/11111111-2222-4333-8444-555555555555.png' }), gcash({ id: 'g2', accountNumber: '09181234567', qrPath: QR })]) as {
+      ok: true;
+      accounts: PaymentAccount[];
+    }
+  ).accounts;
+  const kept = keepStoredQrPaths(sent, stored);
+  assert.equal(kept[0].qrPath, QR, 'the stored image, not the one the form named');
+  assert.equal(kept[1].qrPath, null, 'a new account cannot borrow another account\'s image');
 });
 
 test('only the platform administrator can save payment accounts, and the server validates them again', () => {

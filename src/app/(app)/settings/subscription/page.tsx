@@ -11,8 +11,10 @@ import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/misc';
 import { auditHistoryStart, usageSummary } from '@/server/services/entitlements';
 import { billingBannerKind, billingSnapshot, invoiceDisplayStatus, overviewStatus, paymentDisplayStatus, paymentTimeline } from '@/lib/billing';
-import { getBillingConfig } from '@/server/platform/billing-service';
-import { reportableMethods } from '@/lib/payment-accounts';
+import { getBillingConfig, isStoreOwner } from '@/server/platform/billing-service';
+import { checkoutAccounts, reportableMethods } from '@/lib/payment-accounts';
+import { receiptMaxBytes } from '@/lib/billing-files';
+import { receiptIdsForOwner } from '@/server/platform/payment-review-queries';
 import { runBillingRemindersForStore } from '@/server/platform/billing-reminders';
 import { countMyActiveTickets } from '@/server/support/support-service';
 import { BillingOverview } from '@/features/billing/billing-overview';
@@ -101,7 +103,11 @@ export default async function SubscriptionPage() {
     hasPendingPayment: pendingPayment !== null,
     now,
   });
-  const canManage = userCan(user, 'billing.manage');
+  // Only the owner account chooses plans and pays; staff with billing permission can view. The server enforces the same.
+  const isOwner = await isStoreOwner(user.id, store.id);
+  const canManage = userCan(user, 'billing.manage') && isOwner;
+  // Receipts are shown only to the owner who sent them.
+  const receiptIds = isOwner ? await receiptIdsForOwner(user.id, payments.map((payment) => payment.id)) : new Map<string, string>();
   const canContactSupport = userCan(user, 'support.create');
   const suspended = access.state === 'SUSPENDED';
   const onTrial = store.status === 'TRIAL';
@@ -139,7 +145,13 @@ export default async function SubscriptionPage() {
             payments: invoicePayments,
           }).map((step) => ({ ...step, at: step.at?.toISOString() ?? null })),
           pending: pendingPayment
-            ? { method: pendingPayment.method, reference: pendingPayment.reference, submittedAt: pendingPayment.createdAt.toISOString() }
+            ? {
+                method: pendingPayment.method,
+                reference: pendingPayment.reference,
+                submittedAt: pendingPayment.createdAt.toISOString(),
+                paidAt: pendingPayment.paidAt.toISOString(),
+                receiptId: receiptIds.get(pendingPayment.id) ?? null,
+              }
             : null,
           lastRejection:
             lastRejection?.rejectReason && lastRejection.rejectedAt
@@ -189,6 +201,7 @@ export default async function SubscriptionPage() {
       invoiceNumber: payment.invoice?.number ?? null,
       // An administrator's notes on a payment they recorded stay with the administrator.
       notes: byStore ? payment.notes : null,
+      receiptId: receiptIds.get(payment.id) ?? null,
     };
   });
 
@@ -198,7 +211,11 @@ export default async function SubscriptionPage() {
       .filter((payment) => payment.status === 'VERIFIED' && payment.voidedAt === null)
       .sort((a, b) => b.periodEnd.getTime() - a.periodEnd.getTime())[0] ?? null;
   const status = overviewStatus(access.state, billing.billing);
-  const accounts = config.paymentAccounts.filter((account) => account.enabled);
+  // What checkout shows: accounts owners can pay into, with the QR code as an access-checked link (never its storage path).
+  const accounts = checkoutAccounts(config.paymentAccounts).map(({ qrPath, enabled: _enabled, ...account }) => ({
+    ...account,
+    qrSrc: qrPath ? `/api/billing/qr/${account.id}?v=${qrPath.split('/').pop()}` : null,
+  }));
 
   // The one thing to do next: pay what is owed, otherwise look at the plans.
   const primaryAction = openInvoiceInfo
@@ -239,7 +256,7 @@ export default async function SubscriptionPage() {
             status={status}
             onTrial={onTrial}
             invoice={
-              openInvoiceInfo ? { amount: openInvoiceInfo.amount, dueAt: openInvoice!.dueAt, overdue: openInvoiceInfo.status === 'OVERDUE' } : null
+              openInvoiceInfo ? { amount: openInvoiceInfo.amount, dueAt: openInvoice!.dueAt, overdue: openInvoiceInfo.status === 'OVERDUE' || openInvoiceInfo.status === 'EXPIRED' } : null
             }
             paidPeriod={lastVerified ? { start: lastVerified.periodStart, end: lastVerified.periodEnd, months: lastVerified.months } : null}
             now={now}
@@ -271,6 +288,7 @@ export default async function SubscriptionPage() {
               accounts={accounts}
               paymentNotes={config.paymentInstructions}
               methods={reportableMethods(config.paymentAccounts)}
+              receiptMaxBytes={receiptMaxBytes()}
             />
           </section>
         )}
