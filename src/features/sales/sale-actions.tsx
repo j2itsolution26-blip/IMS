@@ -52,20 +52,38 @@ export function SaleActions({
   const [refundMethod, setRefundMethod] = React.useState<PaymentMethod>('CASH');
   const [quantities, setQuantities] = React.useState<Record<string, string>>({});
   const [returning, setReturning] = React.useState(false);
+  // One id per refund attempt, so a doubled submit refunds once.
+  const [returnRequestId, setReturnRequestId] = React.useState('');
 
   const returnableItems = sale.items.filter((item) => item.returnable > 0);
   const alreadyVoided = sale.status === 'VOIDED';
   const fullyReturned = sale.status === 'RETURNED';
+  // Voiding is only for an untouched sale whose drawer is still open; later
+  // corrections are refunds, which record the money paid back.
+  const voidable = sale.status === 'COMPLETED' && sale.returns.length === 0 && sale.shiftOpen;
 
-  const refundTotal = returnableItems.reduce((acc, item) => {
-    const quantity = Number(quantities[item.id]) || 0;
-    if (quantity <= 0) return acc;
-    // Mirror the server: refund at the price paid, net of the line's discount share.
-    const effectiveUnit = item.quantity > 0 ? item.unitPrice - item.discount / item.quantity : item.unitPrice;
-    return acc + effectiveUnit * quantity;
-  }, 0);
+  // A preview of the server's figure (src/lib/refund-math.ts): the price paid
+  // for each piece, with its share of the order discount and of the tax.
+  const shareOfTotal = sale.subtotal > 0 ? sale.total / sale.subtotal : 0;
+  const alreadyRefunded = sale.returns.reduce((acc, r) => acc + r.total, 0);
+  const refundTotal = Math.min(
+    Math.max(0, sale.total - alreadyRefunded),
+    Math.round(
+      returnableItems.reduce((acc, item) => {
+        const quantity = Number(quantities[item.id]) || 0;
+        if (quantity <= 0 || item.quantity <= 0) return acc;
+        return acc + (item.total * quantity * shareOfTotal) / item.quantity;
+      }, 0) * 100,
+    ) / 100,
+  );
+
+  const openReturn = () => {
+    setReturnRequestId(crypto.randomUUID());
+    setReturnOpen(true);
+  };
 
   const onVoid = async () => {
+    if (voiding) return;
     setVoiding(true);
     const result = await voidSaleAction({ saleId: sale.id, reason: voidReason });
     setVoiding(false);
@@ -90,6 +108,7 @@ export function SaleActions({
       return;
     }
 
+    if (returning) return;
     setReturning(true);
     const result = await createReturnAction({
       saleId: sale.id,
@@ -97,6 +116,7 @@ export function SaleActions({
       restock,
       refundMethod,
       lines,
+      clientRequestId: returnRequestId || undefined,
     });
     setReturning(false);
 
@@ -119,12 +139,12 @@ export function SaleActions({
   return (
     <>
       {canReturn && !fullyReturned && returnableItems.length > 0 && (
-        <Button variant="outline" onClick={() => setReturnOpen(true)}>
-          <RotateCcw /> Record return
+        <Button variant="outline" onClick={openReturn}>
+          <RotateCcw /> Record refund
         </Button>
       )}
 
-      {canVoid && sale.returns.length === 0 && (
+      {canVoid && voidable && (
         <Button variant="outline" onClick={() => setVoidOpen(true)}>
           <Ban /> Void sale
         </Button>
@@ -136,8 +156,9 @@ export function SaleActions({
           <DialogHeader>
             <DialogTitle>Void {sale.invoiceNumber}?</DialogTitle>
             <DialogDescription>
-              Every item goes back into stock and the sale stops counting toward revenue. The invoice is kept
-              on record, marked as voided.
+              Every item goes back into stock and the sale stops counting toward revenue and drawer cash, so hand
+              back any cash the customer paid. The invoice is kept on record, marked as voided, with your name and
+              this reason. A void cannot be undone.
             </DialogDescription>
           </DialogHeader>
 
@@ -167,9 +188,10 @@ export function SaleActions({
       <Dialog open={returnOpen} onOpenChange={setReturnOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Return against {sale.invoiceNumber}</DialogTitle>
+            <DialogTitle>Refund against {sale.invoiceNumber}</DialogTitle>
             <DialogDescription>
-              Enter how much of each line is coming back. Only quantities not already returned can be selected.
+              Enter how much of each line is coming back. Only quantities not already refunded can be selected. The
+              original sale is kept; this refund is recorded beside it.
             </DialogDescription>
           </DialogHeader>
 
@@ -209,10 +231,8 @@ export function SaleActions({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="CASH">Cash</SelectItem>
-                    <SelectItem value="GCASH">GCash</SelectItem>
-                    <SelectItem value="CARD">Card</SelectItem>
-                    <SelectItem value="OTHER">Other</SelectItem>
+                    <SelectItem value="CASH">Cash (from the drawer)</SelectItem>
+                    <SelectItem value="GCASH">GCash (not drawer cash)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -240,7 +260,12 @@ export function SaleActions({
             </div>
 
             <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2">
-              <span className="text-sm font-medium">Refund total</span>
+              <span className="text-sm font-medium">
+                Refund total
+                <span className="block text-xs font-normal text-muted-foreground">
+                  Price paid, including its share of discounts and tax
+                </span>
+              </span>
               <span className="tabular text-lg font-bold">{formatCurrency(refundTotal, currency)}</span>
             </div>
           </div>

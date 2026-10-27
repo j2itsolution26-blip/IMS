@@ -576,6 +576,7 @@ model User {
   accounts             Account[]
   auditLogs            AuditLog[]
   sales                Sale[]
+  voidedSales          Sale[]                       @relation("SaleVoidedBy")
   inventoryTransaction InventoryTransaction[]
   returns              Return[]
   payments             Payment[]
@@ -1228,6 +1229,13 @@ model Sale {
   // sales from before it, which never collide (NULLs are distinct).
   clientRequestId String?
 
+  // Set together when the sale is voided (CHECK, migration 20261104090000).
+  // The sale row itself is never deleted.
+  voidedAt   DateTime?
+  voidedById String?
+  voidedBy   User?     @relation("SaleVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  voidReason String?
+
   items    SaleItem[]
   payments Payment[]
   returns  Return[]
@@ -1373,6 +1381,10 @@ model Return {
   // Returned goods that cannot be resold do not go back into sellable stock.
   restock  Boolean @default(true)
 
+  // One per refund attempt, so a doubled submit refunds once
+  // (unique per store, migration 20261104090000).
+  clientRequestId String?
+
   items    ReturnItem[]
   payments Payment[]
 
@@ -1380,6 +1392,7 @@ model Return {
   updatedAt DateTime @updatedAt
 
   @@unique([storeId, returnNumber])
+  @@unique([storeId, clientRequestId])
   @@index([createdAt])
   @@index([saleId])
   @@index([storeId, createdAt])

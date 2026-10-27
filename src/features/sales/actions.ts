@@ -67,11 +67,14 @@ const returnSchema = z.object({
   saleId: z.string().min(1),
   reason: z.string().trim().min(4, 'Give a reason of at least 4 characters.').max(200),
   restock: z.boolean().default(true),
-  refundMethod: z.enum(['CASH', 'GCASH', 'CARD', 'OTHER']).default('CASH'),
+  // The store refunds the way it takes money: cash from a drawer, or GCash.
+  refundMethod: z.enum(['CASH', 'GCASH']).default('CASH'),
   lines: z
     // Pieces returned per line; 0 means "not returning this line".
     .array(z.object({ saleItemId: z.string().min(1), quantity: countQuantity }))
     .min(1, 'Select at least one line to return.'),
+  // One per refund attempt, so a doubled submit refunds once.
+  clientRequestId: z.string().uuid().optional(),
 });
 
 export async function createReturnAction(
@@ -88,6 +91,7 @@ export async function createReturnAction(
       refundMethod: values.refundMethod,
       lines: values.lines.filter((line) => line.quantity > 0),
       userId: user.id,
+      clientRequestId: values.clientRequestId,
     });
 
     revalidatePath('/sales');

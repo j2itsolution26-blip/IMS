@@ -15,7 +15,7 @@
  *   discounts          line discounts + order discounts
  *   revenue            sum of sale totals: what the till took (after discounts, tax included)
  *   netRevenue         revenue less tax = grossSales - discounts
- *   refunds            completed returns (refunded at the price paid, no tax)
+ *   refunds            completed refunds excluding tax, after their share of the order discount
  *   netSales           netRevenue - refunds
  *   costOfGoods        cost frozen on each sale line when it was rung up
  *   returnedCost       cost of refunded goods that went back on the shelf

@@ -81,7 +81,9 @@ async function returnsAggregate(from: Date, to: Date): Promise<ReturnsAggregateR
   const { db, storeId } = await getStoreContext();
   const rows = await db.$queryRaw<ReturnsAggregateRow[]>`
     SELECT
-      COALESCE(SUM(r.total), 0)::text AS "total",
+      -- Ex-tax, after the order discount share: comparable with net revenue.
+      -- (Refunds from before migration 20261104090000 have subtotal = total.)
+      COALESCE(SUM(r.subtotal), 0)::text AS "total",
       COUNT(*)::int                   AS "count",
       COALESCE((
         SELECT SUM(ri."unitCost" * ri.quantity)

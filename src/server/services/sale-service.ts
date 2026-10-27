@@ -2,7 +2,7 @@ import 'server-only';
 
 import { Prisma, type PaymentMethod, type SaleChannel } from '@prisma/client';
 import { type TxClient } from '@/lib/prisma';
-import { storeDb } from '@/lib/tenant/context';
+import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { D, money, sum, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { applyStockMovement, assertStockAvailable, wholePieces } from '@/server/services/inventory-service';
@@ -424,22 +424,47 @@ async function createSaleInTransaction(
 }
 
 /**
- * Voids a completed sale and returns every unit to stock.
+ * Locks one sale row of the signed-in store until the transaction ends, so
+ * refunds and voids of that sale take turns. False if there is no such sale.
+ */
+export async function lockSale(tx: Prisma.TransactionClient, saleId: string): Promise<boolean> {
+  const { storeId } = await getStoreContext();
+  const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM sales WHERE id = ${saleId} AND "storeId" = ${storeId} FOR UPDATE`;
+  return rows.length > 0;
+}
+
+/**
+ * Voids a completed sale and returns every unit to stock. The sale is kept,
+ * marked VOIDED with who voided it, when and why; it never counts as revenue
+ * or drawer cash again.
  *
- * A sale with returns already booked against it cannot be voided — the two
- * reversals would double-count. Void the return first.
+ * Only a sale with nothing refunded yet, rung up in a shift that is still
+ * open: that drawer still holds the money to hand back. Anything later is a
+ * refund, which records the money going out of whichever drawer pays it.
  */
 export async function voidSale(saleId: string, userId: string, reason: string): Promise<void> {
   const db = await storeDb();
+  const trimmed = reason.trim();
+  if (trimmed.length < 4) throw new ValidationError('Give a reason of at least 4 characters.');
+
   await db.$transaction(async (tx) => {
+    // Taken first, so a concurrent void or refund of this sale waits and then
+    // sees this one's effect instead of reversing the stock a second time.
+    if (!(await lockSale(tx, saleId))) throw new NotFoundError('Sale');
+
     const sale = await tx.sale.findUnique({
       where: { id: saleId },
       include: { items: true, returns: { select: { id: true } } },
     });
     if (!sale) throw new NotFoundError('Sale');
     if (sale.status === 'VOIDED') throw new ConflictError('This sale has already been voided.');
-    if (sale.returns.length > 0) {
-      throw new ConflictError('This sale has returns recorded against it. Void the returns first.');
+    if (sale.status !== 'COMPLETED' || sale.returns.length > 0) {
+      throw new ConflictError('Part of this sale has already been refunded, so it cannot be voided. Refund the remaining items instead.');
+    }
+    // Holds the shift open until the void commits, so a close cannot freeze
+    // its figures with this sale still counted.
+    if (!sale.shiftId || !(await lockShiftIfOpen(tx, sale.shiftId, 'share'))) {
+      throw new ConflictError('The shift this sale was rung up in is closed. Process a refund instead, so the money paid back is recorded.');
     }
 
     for (const item of sale.items) {
@@ -451,14 +476,14 @@ export async function voidSale(saleId: string, userId: string, reason: string): 
         unitCost: item.unitCost,
         referenceType: 'SALE',
         referenceId: sale.id,
-        note: `Void of ${sale.invoiceNumber}: ${reason}`,
+        note: `Void of ${sale.invoiceNumber}: ${trimmed}`,
         userId,
       });
     }
 
     await tx.sale.update({
       where: { id: sale.id },
-      data: { status: 'VOIDED', notes: [sale.notes, `VOIDED: ${reason}`].filter(Boolean).join('\n') },
+      data: { status: 'VOIDED', voidedAt: new Date(), voidedById: userId, voidReason: trimmed },
     });
 
     await recordAudit(
@@ -466,7 +491,8 @@ export async function voidSale(saleId: string, userId: string, reason: string): 
         action: 'UPDATE',
         entity: 'Sale',
         entityId: sale.id,
-        summary: `Voided sale ${sale.invoiceNumber}: ${reason}`,
+        summary: `Voided sale ${sale.invoiceNumber}: ${trimmed}`,
+        changes: { status: { from: sale.status, to: 'VOIDED' }, total: sale.total.toString(), reason: trimmed },
         userId,
       },
       tx,

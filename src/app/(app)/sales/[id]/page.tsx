@@ -78,7 +78,14 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
 
       {sale.status === 'VOIDED' && (
         <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive-text">
-          This sale has been voided. Stock was returned and it no longer counts toward revenue or profit.
+          <p>This sale has been voided. Stock was returned and it no longer counts toward revenue, profit or drawer cash.</p>
+          {sale.voided && (
+            <p className="mt-1 text-xs opacity-90">
+              Voided {formatDateTime(sale.voided.at)}
+              {sale.voided.by ? ` by ${sale.voided.by}` : ''}
+              {sale.voided.reason ? ` — ${sale.voided.reason}` : ''}
+            </p>
+          )}
         </div>
       )}
 

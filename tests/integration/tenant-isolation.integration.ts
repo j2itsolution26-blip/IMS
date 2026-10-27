@@ -99,7 +99,7 @@ if (!URL_ENV) {
   async function rejects(fn: () => Promise<unknown>, label: string) {
     await assert.rejects(fn, (error: unknown) => {
       const message = String((error as Error)?.message ?? error);
-      return error instanceof StoreScopeError || /another store|cannot move|No record was found|not found|Store isolation|violat|Unique constraint|null value|Null constraint|23502|Failing row/i.test(message);
+      return error instanceof StoreScopeError || /another store|cannot move|No record was found|not found|Store isolation|violat|Unique constraint|null value|Null constraint|23502|Failing row|cannot be changed/i.test(message);
     }, label);
   }
 
@@ -274,6 +274,33 @@ if (!URL_ENV) {
         () => platform.$executeRawUnsafe(`INSERT INTO sale_items (id, "storeId", "saleId", "productId", quantity, "unitPrice", "unitCost", total) VALUES ('raw2_${run}', '${A.storeId}', '${A.sale}', '${B.prod}', 1, 1, 1, 1)`),
         'raw cross-store sale line',
       );
+    });
+
+    test('a returned quantity can never exceed the quantity sold', async () => {
+      await rejects(
+        () => platform.$executeRawUnsafe(`UPDATE sale_items SET "returnedQuantity" = quantity + 1 WHERE id = '${A.item}'`),
+        'over-return',
+      );
+      await rejects(() => platform.$executeRawUnsafe(`UPDATE sale_items SET "returnedQuantity" = -1 WHERE id = '${A.item}'`), 'negative return');
+    });
+
+    test('a void records who, when and why, is final, and cannot name another store’s user', async () => {
+      const voided = `void_${run}`;
+      await platform.sale.create({
+        data: { id: voided, storeId: A.storeId, invoiceNumber: `VOID-${run}`, warehouseId: A.wh, userId: A.user, total: 10 },
+      });
+      // Voided without its details, or with details while not voided: refused.
+      await rejects(() => platform.sale.update({ where: { id: voided }, data: { status: 'VOIDED' } }), 'void without details');
+      await rejects(() => platform.sale.update({ where: { id: voided }, data: { voidReason: 'x' } }), 'details without void');
+      await rejects(
+        () => platform.sale.update({ where: { id: voided }, data: { status: 'VOIDED', voidedAt: new Date(), voidReason: 'test', voidedById: B.user } }),
+        'voided by another store’s user',
+      );
+      await platform.sale.update({ where: { id: voided }, data: { status: 'VOIDED', voidedAt: new Date(), voidReason: 'test', voidedById: A.user } });
+      await rejects(() => platform.sale.update({ where: { id: voided }, data: { status: 'COMPLETED', voidedAt: null, voidedById: null, voidReason: null } }), 'un-void');
+      await rejects(() => platform.sale.update({ where: { id: voided }, data: { voidReason: 'changed' } }), 'rewrite reason');
+      // Other fields of a voided sale (e.g. notes) can still be written.
+      await platform.sale.update({ where: { id: voided }, data: { notes: 'checked' } });
     });
 
     test('raw SQL cannot move a row to another store', async () => {

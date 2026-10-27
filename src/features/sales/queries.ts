@@ -148,6 +148,8 @@ export async function getSale(id: string, { includeCost = false }: { includeCost
     include: {
       warehouse: { select: { id: true, name: true } },
       user: { select: { id: true, name: true } },
+      voidedBy: { select: { name: true } },
+      shift: { select: { status: true } },
       items: {
         include: {
           product: {
@@ -172,6 +174,13 @@ export async function getSale(id: string, { includeCost = false }: { includeCost
     channel: sale.channel,
     createdAt: sale.createdAt,
     notes: sale.notes,
+    // Who voided it, when and why; null unless VOIDED.
+    voided:
+      sale.status === 'VOIDED'
+        ? { at: sale.voidedAt ?? sale.updatedAt, by: sale.voidedBy?.name ?? null, reason: sale.voidReason }
+        : null,
+    // A sale can be voided only while its shift's drawer is still open.
+    shiftOpen: sale.shift?.status === 'OPEN',
     subtotal: toNum(sale.subtotal),
     taxAmount: toNum(sale.taxAmount),
     discount: toNum(sale.discount),
