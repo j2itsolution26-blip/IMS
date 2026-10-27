@@ -216,6 +216,18 @@ if (!URL_ENV) {
       assert.ok(sale.items.every((i) => i.storeId === A.storeId));
     });
 
+    test('a checkout request id records one sale per store, and never blocks another store', async () => {
+      const requestId = `00000000-0000-4000-8000-${run.padStart(12, '0').slice(-12)}`;
+      const sale = (n: string) => ({ invoiceNumber: `REQ-${n}-${run}`, warehouseId: A.wh, userId: A.user, total: 1, clientRequestId: requestId });
+      const results = await Promise.allSettled([dbA.sale.create({ data: sale('1') }), dbA.sale.create({ data: sale('2') })]);
+      assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+      const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+      assert.equal((refused.reason as { code?: string }).code, 'P2002');
+      assert.equal(await dbA.sale.count({ where: { clientRequestId: requestId } }), 1);
+      // The same id in another store is a different checkout.
+      await storeClient(B.storeId).sale.create({ data: { invoiceNumber: `REQ-B-${run}`, warehouseId: B.wh, userId: B.user, total: 1, clientRequestId: requestId } });
+    });
+
     test('a role permission cannot be granted on B’s role', async () => {
       const permission = await platform.permission.findFirst({ select: { id: true } });
       if (!permission) return;

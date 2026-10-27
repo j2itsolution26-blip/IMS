@@ -43,13 +43,19 @@ const checkoutSchema = z.object({
   payments: z
     .array(
       z.object({
-        method: z.enum(['CASH', 'GCASH', 'CARD', 'OTHER']),
-        amount: z.number().min(0),
+        // The till only takes cash and GCash; CARD and OTHER remain in the
+        // enum for historical sales.
+        method: z.enum(['CASH', 'GCASH']),
+        amount: z.number().finite().min(0),
         reference: z.string().max(80).optional(),
+        // GCash: the cashier saw the money arrive in the store account.
+        confirmedReceived: z.boolean().optional(),
       }),
     )
     .min(1, 'Record at least one payment.'),
   notes: z.string().max(500).optional(),
+  // One per checkout attempt, so a retried request records the sale once.
+  clientRequestId: z.string().uuid().optional(),
 });
 
 export type CheckoutInput = z.input<typeof checkoutSchema>;
@@ -71,6 +77,7 @@ export async function checkout(input: unknown): Promise<ActionResult<CompletedSa
       payments: values.payments.filter((payment) => payment.amount > 0),
       notes: values.notes,
       userId: user.id,
+      clientRequestId: values.clientRequestId,
     });
 
     revalidatePath('/pos');

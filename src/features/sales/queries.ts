@@ -244,6 +244,6 @@ export async function getReceiptData(id: string, { cashierId = null }: { cashier
     total: sale.total,
     paid: sale.paidAmount,
     change: sale.changeAmount,
-    payments: sale.payments.map((p) => ({ method: p.method, amount: p.amount })),
+    payments: sale.payments.map((p) => ({ method: p.method, amount: p.amount, reference: p.reference })),
   };
 }

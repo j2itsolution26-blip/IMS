@@ -1223,6 +1223,11 @@ model Sale {
 
   notes String?
 
+  // One id per checkout attempt, made by the till, so a retried or doubled
+  // request records the sale once (migration 20261103090000). Empty for
+  // sales from before it, which never collide (NULLs are distinct).
+  clientRequestId String?
+
   items    SaleItem[]
   payments Payment[]
   returns  Return[]
@@ -1231,6 +1236,7 @@ model Sale {
   updatedAt DateTime @updatedAt
 
   @@unique([storeId, invoiceNumber])
+  @@unique([storeId, clientRequestId])
   @@index([createdAt])
   @@index([userId, createdAt])
   @@index([status])

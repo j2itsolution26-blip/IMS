@@ -48,7 +48,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Separator } from '@/components/ui/misc';
+import { Checkbox, Separator } from '@/components/ui/misc';
+import { GCASH_REFERENCE_HINT, normalizeGcashReference, quickCashOptions, tenderSummary } from '@/lib/tender';
 import { Receipt, type ReceiptData } from '@/features/pos/receipt';
 import { PosCameraScanner, type ScanOutcome } from '@/features/pos/pos-camera-scanner';
 import { QuantityInput } from '@/features/pos/quantity-input';
@@ -131,9 +132,6 @@ function matchExact(list: SellableProduct[], value: string): SellableProduct | u
   );
 }
 
-/** The notes customers actually hand over. */
-const QUICK_CASH = [20, 50, 100, 200, 500];
-
 /**
  * Keeps the money fields to digits and a single decimal point.
  *
@@ -200,6 +198,9 @@ export function PosTerminal({
   const [cashReceived, setCashReceived] = React.useState('');
   const [gcashAmount, setGcashAmount] = React.useState('');
   const [gcashReference, setGcashReference] = React.useState('');
+  const [gcashConfirmed, setGcashConfirmed] = React.useState(false);
+  // One id per checkout attempt: a doubled or retried submit records the sale once.
+  const [checkoutRequestId, setCheckoutRequestId] = React.useState('');
   const [copiedGcash, setCopiedGcash] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   // A sale needs the server; charging offline would only end in an error.
@@ -568,12 +569,16 @@ export function PosTerminal({
 
   // --- Payment (one tender, cash or GCash) ---------------------------------
 
-  const paid = round(Math.max(0, Number(method === 'CASH' ? cashReceived : gcashAmount) || 0));
-  const change = method === 'CASH' ? round(Math.max(0, paid - totals.total)) : 0;
-  const outstanding = round(Math.max(0, totals.total - paid));
+  // Worked in whole centavos (src/lib/tender.ts), so ₱1,000 on ₱350 is exactly ₱650.
+  const tender = tenderSummary({ total: totals.total, method, received: method === 'CASH' ? cashReceived : gcashAmount });
+  const paid = tender.received;
+  const change = tender.change;
+  const outstanding = tender.outstanding;
+  const gcashReferenceValid = normalizeGcashReference(gcashReference) !== null;
   // The sale service takes no partial payments, so the tender has to cover the
-  // whole total before the sale can be completed.
-  const canComplete = totals.total > 0 && outstanding === 0;
+  // whole total; GCash must be exact, with a reference and a confirmed receipt.
+  const canComplete =
+    tender.canComplete && (method === 'CASH' || (gcashReferenceValid && gcashConfirmed));
 
   const currencySymbol = React.useMemo(() => currencySymbolFor(currency), [currency]);
 
@@ -597,12 +602,21 @@ export function PosTerminal({
     setCashReceived('');
     setGcashAmount(totals.total.toFixed(2));
     setGcashReference('');
+    setGcashConfirmed(false);
+    setCheckoutRequestId(crypto.randomUUID());
     setPayOpen(true);
   };
 
   const onCheckout = async () => {
+    if (submitting) return;
     if (!canComplete) {
-      toast.error('The payment does not cover the amount due.');
+      toast.error(
+        tender.overpaidNonCash
+          ? 'GCash must be for the exact amount due.'
+          : method === 'GCASH' && tender.canComplete
+            ? 'Enter the GCash reference and confirm the payment arrived.'
+            : 'The payment does not cover the amount due.',
+      );
       return;
     }
     if (!navigator.onLine) {
@@ -624,9 +638,11 @@ export function PosTerminal({
           method,
           amount: paid,
           reference: method === 'GCASH' ? gcashReference.trim() || undefined : undefined,
+          confirmedReceived: method === 'GCASH' ? gcashConfirmed : undefined,
         },
       ],
       notes: notes.trim() || undefined,
+      clientRequestId: checkoutRequestId || undefined,
     });
 
     setSubmitting(false);
@@ -654,7 +670,13 @@ export function PosTerminal({
       total: result.data.total,
       paid: result.data.paidAmount,
       change: result.data.changeAmount,
-      payments: [{ method: METHOD_LABEL[method], amount: paid }],
+      payments: [
+        {
+          method: METHOD_LABEL[method],
+          amount: paid,
+          reference: method === 'GCASH' ? normalizeGcashReference(gcashReference) : null,
+        },
+      ],
       company,
       currency,
     });
@@ -1025,7 +1047,7 @@ export function PosTerminal({
                   </Button>
                   {/* Only notes that actually cover the bill — tapping one must
                       never leave the sale short. */}
-                  {QUICK_CASH.filter((amount) => amount >= totals.total).map((amount) => (
+                  {quickCashOptions(totals.total).map((amount) => (
                     <Button
                       key={amount}
                       type="button"
@@ -1034,7 +1056,7 @@ export function PosTerminal({
                       className="tabular"
                       onClick={() => setCashReceived(amount.toFixed(2))}
                     >
-                      ₱{amount}
+                      ₱{amount.toLocaleString('en-PH')}
                     </Button>
                   ))}
                 </div>
@@ -1112,8 +1134,45 @@ export function PosTerminal({
                     onChange={(event) => setGcashReference(event.target.value)}
                     placeholder="Enter reference number"
                     maxLength={80}
+                    aria-invalid={gcashReference.trim() !== '' && !gcashReferenceValid}
+                    aria-describedby="gcash-reference-hint"
                   />
+                  <p
+                    id="gcash-reference-hint"
+                    className={cn(
+                      'text-xs',
+                      gcashReference.trim() !== '' && !gcashReferenceValid ? 'text-destructive-text' : 'text-muted-foreground',
+                    )}
+                  >
+                    {GCASH_REFERENCE_HINT}
+                  </p>
                 </div>
+
+                {/* A reference number or a customer's screenshot is not proof
+                    of payment; the cashier checks the store's own account. */}
+                <label
+                  htmlFor="gcash-confirmed"
+                  className="flex cursor-pointer items-start gap-3 rounded-xl border bg-muted/40 p-3 text-sm"
+                >
+                  <Checkbox
+                    id="gcash-confirmed"
+                    checked={gcashConfirmed}
+                    onCheckedChange={(checked) => setGcashConfirmed(checked === true)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium">I saw this payment arrive in the store GCash account.</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Check the GCash app or SMS on the store phone. Do not rely on the customer&apos;s screenshot.
+                    </span>
+                  </span>
+                </label>
+
+                {tender.overpaidNonCash && (
+                  <p role="alert" className="rounded-xl bg-destructive/10 px-4 py-3 text-center text-sm font-medium text-destructive-text">
+                    GCash must be for the exact amount due, {formatCurrency(totals.total, currency)}. There is no change on GCash.
+                  </p>
+                )}
 
                 {outstanding > 0 && (
                   <div className="rounded-xl bg-destructive/10 px-4 py-3 text-center">

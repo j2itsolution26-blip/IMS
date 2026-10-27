@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import { formatCurrency, formatDateTime, formatQuantity } from '@/lib/format';
 
 /**
@@ -29,7 +30,8 @@ export interface ReceiptData {
   total: number;
   paid: number;
   change: number;
-  payments: { method: string; amount: number }[];
+  /** Cash is the amount handed over (change is shown below); GCash carries its reference. */
+  payments: { method: string; amount: number; reference?: string | null }[];
   company: {
     name: string;
     address: string;
@@ -98,7 +100,10 @@ export function Receipt({ data }: { data: ReceiptData }) {
 
       <div className="space-y-0.5">
         {data.payments.map((payment, index) => (
-          <Line key={index} label={payment.method} value={formatCurrency(payment.amount, currency)} />
+          <React.Fragment key={index}>
+            <Line label={payment.method} value={formatCurrency(payment.amount, currency)} />
+            {payment.reference && <Line label="  Ref. no." value={payment.reference} />}
+          </React.Fragment>
         ))}
         {data.change > 0 && <Line label="Change" value={formatCurrency(data.change, currency)} />}
         {data.paid < data.total && (

@@ -11,6 +11,7 @@ import { recordAudit } from '@/server/services/audit-service';
 import { getSettings, readNumber } from '@/server/services/settings-service';
 import { getDefaultWarehouseId } from '@/server/services/warehouse-service';
 import { lockShiftIfOpen, requireOpenShift } from '@/server/services/shift-service';
+import { GCASH_REFERENCE_HINT, normalizeGcashReference } from '@/lib/tender';
 
 /**
  * Sales / point of sale.
@@ -36,6 +37,12 @@ export interface SalePaymentInput {
   method: PaymentMethod;
   amount: Numeric;
   reference?: string;
+  /**
+   * GCash only: the cashier confirmed the money arrived in the store's GCash
+   * account (its notification or transaction history, not the customer's
+   * screen). A reference number on its own is not proof of payment.
+   */
+  confirmedReceived?: boolean;
 }
 
 export interface CreateSaleInput {
@@ -46,6 +53,12 @@ export interface CreateSaleInput {
   payments: SalePaymentInput[];
   notes?: string;
   userId: string;
+  /**
+   * One id per checkout attempt, made by the till. A retried or doubled
+   * request with the same id returns the sale already recorded instead of
+   * ringing it up twice (unique per store, migration 20261103090000).
+   */
+  clientRequestId?: string;
 }
 
 export interface SaleTotals {
@@ -166,8 +179,75 @@ export interface CompletedSale {
   profit: number;
 }
 
+const COMPLETED_SALE_SELECT = {
+  id: true,
+  invoiceNumber: true,
+  total: true,
+  paidAmount: true,
+  changeAmount: true,
+  taxAmount: true,
+  costOfGoods: true,
+  userId: true,
+} as const;
+
+type CompletedSaleRow = Prisma.SaleGetPayload<{ select: typeof COMPLETED_SALE_SELECT }>;
+
+function toCompletedSale(sale: CompletedSaleRow): CompletedSale {
+  return {
+    id: sale.id,
+    invoiceNumber: sale.invoiceNumber,
+    total: toNum(sale.total),
+    paidAmount: toNum(sale.paidAmount),
+    changeAmount: toNum(sale.changeAmount),
+    profit: toNum(D(sale.total).minus(D(sale.taxAmount)).minus(D(sale.costOfGoods))),
+  };
+}
+
+/** The sale an earlier attempt with this id already recorded, if any. Only ever the same cashier's. */
+async function findRetriedSale(db: TxClient, clientRequestId: string, userId: string): Promise<CompletedSale | null> {
+  const existing = await db.sale.findFirst({ where: { clientRequestId }, select: COMPLETED_SALE_SELECT });
+  if (!existing) return null;
+  if (existing.userId !== userId) throw new ConflictError('This checkout was already used. Start a new sale.');
+  return toCompletedSale(existing);
+}
+
+function isClientRequestConflict(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002' &&
+    String((error.meta as { target?: unknown } | undefined)?.target ?? '').includes('clientRequestId')
+  );
+}
+
+type CheckedPayment = Omit<SalePaymentInput, 'reference'> & { reference: string | null };
+
+/**
+ * Checks the tenders before anything is written. GCash needs a reference that
+ * looks real and the cashier's confirmation that the money arrived.
+ */
+function checkedPayments(payments: SalePaymentInput[]): CheckedPayment[] {
+  return payments.map((payment) => {
+    if (payment.method !== 'GCASH') return { ...payment, reference: payment.reference?.trim() || null };
+    const reference = normalizeGcashReference(payment.reference);
+    if (!reference) throw new ValidationError(GCASH_REFERENCE_HINT, { reference: [GCASH_REFERENCE_HINT] });
+    if (payment.confirmedReceived !== true) {
+      throw new ValidationError(
+        'Check the store GCash account and confirm the payment arrived before completing the sale.',
+        { confirmedReceived: ['Confirm the payment arrived.'] },
+      );
+    }
+    return { ...payment, reference };
+  });
+}
+
 export async function createSale(input: CreateSaleInput): Promise<CompletedSale> {
   const db = await storeDb();
+  const clientRequestId = input.clientRequestId?.trim() || null;
+  if (clientRequestId) {
+    const retried = await findRetriedSale(db, clientRequestId, input.userId);
+    if (retried) return retried;
+  }
+  const payments = checkedPayments(input.payments);
   const orderDiscount = money(input.discount ?? 0);
   const [warehouseId, shift, settings] = await Promise.all([
     getDefaultWarehouseId(),
@@ -176,7 +256,39 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
   ]);
   const taxRate = D(readNumber(settings, 'sales.defaultTaxRate'));
 
-  const result = await db.$transaction(
+  try {
+    return await createSaleInTransaction(db, input, { payments, clientRequestId, orderDiscount, warehouseId, shift, taxRate });
+  } catch (error) {
+    // Two copies of one checkout raced: the first committed and this one
+    // rolled back entirely, so no stock moved. Hand back the recorded sale.
+    if (clientRequestId && isClientRequestConflict(error)) {
+      const retried = await findRetriedSale(db, clientRequestId, input.userId);
+      if (retried) return retried;
+    }
+    throw error;
+  }
+}
+
+async function createSaleInTransaction(
+  db: Awaited<ReturnType<typeof storeDb>>,
+  input: CreateSaleInput,
+  {
+    payments,
+    clientRequestId,
+    orderDiscount,
+    warehouseId,
+    shift,
+    taxRate,
+  }: {
+    payments: CheckedPayment[];
+    clientRequestId: string | null;
+    orderDiscount: Prisma.Decimal;
+    warehouseId: string;
+    shift: { id: string };
+    taxRate: Prisma.Decimal;
+  },
+): Promise<CompletedSale> {
+  return db.$transaction(
     async (tx) => {
       // Holds the shift open until this sale commits; a close that started
       // first wins and this sale is refused rather than landing on it.
@@ -194,14 +306,21 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
         lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
       );
 
-      const tendered = money(sum(input.payments.map((p) => p.amount)));
-      if (tendered.lessThan(0)) {
+      if (payments.some((p) => D(p.amount).lessThan(0))) {
         throw new ValidationError('Payment amounts cannot be negative.');
       }
+      const tendered = money(sum(payments.map((p) => p.amount)));
 
-      // Overpayment is only meaningful for cash — card/e-wallet rails are
-      // charged for the exact amount, so change never applies to them.
-      const hasCash = input.payments.some((p) => p.method === 'CASH');
+      // Change only ever comes out of cash. GCash and other rails are charged
+      // an exact amount, so together they may cover at most the total;
+      // otherwise the sale would record more paid than it cost.
+      const nonCash = money(sum(payments.filter((p) => p.method !== 'CASH').map((p) => p.amount)));
+      if (nonCash.greaterThan(totals.total)) {
+        throw new ValidationError('The GCash amount cannot be more than the total. Enter the exact amount due.', {
+          payments: ['GCash must be for the exact amount due.'],
+        });
+      }
+      const hasCash = payments.some((p) => p.method === 'CASH');
       const overpaid = tendered.minus(totals.total);
       const changeAmount = hasCash && overpaid.greaterThan(0) ? money(overpaid) : money(0);
       const paidAmount = money(tendered.minus(changeAmount));
@@ -231,6 +350,7 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
           changeAmount,
           costOfGoods: totals.costOfGoods,
           notes: input.notes?.trim() || null,
+          clientRequestId,
           items: {
             create: lines.map((l) => ({
               productId: l.productId,
@@ -261,7 +381,7 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
         });
       }
 
-      for (const payment of input.payments) {
+      for (const payment of payments) {
         const amount = money(payment.amount);
         if (amount.lessThanOrEqualTo(0)) continue;
         await tx.payment.create({
@@ -270,7 +390,8 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
             direction: 'INBOUND',
             method: payment.method,
             amount,
-            reference: payment.reference?.trim() || null,
+            reference: payment.reference,
+            note: payment.method === 'GCASH' ? 'Cashier confirmed the payment arrived in the store GCash account.' : null,
             saleId: sale.id,
             shiftId: shift.id,
             userId: input.userId,
@@ -300,8 +421,6 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
     },
     { timeout: 20_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
   );
-
-  return result;
 }
 
 /**
