@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
+  ArrowLeftRight,
   Boxes,
   CreditCard,
   Inbox,
@@ -142,6 +143,8 @@ export const NAVIGATION: NavSection[] = [
       },
       { label: 'Reports', href: '/reports', icon: FileBarChart, permission: 'reports.view' },
       { label: 'Sales', href: '/sales', icon: ShoppingCart, permission: 'sales.view' },
+      // Cash put into or taken from a drawer. Cashiers see their own; the owner everyone's.
+      { label: 'Cash In / Out', href: '/cash-movements', icon: ArrowLeftRight, permission: 'pos.view' },
       // Every cashier's drawer — owner only, so it uses the financial key.
       { label: 'Shift Management', href: '/shifts', icon: Wallet, permission: FINANCIAL_PERMISSION },
       { label: 'Settings', href: '/settings', icon: Settings, permission: 'settings.view', exact: true },

@@ -1167,19 +1167,48 @@ model CashMovement {
   amount  Decimal          @db.Decimal(18, 4)
   reason  String
 
+  // Shown as CO-000123 (cash out) or CI-000123 (cash in). From a sequence.
+  number   Int                  @unique @default(autoincrement())
+  category CashMovementCategory @default(OTHER)
+  // A longer explanation, beyond the one-line reason.
+  notes    String?
+
+  // A correction reverses exactly one earlier movement, at most once; a
+  // CHECK keeps category CORRECTION and this link together.
+  correctsId  String?       @unique
+  corrects    CashMovement? @relation("CashMovementCorrection", fields: [correctsId], references: [id], onDelete: Restrict)
+  correctedBy CashMovement? @relation("CashMovementCorrection")
+
+  // One per attempt, so a doubled submit records the movement once.
+  clientRequestId String?
+
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
 
+  @@unique([storeId, clientRequestId])
   @@index([shiftId])
   @@index([storeId])
+  @@index([storeId, createdAt])
+  @@index([userId, createdAt])
   @@map("cash_movements")
 }
 
 enum CashMovementType {
   CASH_IN
   CASH_OUT
+}
+
+enum CashMovementCategory {
+  CHANGE_FUND
+  OWNER_TOP_UP
+  SUPPLIER_PAYMENT
+  EXPENSE
+  BANK_DEPOSIT
+  OWNER_WITHDRAWAL
+  CORRECTION
+  OTHER
 }
 
 enum ShiftStatus {

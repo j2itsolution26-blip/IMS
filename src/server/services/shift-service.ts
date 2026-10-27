@@ -1,6 +1,7 @@
 import 'server-only';
 
-import type { CashMovementType, PaymentMethod, Prisma, SaleStatus, ShiftReviewStatus, ShiftStatus } from '@prisma/client';
+import type { CashMovementCategory, CashMovementType, PaymentMethod, Prisma, SaleStatus, ShiftReviewStatus, ShiftStatus } from '@prisma/client';
+import { CATEGORY_LABEL, correctionTypeFor, isCategoryAllowed, movementReference } from '@/lib/cash-movements';
 import type { DbClient } from '@/lib/prisma';
 import { getStoreContext, storeDb, storeDbForShiftClose } from '@/lib/tenant/context';
 import { D, money, toNum, type Numeric } from '@/lib/decimal';
@@ -348,39 +349,155 @@ export async function closeShiftForCashier(input: { shiftId: string; actorId: st
 /* Cash in / cash out                                                          */
 /* -------------------------------------------------------------------------- */
 
+export interface RecordedMovement {
+  id: string;
+  number: number;
+  reference: string;
+}
+
+/**
+ * Records cash put into or taken from the cashier's own open drawer. The
+ * cashier is the signed-in user, never a value from the browser. With a
+ * `clientRequestId`, a doubled submit returns the movement already saved.
+ */
 export async function addCashMovement(input: {
   userId: string;
   type: CashMovementType;
   amount: Numeric;
   reason: string;
-}): Promise<{ id: string }> {
+  category?: CashMovementCategory;
+  notes?: string;
+  clientRequestId?: string;
+}): Promise<RecordedMovement> {
   const db = await storeDb();
   const amount = validDrawerAmount(input.amount, 'The amount', { allowZero: false });
   const reason = input.reason.trim();
   if (reason.length < 3) throw new ValidationError('Say what the cash is for.', { reason: ['Give a short reason.'] });
+  const category = input.category ?? 'OTHER';
+  if (!isCategoryAllowed(input.type, category)) {
+    throw new ValidationError('Choose a category for this kind of movement.', { category: ['Choose a category.'] });
+  }
+  const notes = input.notes?.trim() ? input.notes.trim().slice(0, 500) : null;
+  const clientRequestId = input.clientRequestId?.trim() || null;
+
+  if (clientRequestId) {
+    const existing = await db.cashMovement.findFirst({ where: { clientRequestId }, select: { id: true, number: true, type: true, userId: true } });
+    if (existing) {
+      if (existing.userId !== input.userId) throw new ConflictError('This entry was already used. Start again.');
+      return { id: existing.id, number: existing.number, reference: movementReference(existing.type, existing.number) };
+    }
+  }
 
   const shift = await getOpenShift(input.userId);
   if (!shift) throw new ConflictError('Open a shift first.');
 
-  return db.$transaction(async (tx) => {
-    if (!(await lockShiftIfOpen(tx, shift.id, 'share'))) throw new ConflictError('Your shift was closed. Open a new shift first.');
-    const movement = await tx.cashMovement.create({
-      data: { shiftId: shift.id, type: input.type, amount, reason: reason.slice(0, 200), userId: input.userId },
-      select: { id: true },
+  try {
+    return await db.$transaction(async (tx) => {
+      if (!(await lockShiftIfOpen(tx, shift.id, 'share'))) throw new ConflictError('Your shift was closed. Open a new shift first.');
+      const movement = await tx.cashMovement.create({
+        data: {
+          shiftId: shift.id,
+          type: input.type,
+          amount,
+          reason: reason.slice(0, 200),
+          category,
+          notes,
+          clientRequestId,
+          userId: input.userId,
+        },
+        select: { id: true, number: true },
+      });
+      const reference = movementReference(input.type, movement.number);
+      await recordAudit(
+        {
+          action: 'CASH_MOVEMENT',
+          entity: 'CashierShift',
+          entityId: shift.id,
+          changes: { movementId: movement.id, reference, type: input.type, category, amount: amount.toString() },
+          summary: `${reference} ${input.type === 'CASH_IN' ? 'cash in' : 'cash out'} ₱${toNum(amount).toFixed(2)} (${CATEGORY_LABEL[category]}): ${reason.slice(0, 120)}`,
+          userId: input.userId,
+        },
+        tx,
+      );
+      return { ...movement, reference };
     });
-    await recordAudit(
-      {
-        action: 'CASH_MOVEMENT',
-        entity: 'CashierShift',
-        entityId: shift.id,
-        changes: { movementId: movement.id, type: input.type, amount: amount.toString() },
-        summary: `${input.type === 'CASH_IN' ? 'Cash in' : 'Cash out'} ₱${toNum(amount).toFixed(2)}: ${reason.slice(0, 120)}`,
-        userId: input.userId,
-      },
-      tx,
-    );
-    return movement;
-  });
+  } catch (error) {
+    if (clientRequestId && isUniqueOn(error, 'clientRequestId')) {
+      const existing = await db.cashMovement.findFirst({ where: { clientRequestId }, select: { id: true, number: true, type: true } });
+      if (existing) return { id: existing.id, number: existing.number, reference: movementReference(existing.type, existing.number) };
+    }
+    throw error;
+  }
+}
+
+function isUniqueOn(error: unknown, field: string): boolean {
+  const e = error as { code?: string; meta?: { target?: unknown } };
+  return e?.code === 'P2002' && String(e.meta?.target ?? '').includes(field);
+}
+
+/**
+ * Reverses a cash movement recorded by mistake, with an opposite movement
+ * linked to it (never by editing or deleting it). Only on the shift the
+ * movement belongs to while that drawer is still open — by its cashier, or by
+ * the owner — and only once (unique link). After the shift has closed, the
+ * owner records a shift adjustment instead.
+ */
+export async function correctCashMovement(input: {
+  movementId: string;
+  actorId: string;
+  isOwner: boolean;
+  reason: string;
+}): Promise<RecordedMovement> {
+  const db = await storeDb();
+  const reason = input.reason.trim();
+  if (reason.length < 3) throw new ValidationError('Say why this is being corrected.', { reason: ['Give a short reason.'] });
+
+  try {
+    return await db.$transaction(async (tx) => {
+      const original = await tx.cashMovement.findUnique({
+        where: { id: input.movementId },
+        select: { id: true, number: true, type: true, amount: true, category: true, shiftId: true, userId: true, correctedBy: { select: { id: true } } },
+      });
+      if (!original) throw new NotFoundError('Cash movement');
+      if (!input.isOwner && original.userId !== input.actorId) throw new NotFoundError('Cash movement');
+      if (original.category === 'CORRECTION') throw new ConflictError('A correction cannot itself be corrected. Record a new cash in or out instead.');
+      if (original.correctedBy) throw new ConflictError('This movement has already been corrected.');
+      if (!(await lockShiftIfOpen(tx, original.shiftId, 'share'))) {
+        throw new ConflictError('That shift is closed. The owner can record a shift adjustment instead.');
+      }
+
+      const type = correctionTypeFor(original.type);
+      const originalRef = movementReference(original.type, original.number);
+      const movement = await tx.cashMovement.create({
+        data: {
+          shiftId: original.shiftId,
+          type,
+          amount: original.amount,
+          reason: `Correction of ${originalRef}: ${reason}`.slice(0, 200),
+          category: 'CORRECTION',
+          correctsId: original.id,
+          userId: input.actorId,
+        },
+        select: { id: true, number: true },
+      });
+      const reference = movementReference(type, movement.number);
+      await recordAudit(
+        {
+          action: 'CASH_MOVEMENT',
+          entity: 'CashierShift',
+          entityId: original.shiftId,
+          changes: { movementId: movement.id, reference, corrects: originalRef, type, amount: original.amount.toString() },
+          summary: `${reference} corrects ${originalRef} (₱${toNum(original.amount).toFixed(2)}): ${reason.slice(0, 120)}`,
+          userId: input.actorId,
+        },
+        tx,
+      );
+      return { ...movement, reference };
+    });
+  } catch (error) {
+    if (isUniqueOn(error, 'correctsId')) throw new ConflictError('This movement has already been corrected.');
+    throw error;
+  }
 }
 
 /**
@@ -672,7 +789,17 @@ export interface ShiftDetail extends ShiftHistoryRow {
   changeGiven: number;
   /** Refunds paid out of this drawer, by method. */
   refunds: { method: PaymentMethod; amount: number; count: number }[];
-  movements: { id: string; type: CashMovementType; amount: number; reason: string; createdAt: Date; userName: string }[];
+  movements: {
+    id: string;
+    reference: string;
+    type: CashMovementType;
+    category: CashMovementCategory;
+    amount: number;
+    reason: string;
+    notes: string | null;
+    createdAt: Date;
+    userName: string;
+  }[];
   adjustments: { id: string; amount: number; reason: string; createdAt: Date; userName: string }[];
   transactions: {
     id: string;
@@ -792,9 +919,12 @@ export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | nul
     refunds: refunds.map((r) => ({ method: r.method, amount: toNum(money(r._sum.amount ?? 0)), count: r._count._all })),
     movements: row.movements.map((m) => ({
       id: m.id,
+      reference: movementReference(m.type, m.number),
       type: m.type,
+      category: m.category,
       amount: toNum(m.amount),
       reason: m.reason,
+      notes: m.notes,
       createdAt: m.createdAt,
       userName: m.user.name,
     })),

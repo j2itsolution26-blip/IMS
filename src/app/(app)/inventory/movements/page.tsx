@@ -5,7 +5,7 @@ import type { InventoryTransactionType } from '@prisma/client';
 import { requirePermission, userCan } from '@/lib/session';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { formatPieces } from '@/lib/quantity';
-import { listMovements } from '@/features/inventory/queries';
+import { listMovementStaff, listMovements } from '@/features/inventory/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { resolveRange, parsePeriod } from '@/server/analytics/date-range';
 import { formatCurrency, formatDateTime, formatQuantity, humanizeEnum } from '@/lib/format';
@@ -41,7 +41,7 @@ function referenceHref(referenceType: string | null, referenceId: string | null)
 export default async function MovementsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; type?: string; period?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; type?: string; staff?: string; period?: string; page?: string }>;
 }) {
   const user = await requirePermission('inventory.view');
   const params = await searchParams;
@@ -55,15 +55,16 @@ export default async function MovementsPage({
 
   const currency = await getCurrency();
 
-  const result = await listMovements({
+  const [result, staff] = await Promise.all([listMovements({
     search: params.q,
+    userId: params.staff || undefined,
     type: TYPES.includes(params.type as InventoryTransactionType)
       ? (params.type as InventoryTransactionType)
       : 'ALL',
     from: range.from,
     to: range.to,
     page: Number(params.page) || 1,
-  }, { includeCost: canViewCost });
+  }, { includeCost: canViewCost }), listMovementStaff()]);
 
   return (
     <>
@@ -87,6 +88,13 @@ export default async function MovementsPage({
       <FilterBar
         searchPlaceholder="Search product name or SKU…"
         selects={[
+          {
+            name: 'staff',
+            label: 'Staff',
+            allLabel: 'All staff',
+            width: 'w-[170px]',
+            options: staff.map((member) => ({ value: member.id, label: member.name })),
+          },
           {
             name: 'type',
             label: 'Movement type',

@@ -196,6 +196,7 @@ async function renderCashier(user: CurrentUser, currency: string, suggestedOpeni
 
   return (
     <CashierDashboardView
+      cashierId={user.id}
       cashierName={user.name}
       data={data}
       currency={currency}

@@ -9,6 +9,7 @@ import { cashierCashWindow, type CashierCashWindow } from '@/lib/cashier-window'
 import { computeShiftSummary, getOpenShift, type OpenShiftSummary, type ShiftCloseSummary } from '@/server/services/shift-service';
 import { getInventoryKpis } from '@/server/analytics/inventory-dashboard';
 import { getStockLevels } from '@/server/analytics/inventory-analytics';
+import { recentCashMovements, type CashMovementRow } from '@/server/services/cash-movement-queries';
 
 /**
  * Everything the cashier dashboard shows, read for one cashier.
@@ -50,17 +51,23 @@ export interface CashierDashboardData {
   outOfStock: number;
   recentSales: CashierRecentSale[];
   stockAlerts: CashierStockAlert[];
+  /** The cashier's own latest cash in / out entries, newest first. */
+  cashMovements: CashMovementRow[];
+  /** The cashier's own cash out today (corrections that put cash back are cash in, so not counted). */
+  cashOutToday: { amount: number; count: number };
 }
 
 const RECENT_SALES = 8;
 const STOCK_ALERTS = 8;
+const RECENT_MOVEMENTS = 5;
 
 export async function getCashierDashboard(userId: string, now: Date = new Date()): Promise<CashierDashboardData> {
   const db = await storeDb();
   const shift = await getOpenShift(userId);
   const cashWindow = cashierCashWindow(shift, now);
 
-  const [shiftSummary, transactionsToday, cashCollected, kpis, recent, out, low] = await Promise.all([
+  const today = { gte: startOfStoreDay(now), lte: endOfStoreDay(now) };
+  const [shiftSummary, transactionsToday, cashCollected, kpis, recent, out, low, movements, cashOutToday] = await Promise.all([
     shift ? computeShiftSummary(shift.id, shift.openingCash) : null,
     db.sale.count({
       where: {
@@ -86,6 +93,12 @@ export async function getCashierDashboard(userId: string, now: Date = new Date()
     }),
     getStockLevels({ status: 'OUT_OF_STOCK', sort: 'name', page: 1, pageSize: STOCK_ALERTS }),
     getStockLevels({ status: 'LOW_ANY', sort: 'attention', page: 1, pageSize: STOCK_ALERTS }),
+    recentCashMovements(userId, RECENT_MOVEMENTS),
+    db.cashMovement.aggregate({
+      where: { userId, type: 'CASH_OUT', createdAt: today },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
   ]);
 
   return {
@@ -119,6 +132,8 @@ export async function getCashierDashboard(userId: string, now: Date = new Date()
       available: row.available,
       threshold: row.reorderLevel > 0 ? row.reorderLevel : row.minStock,
     })),
+    cashMovements: movements,
+    cashOutToday: { amount: toNum(money(cashOutToday._sum.amount ?? 0)), count: cashOutToday._count._all },
   };
 }
 

@@ -11,6 +11,7 @@ import { getShiftDetail } from '@/server/services/shift-service';
 import { getCurrency } from '@/server/services/settings-service';
 import { PageHeader } from '@/components/page-header';
 import { Panel } from '@/components/panel';
+import { CATEGORY_LABEL } from '@/lib/cash-movements';
 import { Badge } from '@/components/ui/badge';
 import { ShiftStatusBadge, VarianceText } from '@/features/shifts/shift-status-badge';
 import { AdjustmentButton, OwnerCloseButton, ReviewForm } from '@/features/shifts/shift-owner-actions';
@@ -172,7 +173,16 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
           </dl>
         </Panel>
 
-        <Panel title="Refunds & cash movements">
+        <Panel
+          title="Refunds & cash movements"
+          action={
+            shift.movements.length > 0 ? (
+              <Link href={`/cash-movements?shift=${shift.id}`} className="inline-flex min-h-9 items-center text-xs font-semibold text-primary hover:underline">
+                Details
+              </Link>
+            ) : undefined
+          }
+        >
           <dl className="divide-y text-sm">
             {shift.refunds.length === 0 ? (
               <Line label="Refunds paid from this drawer" value="None" />
@@ -188,8 +198,8 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
               id: m.id,
               amount: `${m.type === 'CASH_IN' ? '+' : '−'}${money(m.amount)}`,
               tone: m.type === 'CASH_IN' ? 'text-success-text' : 'text-destructive-text',
-              text: `${m.type === 'CASH_IN' ? 'Cash in' : 'Cash out'}: ${m.reason}`,
-              meta: `${m.userName}, ${formatDateTime(m.createdAt)}`,
+              text: `${m.reference} · ${CATEGORY_LABEL[m.category]}: ${m.reason}`,
+              meta: `${m.userName}, ${formatDateTime(m.createdAt)}${m.notes ? ` · ${m.notes}` : ''}`,
             }))}
           />
           {shift.adjustments.length > 0 && (

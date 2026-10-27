@@ -2,18 +2,20 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { authorize } from '@/lib/session';
+import { authorize, userCan } from '@/lib/session';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ValidationError } from '@/lib/errors';
 import { parseCashAmount } from '@/lib/cash-amount';
 import {
   addCashMovement,
+  correctCashMovement,
   closeShift,
   closeShiftForCashier,
   openShift,
   previewShiftClose,
   type CloseShiftResult,
+  type RecordedMovement,
   type ShiftCloseSummary,
 } from '@/server/services/shift-service';
 
@@ -89,17 +91,58 @@ const movementSchema = z.object({
   type: z.enum(['CASH_IN', 'CASH_OUT']),
   amount: z.union([z.string(), z.number()]),
   reason: z.string().trim().min(3, 'Give a short reason.').max(200),
+  // CORRECTION is not accepted here; corrections go through correctCashMovementAction.
+  category: z
+    .enum(['CHANGE_FUND', 'OWNER_TOP_UP', 'SUPPLIER_PAYMENT', 'EXPENSE', 'BANK_DEPOSIT', 'OWNER_WITHDRAWAL', 'OTHER'])
+    .default('OTHER'),
+  notes: z.string().trim().max(500).optional(),
+  // One per attempt, so a doubled submit records the movement once.
+  clientRequestId: z.string().uuid().optional(),
 });
 
-export async function addCashMovementAction(input: unknown): Promise<ActionResult<{ id: string }>> {
+export async function addCashMovementAction(input: unknown): Promise<ActionResult<RecordedMovement>> {
   return runAction(async () => {
     const user = await authorize('pos.create');
     const values = parseInput(movementSchema, input);
     const amount = amountOf('amount', values.amount, { allowZero: false });
 
-    const movement = await addCashMovement({ userId: user.id, type: values.type, amount, reason: values.reason });
+    const movement = await addCashMovement({
+      userId: user.id,
+      type: values.type,
+      amount,
+      reason: values.reason,
+      category: values.category,
+      notes: values.notes,
+      clientRequestId: values.clientRequestId,
+    });
 
     refresh();
+    revalidatePath('/cash-movements');
+    return movement;
+  });
+}
+
+const correctionSchema = z.object({
+  movementId: z.string().min(1),
+  reason: z.string().trim().min(3, 'Give a short reason.').max(150),
+});
+
+/**
+ * Reverses a cash movement recorded by mistake. A cashier may correct only
+ * their own; the owner any, while its shift is open (checked in the service).
+ */
+export async function correctCashMovementAction(input: unknown): Promise<ActionResult<RecordedMovement>> {
+  return runAction(async () => {
+    const user = await authorize('pos.create');
+    const values = parseInput(correctionSchema, input);
+    const movement = await correctCashMovement({
+      movementId: values.movementId,
+      actorId: user.id,
+      isOwner: userCan(user, FINANCIAL_PERMISSION),
+      reason: values.reason,
+    });
+    refresh();
+    revalidatePath('/cash-movements');
     return movement;
   });
 }

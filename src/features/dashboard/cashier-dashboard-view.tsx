@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { LucideIcon } from 'lucide-react';
 import {
+  ArrowUpFromLine,
   Banknote,
   Clock,
   PackageCheck,
@@ -19,6 +20,7 @@ import { ProductImage } from '@/components/product-image';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PosQuickAccess } from '@/features/dashboard/pos-quick-access';
+import { CashMovementTable } from '@/features/cash-movements/movement-table';
 
 /**
  * The Cashier dashboard: the way into the till, the cashier's own takings,
@@ -40,6 +42,7 @@ const STATUS: Record<SaleStatus, { label: string; variant: 'success' | 'warning'
 const METHOD: Record<string, string> = { CASH: 'Cash', GCASH: 'GCash', CARD: 'Card', OTHER: 'Other', Split: 'Split' };
 
 export function CashierDashboardView({
+  cashierId,
   cashierName,
   data,
   currency,
@@ -48,6 +51,7 @@ export function CashierDashboardView({
   canViewInventory,
   suggestedOpeningCash,
 }: {
+  cashierId: string;
   cashierName: string;
   data: CashierDashboardData;
   currency: string;
@@ -111,6 +115,13 @@ export function CashierDashboardView({
           href={canViewInventory ? '/inventory?status=LOW_ANY' : undefined}
         />
       </section>
+
+      <CashOutPanel
+        cashierId={cashierId}
+        data={data}
+        currency={currency}
+        canSell={canSell}
+      />
 
       <div className="grid items-start gap-4 lg:grid-cols-5">
         <RecentTransactions
@@ -251,6 +262,74 @@ function Stat({
     </Link>
   ) : (
     body
+  );
+}
+
+/**
+ * The cashier's cash out at a glance — this shift and today — and their
+ * latest cash in / out entries, each opening its full detail. Read from the
+ * same rows the drawer figures above use.
+ */
+function CashOutPanel({
+  cashierId,
+  data,
+  currency,
+  canSell,
+}: {
+  cashierId: string;
+  data: CashierDashboardData;
+  currency: string;
+  canSell: boolean;
+}) {
+  const shiftOut = data.shiftSummary?.cashOut ?? null;
+  return (
+    <Panel
+      title="Cash out"
+      description="Cash you took from the drawer, with the reason and shift. Sales and refunds are not included."
+      className="mb-4"
+      action={
+        <Link href="/cash-movements" className="inline-flex min-h-9 items-center text-xs font-semibold text-primary hover:underline">
+          Full history
+        </Link>
+      }
+    >
+      <div className="grid gap-3 border-b p-4 sm:grid-cols-2">
+        <div className="flex items-center gap-3 rounded-lg bg-warning/10 px-3 py-2">
+          <ArrowUpFromLine className="h-5 w-5 shrink-0 text-warning-text" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-warning-text">This shift</p>
+            <p className="tabular text-lg font-bold">
+              {shiftOut === null ? 'No shift open' : formatCurrency(shiftOut, currency)}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 rounded-lg bg-muted px-3 py-2">
+          <Clock className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">Today</p>
+            <p className="tabular text-lg font-bold">
+              {formatCurrency(data.cashOutToday.amount, currency)}{' '}
+              <span className="text-xs font-normal text-muted-foreground">
+                ({formatNumber(data.cashOutToday.count, 0)} entr{data.cashOutToday.count === 1 ? 'y' : 'ies'})
+              </span>
+            </p>
+          </div>
+        </div>
+      </div>
+      {data.cashMovements.length === 0 ? (
+        <PanelEmpty
+          icon={ArrowUpFromLine}
+          title="No cash in or out yet"
+          description={
+            canSell
+              ? 'Use Cash out on the POS shift bar to record cash taken from the drawer, with a category and reason.'
+              : 'Cash in and out recorded at the POS appear here.'
+          }
+        />
+      ) : (
+        <CashMovementTable rows={data.cashMovements} currency={currency} viewerId={cashierId} isOwner={false} compact />
+      )}
+    </Panel>
   );
 }
 

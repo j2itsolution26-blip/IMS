@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { formatCurrency, formatTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { parseCashAmount } from '@/lib/cash-amount';
+import { CATEGORIES_FOR, CATEGORY_LABEL, type MovementCategory } from '@/lib/cash-movements';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { addCashMovementAction, closeShiftAction, previewShiftCloseAction } from '@/features/pos/shift-actions';
 import { OpenShiftDialog } from '@/features/pos/open-shift-dialog';
 
@@ -95,6 +97,10 @@ function CashMovementDialog({ type, onClose, currency }: { type: 'CASH_IN' | 'CA
   const router = useRouter();
   const [amount, setAmount] = React.useState('');
   const [reason, setReason] = React.useState('');
+  const [category, setCategory] = React.useState<MovementCategory | ''>('');
+  const [notes, setNotes] = React.useState('');
+  // One per opening of the dialog: a doubled or retried submit records once.
+  const [requestId, setRequestId] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [touched, setTouched] = React.useState(false);
@@ -103,6 +109,9 @@ function CashMovementDialog({ type, onClose, currency }: { type: 'CASH_IN' | 'CA
     if (type) {
       setAmount('');
       setReason('');
+      setCategory('');
+      setNotes('');
+      setRequestId(crypto.randomUUID());
       setError(null);
       setTouched(false);
     }
@@ -110,21 +119,29 @@ function CashMovementDialog({ type, onClose, currency }: { type: 'CASH_IN' | 'CA
 
   const parsed = parseCashAmount(amount, { allowZero: false });
   const reasonOk = reason.trim().length >= 3;
+  const categoryOk = category !== '';
   const isIn = type === 'CASH_IN';
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setTouched(true);
-    if (!type || !parsed.ok || !reasonOk || busy) return;
+    if (!type || !parsed.ok || !reasonOk || !categoryOk || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const result = await addCashMovementAction({ type, amount, reason: reason.trim() });
+      const result = await addCashMovementAction({
+        type,
+        amount,
+        reason: reason.trim(),
+        category,
+        notes: notes.trim() || undefined,
+        clientRequestId: requestId || undefined,
+      });
       if (!result.ok) {
         setError(result.error);
         return;
       }
-      toast.success(`${isIn ? 'Cash in' : 'Cash out'} of ${formatCurrency(parsed.value, currency)} recorded.`);
+      toast.success(`${result.data.reference}: ${isIn ? 'cash in' : 'cash out'} of ${formatCurrency(parsed.value, currency)} recorded.`);
       onClose();
       router.refresh();
     } catch {
@@ -168,6 +185,22 @@ function CashMovementDialog({ type, onClose, currency }: { type: 'CASH_IN' | 'CA
             {touched && !parsed.ok && <p className="text-xs text-destructive-text">{parsed.error}</p>}
           </div>
           <div className="space-y-1.5">
+            <Label htmlFor="movement-category">Category</Label>
+            <Select value={category} onValueChange={(value) => setCategory(value as MovementCategory)}>
+              <SelectTrigger id="movement-category" className="h-11" aria-invalid={touched && !categoryOk}>
+                <SelectValue placeholder="Choose a category" />
+              </SelectTrigger>
+              <SelectContent>
+                {(type ? CATEGORIES_FOR[type] : []).map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {CATEGORY_LABEL[value]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {touched && !categoryOk && <p className="text-xs text-destructive-text">Choose a category.</p>}
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="movement-reason">Reason</Label>
             <Input
               id="movement-reason"
@@ -179,6 +212,19 @@ function CashMovementDialog({ type, onClose, currency }: { type: 'CASH_IN' | 'CA
               aria-invalid={touched && !reasonOk}
             />
             {touched && !reasonOk && <p className="text-xs text-destructive-text">Give a short reason.</p>}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="movement-notes">
+              Notes <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <Textarea
+              id="movement-notes"
+              value={notes}
+              maxLength={500}
+              rows={2}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Receipt number, who received the cash, anything the owner should know"
+            />
           </div>
           <DialogFooter className="gap-2 sm:gap-2">
             <Button type="button" variant="outline" className="h-11" onClick={onClose} disabled={busy}>

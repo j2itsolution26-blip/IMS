@@ -188,6 +188,8 @@ export const ROUTE_PERMISSIONS: { prefix: string; permission: PermissionKey }[] 
   // A cashier may open their own shift's report; the pages check
   // FINANCIAL_PERMISSION for everything else under /shifts.
   { prefix: '/shifts', permission: 'pos.view' },
+  // Cashiers see their own movements; the page widens it for FINANCIAL_PERMISSION.
+  { prefix: '/cash-movements', permission: 'pos.view' },
   { prefix: '/returns', permission: 'returns.view' },
   { prefix: '/reports', permission: 'reports.view' },
   { prefix: '/settings/users', permission: 'users.view' },

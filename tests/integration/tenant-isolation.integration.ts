@@ -99,7 +99,7 @@ if (!URL_ENV) {
   async function rejects(fn: () => Promise<unknown>, label: string) {
     await assert.rejects(fn, (error: unknown) => {
       const message = String((error as Error)?.message ?? error);
-      return error instanceof StoreScopeError || /another store|cannot move|No record was found|not found|Store isolation|violat|Unique constraint|null value|Null constraint|23502|Failing row|cannot be changed/i.test(message);
+      return error instanceof StoreScopeError || /another store|cannot move|No record was found|not found|Store isolation|violat|Unique constraint|null value|Null constraint|23502|Failing row|cannot be changed|append-only/i.test(message);
     }, label);
   }
 
@@ -274,6 +274,32 @@ if (!URL_ENV) {
         () => platform.$executeRawUnsafe(`INSERT INTO sale_items (id, "storeId", "saleId", "productId", quantity, "unitPrice", "unitCost", total) VALUES ('raw2_${run}', '${A.storeId}', '${A.sale}', '${B.prod}', 1, 1, 1, 1)`),
         'raw cross-store sale line',
       );
+    });
+
+    test('cash movements are numbered, corrected once by a linked entry, and never edited', async () => {
+      const original = await platform.cashMovement.create({
+        data: { storeId: A.storeId, shiftId: A.shift, type: 'CASH_OUT', amount: 50, reason: 'ice', category: 'SUPPLIER_PAYMENT', userId: A.user },
+      });
+      assert.ok(original.number > 0);
+      // A correction must say so, and only a correction may link to another movement.
+      await rejects(
+        () => platform.cashMovement.create({ data: { storeId: A.storeId, shiftId: A.shift, type: 'CASH_IN', amount: 50, reason: 'x', correctsId: original.id, userId: A.user } }),
+        'link without CORRECTION',
+      );
+      await rejects(
+        () => platform.cashMovement.create({ data: { storeId: A.storeId, shiftId: A.shift, type: 'CASH_IN', amount: 50, reason: 'x', category: 'CORRECTION', userId: A.user } }),
+        'CORRECTION without link',
+      );
+      const fix = { storeId: A.storeId, shiftId: A.shift, type: 'CASH_IN' as const, amount: 50, reason: 'typo', category: 'CORRECTION' as const, correctsId: original.id, userId: A.user };
+      await platform.cashMovement.create({ data: fix });
+      await rejects(() => platform.cashMovement.create({ data: fix }), 'second correction');
+      // Another store cannot correct it, and nobody can edit or delete it.
+      await rejects(
+        () => platform.cashMovement.create({ data: { ...fix, storeId: B.storeId, shiftId: B.shift, userId: B.user } }),
+        'cross-store correction',
+      );
+      await rejects(() => platform.cashMovement.update({ where: { id: original.id }, data: { amount: 1 } }), 'edit');
+      await rejects(() => platform.cashMovement.delete({ where: { id: original.id } }), 'delete');
     });
 
     test('a returned quantity can never exceed the quantity sold', async () => {

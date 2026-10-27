@@ -11,6 +11,8 @@ export interface MovementQuery {
   search?: string;
   type?: InventoryTransactionType | 'ALL';
   productId?: string;
+  /** Only movements made by this staff member (the signed-in user recorded on each row). */
+  userId?: string;
   from?: Date;
   to?: Date;
   page?: number;
@@ -25,6 +27,7 @@ export async function listMovements(query: MovementQuery = {}, { includeCost = f
   const where: Prisma.InventoryTransactionWhereInput = {
     ...(query.type && query.type !== 'ALL' ? { type: query.type } : {}),
     ...(query.productId ? { productId: query.productId } : {}),
+    ...(query.userId ? { userId: query.userId } : {}),
     ...(query.from || query.to
       ? { createdAt: { ...(query.from ? { gte: query.from } : {}), ...(query.to ? { lte: query.to } : {}) } }
       : {}),
@@ -88,6 +91,16 @@ export async function listMovements(query: MovementQuery = {}, { includeCost = f
     pageSize,
     pageCount: Math.max(1, Math.ceil(total / pageSize)),
   };
+}
+
+/** Staff who have recorded at least one stock movement, for the ledger's staff filter. */
+export async function listMovementStaff(): Promise<{ id: string; name: string }[]> {
+  const db = await storeDb();
+  return db.user.findMany({
+    where: { inventoryTransaction: { some: {} } },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
 }
 
 /**
