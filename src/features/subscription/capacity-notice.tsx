@@ -22,7 +22,8 @@ export function CapacityNotice({ capacity, noun }: { capacity: CapacityInfo | nu
       <div role="status" className="mb-4 flex flex-wrap items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning-text" aria-hidden="true" />
         <p className="min-w-0 flex-1">
-          All {formatNumber(capacity.limit, 0)} {noun} on your plan are in use, so a new one cannot be saved.
+          {formatNumber(capacity.used, 0)} of {formatNumber(capacity.limit, 0)} {noun} used. Your plan has no room for
+          another, so a new one cannot be saved.
         </p>
         <Button ref={buttonRef} type="button" size="sm" variant="outline" onClick={() => setOpen(true)} aria-haspopup="dialog">
           How to add more

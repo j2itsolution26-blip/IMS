@@ -1,4 +1,4 @@
-import type { PlanId } from './plans';
+import { TRIAL_PLAN, type PlanId } from './plans';
 import type { AccessState, StoreAccess, StoreSubscription } from './store-access';
 
 /**
@@ -91,7 +91,7 @@ export function daysUntil(date: Date | null, now: Date): number | null {
 
 /** The trial a new store starts with. */
 export function newTrial(now: Date): { plan: PlanId; status: 'TRIAL'; trialEndsAt: Date } {
-  return { plan: 'BUSINESS', status: 'TRIAL', trialEndsAt: new Date(now.getTime() + TRIAL_DAYS * DAY) };
+  return { plan: TRIAL_PLAN, status: 'TRIAL', trialEndsAt: new Date(now.getTime() + TRIAL_DAYS * DAY) };
 }
 
 /**

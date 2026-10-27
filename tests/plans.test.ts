@@ -43,8 +43,16 @@ test('locked-feature messages name the cheapest plan that has it', () => {
   assert.equal(lowestPlanWith('backgroundRemoval')?.id, 'BUSINESS');
 });
 
-test('a trial gets the Business plan, or the plan it bought if higher', () => {
-  assert.equal(effectivePlanId({ plan: 'BASIC', status: 'TRIAL' }), 'BUSINESS');
+test('staff accounts per plan: Basic 2, Business 10, Enterprise unlimited', () => {
+  assert.equal(PLANS.BASIC.limits.staff, 2);
+  assert.equal(PLANS.BUSINESS.limits.staff, 10);
+  assert.equal(PLANS.ENTERPRISE.limits.staff, null);
+  assert.equal(PLANS.BASIC.limits.products, 500);
+});
+
+test('a trial follows the plan recorded on the store, never a higher one', () => {
+  assert.equal(effectivePlanId({ plan: 'BASIC', status: 'TRIAL' }), 'BASIC');
+  assert.equal(effectivePlanId({ plan: 'BUSINESS', status: 'TRIAL' }), 'BUSINESS');
   assert.equal(effectivePlanId({ plan: 'ENTERPRISE', status: 'TRIAL' }), 'ENTERPRISE');
   assert.equal(effectivePlanId({ plan: 'BASIC', status: 'ACTIVE' }), 'BASIC');
   assert.equal(effectivePlanId({ plan: 'BUSINESS', status: 'PAST_DUE' }), 'BUSINESS');
@@ -98,14 +106,18 @@ test('a suspended store is never writable', () => {
 });
 
 test('the quotas copied onto the store row follow the effective plan', () => {
-  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'ACTIVE' }), { productLimit: 500, staffLimit: 3 });
-  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'TRIAL' }), { productLimit: 5000, staffLimit: 15 });
+  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'ACTIVE' }), { productLimit: 500, staffLimit: 2 });
+  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'TRIAL' }), { productLimit: 500, staffLimit: 2 });
+  assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'TRIAL' }), { productLimit: 5000, staffLimit: 10 });
+  assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'PAST_DUE' }), { productLimit: 5000, staffLimit: 10 });
   assert.deepEqual(storedLimits({ plan: 'ENTERPRISE', status: 'ACTIVE' }), { productLimit: null, staffLimit: null });
 });
 
-test('the migration backfill uses the same numbers as the plan configuration', () => {
-  const sql = readFileSync('prisma/migrations/20261025090000_plan_limits/migration.sql', 'utf8');
-  const backfill = sql.slice(sql.indexOf('UPDATE "stores"'), sql.indexOf('-- CreateTable'));
+test('the latest migration backfill uses the same numbers as the plan configuration', () => {
+  const sql = readFileSync('prisma/migrations/20261102090000_staff_limits_v2/migration.sql', 'utf8');
+  const backfill = sql.slice(sql.indexOf('UPDATE "stores"'), sql.indexOf('-- End backfill.'));
+  // Trials are no longer lifted to another plan's quotas.
+  assert.doesNotMatch(backfill, /TRIAL/);
   const numbers = (column: string) =>
     [...backfill.slice(backfill.indexOf(`"${column}" = CASE`)).matchAll(/THEN (\d+)|ELSE (\d+)/g)]
       .slice(0, 2)
@@ -118,7 +130,7 @@ test('the migration backfill uses the same numbers as the plan configuration', (
 
 test('a quota the database refused becomes a plan message', () => {
   assert.match(planLimitFromDatabase('ERROR: PLAN_LIMIT: products 500') ?? '', /allows 500 products/);
-  assert.match(planLimitFromDatabase('PLAN_LIMIT: staff 3') ?? '', /allows 3 active staff accounts/);
+  assert.match(planLimitFromDatabase('PLAN_LIMIT: staff 2') ?? '', /allows 2 active staff accounts/);
   assert.equal(planLimitFromDatabase('duplicate key value'), null);
 });
 

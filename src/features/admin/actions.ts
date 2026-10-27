@@ -9,7 +9,8 @@ import { auth } from '@/lib/auth';
 import { APIError } from 'better-auth/api';
 import { authenticate, authorize, type CurrentUser } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
-import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
+import { ConflictError, ForbiddenError, NotFoundError, PlanLimitError, ValidationError } from '@/lib/errors';
+import { planLimitFromDatabase } from '@/lib/plans';
 import { runAsProvisioning } from '@/lib/provisioning-context';
 import { recordAudit, recordAuditFor } from '@/server/services/audit-service';
 import { PRIVILEGED_ROLE_SLUGS, STORE_PERMISSION_KEYS } from '@/lib/permissions';
@@ -339,7 +340,7 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     // administrator's own session cookie with one for the new account.
     let created: Awaited<ReturnType<typeof auth.api.signUpEmail>>;
     try {
-      created = await runAsProvisioning({ storeId, roleId: role.id }, async () =>
+      created = await runAsProvisioning({ storeId, roleId: role.id, isActive: values.isActive }, async () =>
         auth.api.signUpEmail({
           body: {
             name: values.name,
@@ -350,6 +351,11 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
         }),
       );
     } catch (error) {
+      // Two requests racing for the last seat both pass the check above; the
+      // database quota trigger refuses the second. Say so plainly, however
+      // Better Auth wrapped the database error.
+      const quota = planLimitFromDatabase(errorText(error));
+      if (quota) throw new PlanLimitError(quota);
       // Better Auth signals rejections (duplicate account, password policy) as
       // APIError. Translating it keeps a real reason in front of the admin
       // instead of collapsing to "something went wrong".
@@ -387,6 +393,9 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
       select: { id: true },
     });
     if (!persisted) {
+      // The insert can also have been refused by the staff quota trigger
+      // when another request took the last seat first; report that instead.
+      await requireWithinLimit('staff', values.isActive ? 1 : 0);
       throw new ValidationError('That email address already has an account.', {
         email: ['This email is already registered.'],
       });
@@ -419,6 +428,21 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     revalidatePath('/settings/users');
     return { id: userId };
   });
+}
+
+/** An error's message together with its causes', for spotting a database refusal inside a wrapper. */
+function errorText(error: unknown): string {
+  const parts: string[] = [];
+  for (let current = error, depth = 0; current && depth < 5; depth++) {
+    if (current instanceof Error) {
+      parts.push(current.message);
+      current = (current as { cause?: unknown }).cause;
+    } else {
+      parts.push(String(current));
+      break;
+    }
+  }
+  return parts.join(' | ');
 }
 
 const updateUserSchema = z.object({

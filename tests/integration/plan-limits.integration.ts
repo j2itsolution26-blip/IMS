@@ -152,6 +152,52 @@ if (!URL_ENV) {
     });
   });
 
+  describe('staff accounts per plan (quotas copied by syncLimits)', () => {
+    /** Puts the store on a plan the way every platform action does, then tries 15 staff at once. */
+    async function concurrentStaffOn(plan: 'BASIC' | 'BUSINESS' | 'ENTERPRISE', status: 'ACTIVE' | 'TRIAL' = 'ACTIVE') {
+      const { syncLimits } = await import('@/server/platform/store-setup');
+      const s = await makeStore({});
+      await platform.store.update({ where: { id: s.storeId }, data: { plan, status } });
+      await syncLimits(platform, s.storeId);
+      const db = storeClient(s.storeId);
+      const results = await Promise.allSettled(Array.from({ length: 15 }, (_, i) => db.user.create({ data: staff(s, i) })));
+      for (const r of results) if (r.status === 'rejected') assert.ok(isQuota(r.reason), String(r.reason));
+      return { s, db, created: results.filter((r) => r.status === 'fulfilled').length };
+    }
+
+    test('Basic stops at 2 staff accounts, also during a trial', async () => {
+      assert.equal((await concurrentStaffOn('BASIC')).created, 2);
+      assert.equal((await concurrentStaffOn('BASIC', 'TRIAL')).created, 2);
+    });
+
+    test('Business stops at 10 staff accounts', async () => {
+      assert.equal((await concurrentStaffOn('BUSINESS')).created, 10);
+    });
+
+    test('Enterprise has no staff limit', async () => {
+      assert.equal((await concurrentStaffOn('ENTERPRISE')).created, 15);
+    });
+
+    test('downgrading keeps every account and blocks new ones; upgrading opens room again', async () => {
+      const { syncLimits } = await import('@/server/platform/store-setup');
+      const { s, db } = await concurrentStaffOn('BUSINESS');
+      await platform.store.update({ where: { id: s.storeId }, data: { plan: 'BASIC' } });
+      await syncLimits(platform, s.storeId);
+      assert.equal(await db.user.count({ where: { isActive: true, id: { not: s.ownerId } } }), 10);
+      await assert.rejects(db.user.create({ data: staff(s, 100) }), isQuota);
+
+      await platform.store.update({ where: { id: s.storeId }, data: { plan: 'ENTERPRISE' } });
+      await syncLimits(platform, s.storeId);
+      await db.user.create({ data: staff(s, 101) });
+    });
+
+    test('an account created inactive takes no seat, even at the limit', async () => {
+      const { s, db } = await concurrentStaffOn('BASIC');
+      await db.user.create({ data: staff(s, 200, false) });
+      assert.equal(await db.user.count({ where: { isActive: false } }), 1);
+    });
+  });
+
   describe('metered usage', () => {
     test('30 concurrent takes against a limit of 5 succeed exactly 5 times; a refund frees one', async () => {
       const s = await makeStore({});

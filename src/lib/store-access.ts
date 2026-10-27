@@ -1,11 +1,11 @@
-import { GRACE_DAYS, PLANS, TRIAL_PLAN, type PlanDefinition, type PlanId } from './plans';
+import { GRACE_DAYS, PLANS, type PlanDefinition, type PlanId } from './plans';
 
 /**
  * What a store may do right now, from its subscription fields and the
  * server's clock — never the browser's.
  *
  *   ACTIVE     paid (or no end date): everything its plan allows
- *   TRIAL      trial not yet over: the trial plan's features
+ *   TRIAL      trial not yet over: the store's plan's features
  *   GRACE      up to GRACE_DAYS after the trial or paid period ended (or
  *              PAST_DUE): still works normally, with a warning
  *   READ_ONLY  after the grace period: sign in, view and export only
@@ -25,7 +25,7 @@ export interface StoreSubscription {
 
 export interface StoreAccess {
   state: AccessState;
-  /** The plan whose features and quotas apply now (the trial plan during a trial). */
+  /** The plan whose features and quotas apply now: the store's plan, trial or not. */
   plan: PlanDefinition;
   /** Whether ordinary business writes are allowed. */
   writable: boolean;
@@ -37,11 +37,14 @@ export interface StoreAccess {
 
 const DAY = 86_400_000;
 
-/** The plan whose rules apply: a trial uses the trial plan, never less than what was bought. */
+/**
+ * The plan whose rules apply: always the plan recorded on the store, during a
+ * trial as much as after it. (Trials used to be lifted to Business, so a store
+ * shown as Basic could add Business numbers of staff and products.) New
+ * stores start their trial on TRIAL_PLAN; see newTrial.
+ */
 export function effectivePlanId(subscription: Pick<StoreSubscription, 'plan' | 'status'>): PlanId {
-  if (subscription.status !== 'TRIAL') return subscription.plan;
-  const order: PlanId[] = ['BASIC', 'BUSINESS', 'ENTERPRISE'];
-  return order.indexOf(subscription.plan) > order.indexOf(TRIAL_PLAN) ? subscription.plan : TRIAL_PLAN;
+  return subscription.plan;
 }
 
 export function storeAccess(subscription: StoreSubscription, now: Date = new Date()): StoreAccess {

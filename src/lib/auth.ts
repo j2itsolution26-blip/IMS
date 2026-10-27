@@ -38,7 +38,7 @@ const INVALID_CREDENTIALS = 'Invalid username/email or password.';
  * System Administrator role has none). There is no public sign-up: a request
  * to Better Auth's sign-up endpoint from a browser is always refused.
  */
-async function resolveNewAccount(): Promise<{ roleId: string; storeId: string | null; mustChangePassword: boolean }> {
+async function resolveNewAccount(): Promise<{ roleId: string; storeId: string | null; mustChangePassword: boolean; isActive: boolean }> {
   const target = provisioningTarget();
   if (!target) {
     throw new APIError('FORBIDDEN', {
@@ -55,7 +55,12 @@ async function resolveNewAccount(): Promise<{ roleId: string; storeId: string | 
   if (target.firstAccountOnly && (await platformPrisma.user.count()) > 0) {
     throw new APIError('FORBIDDEN', { message: 'Setup has already been completed. Please sign in.' });
   }
-  return { roleId: target.roleId, storeId: target.storeId, mustChangePassword: target.mustChangePassword === true };
+  return {
+    roleId: target.roleId,
+    storeId: target.storeId,
+    mustChangePassword: target.mustChangePassword === true,
+    isActive: target.isActive !== false,
+  };
 }
 
 export const auth = betterAuth({
@@ -147,8 +152,8 @@ export const auth = betterAuth({
 
           // The flag comes only from the server-side caller's provisioning
           // target, overriding anything in `user`.
-          const { roleId, storeId, mustChangePassword } = await resolveNewAccount();
-          return { data: { ...user, roleId, storeId, mustChangePassword } };
+          const { roleId, storeId, mustChangePassword, isActive } = await resolveNewAccount();
+          return { data: { ...user, roleId, storeId, mustChangePassword, isActive } };
         },
         // A store's first owner becomes its owner of record.
         after: async (user) => {

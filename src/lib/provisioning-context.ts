@@ -34,6 +34,12 @@ export interface ProvisioningTarget {
    * replace it at first sign-in. Written in the same INSERT as the account.
    */
   mustChangePassword?: boolean;
+  /**
+   * Whether the account starts active. Written in the same INSERT, so an
+   * account created inactive never takes a seat in the plan's staff quota,
+   * even for a moment. Defaults to true.
+   */
+  isActive?: boolean;
 }
 
 const storage = new AsyncLocalStorage<ProvisioningTarget>();
@@ -46,6 +52,7 @@ export function runAsProvisioning<T>(target: ProvisioningTarget, fn: () => Promi
       roleId: target.roleId,
       firstAccountOnly: target.firstAccountOnly === true,
       mustChangePassword: target.mustChangePassword === true,
+      isActive: target.isActive !== false,
     },
     fn,
   );

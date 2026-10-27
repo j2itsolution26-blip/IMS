@@ -31,7 +31,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     id: 'BASIC',
     name: 'Basic',
     description: 'For a single store getting started.',
-    limits: { branches: 1, staff: 3, products: 500, backgroundRemovalsPerMonth: 0 },
+    limits: { branches: 1, staff: 2, products: 500, backgroundRemovalsPerMonth: 0 },
     features: { reportExports: false, customRoles: false, backgroundRemoval: false },
     auditHistoryDays: 90,
   },
@@ -39,7 +39,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     id: 'BUSINESS',
     name: 'Business',
     description: 'For growing stores with a team and a few branches.',
-    limits: { branches: 3, staff: 15, products: 5000, backgroundRemovalsPerMonth: 100 },
+    limits: { branches: 3, staff: 10, products: 5000, backgroundRemovalsPerMonth: 100 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: 365,
   },
@@ -53,7 +53,11 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   },
 };
 
-/** A trial gets this plan's features while it lasts. */
+/**
+ * The plan a new store's free trial starts on. A trial always follows the
+ * plan recorded on the store, so a store the administrator puts on Basic
+ * gets Basic's quotas during its trial too (see effectivePlanId).
+ */
 export const TRIAL_PLAN: PlanId = 'BUSINESS';
 
 /** Days after a trial or paid period ends during which the store still works normally. */

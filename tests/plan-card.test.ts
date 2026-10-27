@@ -23,11 +23,11 @@ test('both views list the same plan contents, straight from the plan configurati
   const included = (plan: 'BASIC' | 'BUSINESS' | 'ENTERPRISE') => featureLines(plan).filter((line) => line.included).map((line) => line.text);
   const missing = (plan: 'BASIC' | 'BUSINESS' | 'ENTERPRISE') => featureLines(plan).filter((line) => !line.included).map((line) => line.text);
 
-  assert.deepEqual(included('BASIC'), ['1 branch', 'Up to 3 staff accounts', 'Up to 500 products', '90-day audit history']);
+  assert.deepEqual(included('BASIC'), ['1 branch', 'Up to 2 staff accounts', 'Up to 500 products', '90-day audit history']);
   assert.deepEqual(missing('BASIC'), ['Background removals / month', 'Report exports', 'Custom roles']);
   assert.deepEqual(included('BUSINESS'), [
     'Up to 3 branches',
-    'Up to 15 staff accounts',
+    'Up to 10 staff accounts',
     'Up to 5,000 products',
     'Up to 100 background removals / month',
     'Report exports',

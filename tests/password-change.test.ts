@@ -126,7 +126,7 @@ test('nothing reads the signed-in user without handling a pending password chang
 test('the flag is never taken from sign-up input and is set by trusted callers', () => {
   const authConfig = read('lib/auth.ts');
   assert.match(authConfig, /mustChangePassword: \{ type: 'boolean', required: false, defaultValue: false, input: false \}/);
-  assert.match(authConfig, /return \{ data: \{ \.\.\.user, roleId, storeId, mustChangePassword \} \}/);
+  assert.match(authConfig, /return \{ data: \{ \.\.\.user, roleId, storeId, mustChangePassword, isActive \} \}/);
   assert.match(read('server/platform/subscription-service.ts'), /mustChangePassword: true/, 'Create store');
   assert.match(read('features/platform/actions.ts'), /runAsProvisioning\(\{ storeId: store\.id, roleId: role\.id, mustChangePassword: true \}/, 'Create owner');
   assert.match(read('features/platform/actions.ts'), /data: \{ mustChangePassword: true \}/, 'Reset owner password');
