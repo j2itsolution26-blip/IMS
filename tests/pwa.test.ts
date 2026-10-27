@@ -62,7 +62,7 @@ function pngSize(file: string): string {
 
 test('the manifest makes a standalone app with real, correctly sized icons', () => {
   const m = manifest();
-  assert.equal(m.name, 'TindahanProMax POS');
+  assert.equal(m.name, 'TindahanProMax Mobile POS');
   assert.equal(m.short_name, 'TindahanProMax');
   assert.equal(m.display, 'standalone');
   assert.ok(m.start_url?.startsWith(m.scope ?? '/'));

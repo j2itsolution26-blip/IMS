@@ -5,6 +5,7 @@ import { FileText, Printer, SearchX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PLANS } from '@/lib/plans';
+import { APP_NAME } from '@/lib/brand';
 import { INTERVAL_LABEL, INVOICE_STATUS_LABEL, type InvoiceDisplayStatus } from '@/lib/billing';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { InvoiceStatusBadge } from '@/features/billing/status-badges';
@@ -179,7 +180,7 @@ export function InvoiceDetail({ invoice, storeName, onClose }: { invoice: Invoic
         <div className="print-only space-y-4 text-black">
           <div>
             <p className="text-xl font-bold">Invoice {invoice.number}</p>
-            <p className="text-sm">TindahanProMax POS subscription</p>
+            <p className="text-sm">{APP_NAME} subscription</p>
           </div>
           {rows}
         </div>

@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { AlertTriangle, ShieldCheck } from 'lucide-react';
 import { SetupForm } from '@/features/setup/setup-form';
+import { APP_NAME } from '@/lib/brand';
 import { getSetupStatus, isSetupKeyRequired } from '@/server/platform/setup-service';
 
 export const metadata: Metadata = { title: 'First-time setup' };
@@ -93,7 +94,7 @@ export default async function SetupPage() {
           <ShieldCheck className="h-4 w-4" aria-hidden="true" />
           <span className="text-xs font-semibold uppercase tracking-wide">First-time setup</span>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight">Welcome to TindahanProMax POS</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Welcome to {APP_NAME}</h1>
         <p className="text-base font-medium">Create Your System Administrator Account</p>
         <p className="text-sm text-muted-foreground">
           This account runs the platform: it creates stores and their owners, and manages subscriptions. It can only

@@ -2,7 +2,7 @@ import { Boxes, ScanBarcode, ShieldCheck, TrendingUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { BrandLogo } from '@/components/brand';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { APP_NAME } from '@/lib/brand';
+import { APP_NAME, VENDOR_NAME } from '@/lib/brand';
 
 const FEATURES: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: ScanBarcode, title: 'Fast Checkout', text: 'Scan, total and print in seconds.' },
@@ -95,9 +95,17 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </div>
         </div>
 
-        <p className="text-center text-xs text-muted-foreground">
-          &copy; {new Date().getFullYear()} {APP_NAME}
-        </p>
+        <footer className="flex flex-col items-center gap-0.5 text-center text-xs text-muted-foreground sm:flex-row sm:justify-center sm:gap-1.5">
+          <span>
+            &copy; {new Date().getFullYear()} {APP_NAME}
+          </span>
+          <span className="hidden sm:inline" aria-hidden="true">
+            &middot;
+          </span>
+          <span>
+            Developed by <span className="font-semibold tracking-wide text-foreground/80">{VENDOR_NAME}</span>
+          </span>
+        </footer>
       </main>
     </div>
   );
