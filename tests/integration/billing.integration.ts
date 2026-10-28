@@ -1,3 +1,4 @@
+import { PLANS } from '@/lib/plans';
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -336,8 +337,9 @@ if (!URL_ENV) {
       assert.equal(store.plan, 'BUSINESS');
       assert.equal(store.status, 'ACTIVE');
       assert.equal(store.billingInterval, 'ANNUAL');
-      assert.equal(store.productLimit, 5000);
-      assert.equal(store.staffLimit, 15);
+      // The plan's own quotas, from the one configuration (Business: 5,000 products, 10 staff).
+      assert.equal(store.productLimit, PLANS.BUSINESS.limits.products);
+      assert.equal(store.staffLimit, PLANS.BUSINESS.limits.staff);
       const payment = await platform.subscriptionPayment.findUniqueOrThrow({ where: { id } });
       assert.equal(payment.verifiedById, admin.id);
       assert.ok(payment.verifiedAt);

@@ -95,6 +95,7 @@ model Store {
   updatedAt DateTime @updatedAt
 
   @@index([status])
+  @@index([isDemo])
   @@map("stores")
 }
 

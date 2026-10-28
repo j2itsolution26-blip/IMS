@@ -1,3 +1,4 @@
+import { SYSTEM_ADMIN_ROLE_SLUG } from '@/lib/permissions';
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -42,7 +43,7 @@ if (!URL_ENV) {
     if (row?.host && !/^(127\.|::1)/.test(row.host)) throw new Error(`Refusing: connected to ${row.host}`);
 
     const systemAdmin = await platform.user.findFirst({
-      where: { role: { slug: 'system-administrator' } },
+      where: { role: { slug: SYSTEM_ADMIN_ROLE_SLUG } },
       select: { id: true, name: true },
     });
     admin = systemAdmin ?? { id: 'integration-admin', name: 'Integration admin' };
@@ -87,7 +88,7 @@ if (!URL_ENV) {
     });
 
     test('accounts not created by an administrator default to no requirement', async () => {
-      const others = await platform.user.count({ where: { mustChangePassword: true, id: { not: owner.id }, email: { endsWith: '@first.test' } } });
+      const others = await platform.user.count({ where: { mustChangePassword: true, id: { not: owner.id }, email: { endsWith: '@first.test', contains: run } } });
       assert.equal(others, 0);
     });
 

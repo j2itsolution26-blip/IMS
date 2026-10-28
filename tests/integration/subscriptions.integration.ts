@@ -1,3 +1,4 @@
+import { PLANS } from '@/lib/plans';
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -80,7 +81,7 @@ if (!URL_ENV) {
       assert.equal(store.ownerId, ownerId);
       const trialMs = (store.trialEndsAt as Date).getTime() - before;
       assert.ok(Math.abs(trialMs - 14 * DAY) < 60_000, `trial length ${trialMs}`);
-      assert.deepEqual([store.productLimit, store.staffLimit], [5000, 15]);
+      assert.deepEqual([store.productLimit, store.staffLimit], [PLANS.BUSINESS.limits.products, PLANS.BUSINESS.limits.staff]);
 
       const roles = await platform.role.findMany({ where: { storeId }, include: { permissions: { include: { permission: true } } } });
       assert.deepEqual(roles.map((r) => r.slug).sort(), ['cashier', 'inventory-staff', 'owner']);
@@ -150,7 +151,7 @@ if (!URL_ENV) {
       const p1 = await platform.subscriptionPayment.findUniqueOrThrow({ where: { id: first.id } });
       assert.equal(p1.periodStart.getTime(), trialEnd.getTime());
       let store = await platform.store.findUniqueOrThrow({ where: { id: storeId } });
-      assert.deepEqual([store.plan, store.status, store.productLimit, store.staffLimit], ['BASIC', 'ACTIVE', 500, 3]);
+      assert.deepEqual([store.plan, store.status, store.productLimit, store.staffLimit], ['BASIC', 'ACTIVE', PLANS.BASIC.limits.products, PLANS.BASIC.limits.staff]);
       assert.equal(store.currentPeriodEnd?.getTime(), p1.periodEnd.getTime());
 
       const second = await pay(storeId, `P2-${run}${seq}`, { plan: 'ENTERPRISE', months: 3 });
@@ -234,7 +235,7 @@ if (!URL_ENV) {
       assert.match(result.overLimits[0], /510 products/);
       assert.equal(await platform.product.count({ where: { storeId } }), 510);
       const store = await platform.store.findUniqueOrThrow({ where: { id: storeId } });
-      assert.deepEqual([store.plan, store.productLimit, store.staffLimit], ['BASIC', 500, 3]);
+      assert.deepEqual([store.plan, store.productLimit, store.staffLimit], ['BASIC', PLANS.BASIC.limits.products, PLANS.BASIC.limits.staff]);
       await assert.rejects(svc.changePlan(admin, { storeId, plan: 'BASIC', reason: 'again' }), /already on/);
     });
 
