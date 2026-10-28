@@ -1,5 +1,6 @@
 'use server';
 
+import { resetDemoStore } from '@/server/platform/demo-service';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { assertPasswordSettled, getCurrentUser, type CurrentUser } from '@/lib/session';
@@ -172,6 +173,7 @@ const storeSchema = z.object({
   password,
   phone: z.string().trim().max(40).optional(),
   allowSimilar: z.boolean().default(false),
+  demo: z.boolean().default(false),
 });
 export async function createStoreAction(input: unknown): Promise<ActionResult<{ storeId: string }>> {
   return runAction(async () => {
@@ -181,6 +183,7 @@ export async function createStoreAction(input: unknown): Promise<ActionResult<{ 
       storeName: values.storeName,
       owner: { name: values.name, username: values.username, email: values.email, password: values.password, phone: values.phone },
       allowSimilar: values.allowSimilar,
+      demo: values.demo,
     });
     refresh();
     revalidatePath('/system-admin/owners');
@@ -309,5 +312,20 @@ export async function voidInvoiceAction(input: unknown): Promise<ActionResult<vo
     const values = parseInput(voidInvoiceSchema, input);
     await voidInvoice(actor, values);
     refreshBilling(values.storeId);
+  });
+}
+
+// --- Demo stores --------------------------------------------------------------
+
+const demoResetSchema = z.object({ storeId: id, confirmName: z.string().trim().min(1).max(120) });
+
+/** Wipes a demo store's business data and reloads the sample catalogue. Refused for any real store. */
+export async function resetDemoStoreAction(input: unknown): Promise<ActionResult<{ products: number }>> {
+  return runAction(async () => {
+    const actor = await requireManager('reset a demo store');
+    const values = parseInput(demoResetSchema, input);
+    const result = await resetDemoStore(actor, values);
+    refresh(values.storeId);
+    return result;
   });
 }

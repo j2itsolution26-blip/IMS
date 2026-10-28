@@ -1,3 +1,4 @@
+import { ResetDemoButton } from '@/features/platform/reset-demo-button';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { AlertTriangle, CalendarClock, FileText, History, Mail, Receipt, UserRound } from 'lucide-react';
@@ -73,8 +74,20 @@ export default async function StoreDetailPage({ params }: { params: Promise<{ id
         title={store.name}
         description={accessHeadline(access, now).replace(/^Your /, 'The ')}
         breadcrumbs={[{ label: 'Stores', href: '/system-admin/stores' }, { label: store.name }]}
-        actions={<StoreControls storeId={store.id} storeName={store.name} plan={store.plan} status={store.status} canManage={canManage} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {store.isDemo && canManage && <ResetDemoButton storeId={store.id} storeName={store.name} />}
+            <StoreControls storeId={store.id} storeName={store.name} plan={store.plan} status={store.status} canManage={canManage} />
+          </div>
+        }
       />
+
+      {store.isDemo && (
+        <p role="status" className="mb-4 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-text">
+          <span className="font-bold tracking-wider">DEMO</span> — a demonstration store with sample data. It is never billed, is
+          left out of platform figures and reminders, and its data can be reset. It cannot become a real store.
+        </p>
+      )}
 
       {/* At a glance: plan, access, the clock, the owner. */}
       <div className="mb-5 flex flex-col gap-4 rounded-card border bg-card p-4 shadow-card sm:flex-row sm:items-center sm:justify-between sm:p-5">

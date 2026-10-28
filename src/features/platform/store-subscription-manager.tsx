@@ -112,6 +112,7 @@ export function CreateStoreButton() {
   const [form, setForm] = React.useState(EMPTY_STORE);
   const [similar, setSimilar] = React.useState<string | null>(null);
   const [allowSimilar, setAllowSimilar] = React.useState(false);
+  const [demo, setDemo] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
   // Whether the field holds a freshly generated password, or generation failed.
   const [generation, setGeneration] = React.useState<'idle' | 'generated' | 'failed'>('idle');
@@ -123,6 +124,7 @@ export function CreateStoreButton() {
       setForm(EMPTY_STORE);
       setSimilar(null);
       setAllowSimilar(false);
+      setDemo(false);
       setShowPassword(false);
       setGeneration('idle');
       reset();
@@ -146,7 +148,10 @@ export function CreateStoreButton() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const result = await run(() => createStoreAction({ ...form, allowSimilar }), () => `${form.storeName} created with a ${TRIAL_DAYS}-day trial.`);
+    const result = await run(
+      () => createStoreAction({ ...form, allowSimilar, demo }),
+      () => (demo ? `Demo store ${form.storeName} created with sample data.` : `${form.storeName} created with a ${TRIAL_DAYS}-day trial.`),
+    );
     if (!result.ok && result.code === 'SIMILAR_STORE') setSimilar(result.error);
     if (result.ok) close(false);
   };
@@ -164,7 +169,7 @@ export function CreateStoreButton() {
             <DialogTitle>Create store</DialogTitle>
             <DialogDescription>
               Sets up the store with its own roles, warehouse and settings, creates its owner, and starts a {TRIAL_DAYS}-day
-              Business trial.
+              Business trial — or, for a demo store, loads sample data and never bills it.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={submit} className="space-y-4" noValidate>
@@ -227,6 +232,16 @@ export function CreateStoreButton() {
                 <Input id="owner-phone" value={form.phone} onChange={set('phone')} />
               </Field>
             </fieldset>
+            <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
+              <Checkbox checked={demo} onCheckedChange={(value) => setDemo(value === true)} className="mt-0.5" />
+              <span>
+                <span className="font-medium">Demo store</span>
+                <span className="block text-xs text-muted-foreground">
+                  Marked DEMO everywhere, loaded with sample products, never billed, left out of platform figures, and
+                  resettable. This cannot be changed later, and a real store can never become a demo.
+                </span>
+              </span>
+            </label>
             {similar && (
               <div role="alert" className="space-y-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
                 <p className="flex items-start gap-2">
@@ -244,7 +259,7 @@ export function CreateStoreButton() {
                 Cancel
               </Button>
               <Button type="submit" loading={busy} disabled={Boolean(similar) && !allowSimilar}>
-                Create store
+                {demo ? 'Create demo store' : 'Create store'}
               </Button>
             </DialogFooter>
           </form>

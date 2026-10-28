@@ -72,7 +72,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </SuspendedGate>
       ) : (
         <>
-          {user.store && (
+          {user.store?.isDemo && (
+            <p
+              role="status"
+              className="mb-4 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-text"
+            >
+              <span className="font-bold tracking-wider">DEMO STORE</span> — sample data for trying things out. Nothing here
+              is a real sale, real stock or real money, and the System Administrator may reset it.
+            </p>
+          )}
+          {user.store && !user.store.isDemo && (
             <SubscriptionBanner access={storeAccess(user.store)} canManageBilling={userCan(user, 'billing.view')} now={new Date()} />
           )}
           {children}

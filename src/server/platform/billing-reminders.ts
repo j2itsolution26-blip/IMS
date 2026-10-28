@@ -152,7 +152,8 @@ async function remindStore(store: StoreForReminders, now: Date): Promise<boolean
 
 /** Every store. For the daily job and the administrator's billing page. */
 export async function runBillingReminders(now: Date = new Date()): Promise<{ stores: number; raised: number }> {
-  const stores = await platformPrisma.store.findMany({ where: { status: { not: 'SUSPENDED' } }, select: STORE_SELECT });
+  // Demo stores are never billed, so they get no trial or invoice reminders.
+  const stores = await platformPrisma.store.findMany({ where: { status: { not: 'SUSPENDED' }, isDemo: false }, select: STORE_SELECT });
   let raised = 0;
   for (const store of stores) {
     try {
@@ -167,6 +168,6 @@ export async function runBillingReminders(now: Date = new Date()): Promise<{ sto
 
 /** One store. For the owner's billing page, so a reminder appears even if the job did not run. */
 export async function runBillingRemindersForStore(storeId: string, now: Date = new Date()): Promise<void> {
-  const store = await platformPrisma.store.findUnique({ where: { id: storeId }, select: STORE_SELECT });
+  const store = await platformPrisma.store.findFirst({ where: { id: storeId, isDemo: false }, select: STORE_SELECT });
   if (store) await remindStore(store, now);
 }

@@ -99,7 +99,7 @@ if (!URL_ENV) {
   async function rejects(fn: () => Promise<unknown>, label: string) {
     await assert.rejects(fn, (error: unknown) => {
       const message = String((error as Error)?.message ?? error);
-      return error instanceof StoreScopeError || /another store|cannot move|No record was found|not found|Store isolation|violat|Unique constraint|null value|Null constraint|23502|Failing row|cannot be changed|append-only|UNIT_PRECISION|check constraint/i.test(message);
+      return error instanceof StoreScopeError || /another store|cannot move|No record was found|not found|Store isolation|violat|Unique constraint|null value|Null constraint|23502|Failing row|cannot be changed|append-only|UNIT_PRECISION|check constraint|real and demo/i.test(message);
     }, label);
   }
 
@@ -345,6 +345,36 @@ if (!URL_ENV) {
       await rejects(() => platform.walletTransaction.update({ where: { id: first.id }, data: { reversalReason: 'changed' } }), 'second reversal');
       // Once reversed, the same GCash reference may be recorded correctly.
       await platform.walletTransaction.create({ data: entry(ref) });
+    });
+
+    test('demo reset deletes only in the named demo store; real stores and the flag stay protected', async () => {
+      const demoId = `demo_${run}`;
+      await platform.store.create({ data: { id: demoId, name: `Demo ${run}`, slug: `demo-${run}`, status: 'ACTIVE', plan: 'BUSINESS', isDemo: true } });
+      await platform.role.create({ data: { id: `demorole_${run}`, storeId: demoId, name: 'Owner', slug: 'owner' } });
+      await platform.user.create({ data: { id: `demouser_${run}`, storeId: demoId, name: 'Demo', email: `demo_${run}@it.test`, username: `demo_${run}`, roleId: `demorole_${run}` } });
+      await platform.cashierShift.create({ data: { id: `demoshift_${run}`, storeId: demoId, userId: `demouser_${run}`, openingCash: 100 } });
+      await platform.cashMovement.create({ data: { storeId: demoId, shiftId: `demoshift_${run}`, type: 'CASH_OUT', amount: 10, reason: 'demo', userId: `demouser_${run}` } });
+
+      // Without the reset flag, even a demo store's history is append-only.
+      await rejects(() => platform.cashMovement.deleteMany({ where: { storeId: demoId } }), 'demo delete without reset');
+      // The flag naming a real store does not open that store.
+      await rejects(
+        () => platform.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT set_config('app.demo_reset_store', ${A.storeId}, true)`;
+          await tx.cashMovement.deleteMany({ where: { storeId: A.storeId } });
+        }),
+        'reset flag on a real store',
+      );
+      // Named and demo: allowed, and only for that store.
+      await platform.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.demo_reset_store', ${demoId}, true)`;
+        await tx.cashMovement.deleteMany({ where: { storeId: demoId } });
+      });
+      assert.equal(await platform.cashMovement.count({ where: { storeId: demoId } }), 0);
+      assert.ok((await platform.cashMovement.count({ where: { storeId: A.storeId } })) > 0, 'store A untouched');
+      // The flag is fixed both ways.
+      await rejects(() => platform.store.update({ where: { id: A.storeId }, data: { isDemo: true } }), 'real to demo');
+      await rejects(() => platform.store.update({ where: { id: demoId }, data: { isDemo: false } }), 'demo to real');
     });
 
     test('a returned quantity can never exceed the quantity sold', async () => {

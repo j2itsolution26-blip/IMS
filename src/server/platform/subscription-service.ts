@@ -1,3 +1,4 @@
+import { seedDemoData } from '@/server/platform/demo-service';
 import 'server-only';
 
 import { randomBytes } from 'node:crypto';
@@ -332,6 +333,11 @@ export interface NewStoreInput {
   owner: { name: string; username: string; email: string; password: string; phone?: string };
   /** The administrator saw the "similar store" warning and confirmed this is not a repeat trial. */
   allowSimilar: boolean;
+  /**
+   * A demonstration store: active with no end date, never billed, loaded with
+   * sample data, marked DEMO everywhere, and resettable. Fixed at creation.
+   */
+  demo?: boolean;
 }
 
 /** Raised so the form can show the matches and ask the administrator to confirm. */
@@ -357,8 +363,9 @@ export async function createStore(actor: Actor, input: NewStoreInput, now = new 
   if (emailTaken) throw new ValidationError('That email address already has an account.', { email: ['This email is already registered.'] });
   if (usernameTaken) throw new ValidationError('That username is already taken.', { username: ['This username is already in use.'] });
 
-  // Trial abuse: the same shop signing up again under a new email.
-  if (!input.allowSimilar) {
+  // Trial abuse: the same shop signing up again under a new email. A demo
+  // store has no trial to abuse.
+  if (!input.allowSimilar && !input.demo) {
     const phone = input.owner.phone?.trim();
     const similar = await platformPrisma.store.findMany({
       where: { OR: [{ name: { equals: name, mode: 'insensitive' } }, ...(phone ? [{ members: { some: { phone } } }] : [])] },
@@ -374,7 +381,13 @@ export async function createStore(actor: Actor, input: NewStoreInput, now = new 
   const slug = `${slugify(name) || 'store'}-${randomBytes(3).toString('hex')}`;
   const ids = await permissionIds(platformPrisma);
   const store = await platformPrisma.$transaction(async (tx) => {
-    const created = await tx.store.create({ data: { name, slug, ...newTrial(now) }, select: { id: true, name: true } });
+    const created = await tx.store.create({
+      data: input.demo
+        ? // Business features, active with no end date, never billed.
+          { name, slug, plan: 'BUSINESS', status: 'ACTIVE', trialEndsAt: null, currentPeriodEnd: null, isDemo: true }
+        : { name, slug, ...newTrial(now) },
+      select: { id: true, name: true },
+    });
     await setUpStore(tx, created.id, ids);
     await tx.setting.update({ where: { storeId_key: { storeId: created.id, key: 'company.name' } }, data: { value: name } });
     return created;
@@ -404,6 +417,20 @@ export async function createStore(actor: Actor, input: NewStoreInput, now = new 
       throw new ValidationError(message || 'The owner account could not be created.');
     }
     throw error;
+  }
+
+  if (input.demo) {
+    await platformPrisma.$transaction(async (tx) => {
+      const { products } = await seedDemoData(tx, store.id);
+      await audit(tx, actor, store, {
+        action: 'CREATE',
+        entity: 'Store',
+        entityId: store.id,
+        summary: `Demo store created with owner @${input.owner.username} (temporary password, must be changed at first sign-in) and ${products} sample products; never billed`,
+        changes: { after: { plan: 'BUSINESS', status: 'ACTIVE', isDemo: true }, ownerId, ownerMustChangePassword: true },
+      });
+    }, TX);
+    return { storeId: store.id, ownerId };
   }
 
   await platformPrisma.$transaction(async (tx) => {

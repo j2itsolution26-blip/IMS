@@ -59,6 +59,12 @@ model Store {
   productLimit Int?
   staffLimit   Int?
 
+  // A demonstration store: sample data, kept out of billing, reminders and
+  // platform figures, and resettable by the platform administrator. Set only
+  // at creation and fixed for ever after (trigger, migration 20261108090000),
+  // so a real store's data can never be reset.
+  isDemo Boolean @default(false)
+
   members               User[]                       @relation("StoreMembers")
   roles                 Role[]
   categories            Category[]

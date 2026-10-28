@@ -118,7 +118,8 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     platformPrisma.user.count({ where: { ...owner, createdAt: { gte: thirtyDaysAgo } } }),
     // The store's own name; with several stores the platform lists them all.
     platformPrisma.store.findFirst({ orderBy: { createdAt: 'asc' }, select: { name: true } }),
-    platformPrisma.store.groupBy({ by: ['status', 'plan'], _count: { _all: true } }),
+    // Demo stores are not customers: they stay out of the platform's figures.
+    platformPrisma.store.groupBy({ by: ['status', 'plan'], where: { isDemo: false }, _count: { _all: true } }),
   ]);
 
   return {
@@ -183,6 +184,8 @@ export interface PlatformStoreRow {
   createdAt: Date;
   ownerName: string | null;
   ownerUsername: string | null;
+  /** A demonstration store: sample data, never billed. */
+  isDemo: boolean;
   products: number;
   staff: number;
   branches: number;
@@ -196,7 +199,7 @@ export interface PlatformStoreRow {
 export async function listStores(search?: string): Promise<PlatformStoreRow[]> {
   const term = search?.trim() ? `%${search.trim()}%` : null;
   return platformPrisma.$queryRaw<PlatformStoreRow[]>`
-    SELECT s.id, s.name, s.plan::text AS plan, s.status::text AS status, s."trialEndsAt", s."currentPeriodEnd", s."createdAt",
+    SELECT s.id, s.name, s.plan::text AS plan, s.status::text AS status, s."trialEndsAt", s."currentPeriodEnd", s."createdAt", s."isDemo",
       o.name AS "ownerName", o.username AS "ownerUsername",
       (SELECT count(*)::int FROM products p WHERE p."storeId" = s.id AND p.status <> 'ARCHIVED') AS products,
       (SELECT count(*)::int FROM users u WHERE u."storeId" = s.id AND u."isActive" AND u.id IS DISTINCT FROM s."ownerId") AS staff,
@@ -265,7 +268,7 @@ export async function getStoreDetail(storeId: string, period: string): Promise<P
   const store = await platformPrisma.store.findUnique({
     where: { id: storeId },
     select: {
-      id: true, name: true, plan: true, status: true, trialEndsAt: true, currentPeriodEnd: true, createdAt: true, ownerId: true,
+      id: true, name: true, plan: true, status: true, trialEndsAt: true, currentPeriodEnd: true, createdAt: true, ownerId: true, isDemo: true,
       owner: { select: { name: true, username: true, email: true, phone: true } },
     },
   });
@@ -307,7 +310,7 @@ export async function getStoreDetail(storeId: string, period: string): Promise<P
   return {
     store: {
       id: store.id, name: store.name, plan: store.plan, status: store.status, trialEndsAt: store.trialEndsAt,
-      currentPeriodEnd: store.currentPeriodEnd, createdAt: store.createdAt,
+      currentPeriodEnd: store.currentPeriodEnd, createdAt: store.createdAt, isDemo: store.isDemo,
       ownerName: store.owner?.name ?? null, ownerUsername: store.owner?.username ?? null,
       ownerEmail: store.owner?.email ?? null, ownerPhone: store.owner?.phone ?? null,
     },

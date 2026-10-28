@@ -297,10 +297,12 @@ export async function isStoreOwner(userId: string, storeId: string): Promise<boo
  */
 async function lockOwnedStore(tx: Tx, owner: Owner) {
   const store = await lockStore(tx, owner.storeId);
-  const row = await tx.store.findUnique({ where: { id: store.id }, select: { ownerId: true } });
+  const row = await tx.store.findUnique({ where: { id: store.id }, select: { ownerId: true, isDemo: true } });
   if (!row?.ownerId || row.ownerId !== owner.id) {
     throw new ForbiddenError('Only the store owner can choose a plan or submit a payment.');
   }
+  // A demo store is never billed: no plan choice, invoice or payment.
+  if (row.isDemo) throw new ConflictError('This is a demo store. Demo stores are not billed.');
   return store;
 }
 

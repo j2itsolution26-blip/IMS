@@ -71,6 +71,11 @@ export default async function StoresPage({ searchParams }: { searchParams: Promi
                         <Link href={`/system-admin/stores/${store.id}`} className="font-medium text-primary hover:underline">
                           {store.name}
                         </Link>
+                        {store.isDemo && (
+                          <span className="ml-2 rounded-full bg-warning/15 px-2 py-0.5 align-middle text-[10px] font-bold tracking-wider text-warning-text">
+                            DEMO
+                          </span>
+                        )}
                         <p className="text-xs text-muted-foreground">
                           {store.ownerUsername ? `@${store.ownerUsername}` : 'No owner yet'} · created {formatDate(store.createdAt)}
                         </p>

@@ -28,6 +28,8 @@ export interface CurrentUser {
     plan: StorePlan;
     trialEndsAt: Date | null;
     currentPeriodEnd: Date | null;
+    /** A demonstration store (sample data, never billed). */
+    isDemo: boolean;
   } | null;
   permissions: Set<PermissionKey>;
   /** The Better Auth session this request is running under. */
@@ -94,7 +96,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       isActive: true,
       posPinHash: true,
       mustChangePassword: true,
-      store: { select: { id: true, name: true, status: true, plan: true, trialEndsAt: true, currentPeriodEnd: true } },
+      store: { select: { id: true, name: true, status: true, plan: true, trialEndsAt: true, currentPeriodEnd: true, isDemo: true } },
       role: {
         select: {
           id: true,
