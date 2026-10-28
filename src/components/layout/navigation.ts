@@ -6,6 +6,7 @@ import {
   Inbox,
   LifeBuoy,
   FileBarChart,
+  KeyRound,
   LayoutDashboard,
   List,
   Package,
@@ -13,6 +14,7 @@ import {
   ScanBarcode,
   ScrollText,
   Settings,
+  SlidersHorizontal,
   ShieldCheck,
   Store,
   ShoppingCart,
@@ -142,12 +144,26 @@ export const NAVIGATION: NavSection[] = [
         match: ['/inventory/movements', '/inventory/adjustments'],
       },
       { label: 'Reports', href: '/reports', icon: FileBarChart, permission: 'reports.view' },
-      { label: 'Sales', href: '/sales', icon: ShoppingCart, permission: 'sales.view' },
+      // Refunds hang off their sale, so their pages light Sales up too.
+      { label: 'Sales', href: '/sales', icon: ShoppingCart, permission: 'sales.view', match: ['/sales', '/returns'] },
       // Cash put into or taken from a drawer. Cashiers see their own; the owner everyone's.
       { label: 'Cash In / Out', href: '/cash-movements', icon: ArrowLeftRight, permission: 'pos.view' },
       // Every cashier's drawer — owner only, so it uses the financial key.
       { label: 'Shift Management', href: '/shifts', icon: Wallet, permission: FINANCIAL_PERMISSION },
-      { label: 'Settings', href: '/settings', icon: Settings, permission: 'settings.view', exact: true },
+      // Every settings page has its own entry, so the menu stays lit wherever
+      // the owner is in Settings. Each child needs its own permission, so
+      // someone delegated only staff management still finds Staff Accounts.
+      // (My Profile, open to everyone, lives in the account menu.)
+      {
+        label: 'Settings',
+        icon: Settings,
+        children: [
+          { label: 'Store Settings', href: '/settings', icon: SlidersHorizontal, permission: 'settings.view', exact: true },
+          { label: 'Staff Accounts', href: '/settings/users', icon: Users, permission: 'users.view' },
+          { label: 'Roles & Permissions', href: '/settings/roles', icon: KeyRound, permission: 'roles.view' },
+          { label: 'Subscription & Billing', href: '/settings/subscription', icon: CreditCard, permission: 'billing.view' },
+        ],
+      },
     ],
   },
   {

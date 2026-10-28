@@ -22,7 +22,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const [lowStockCount, settings, supportCount, paymentsCount] = await Promise.all([
     countActionableStock().catch(() => 0),
-    getSettings(),
+    // A settings read that fails must not take the whole shell (and its
+    // navigation) down with it: the defaults stand in until it recovers.
+    getSettings().catch(() => new Map<string, string>()),
     // Administrators: tickets awaiting an answer. Store accounts: replies they have not read.
     userCan(user, 'platform.view')
       ? countAwaitingAdmin().catch(() => 0)

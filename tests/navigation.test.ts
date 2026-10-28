@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import {
   NAVIGATION,
@@ -97,4 +98,52 @@ test('the middleware guards every page the menu links to', () => {
     );
     assert.ok(guard, `${link.href} has a route permission`);
   }
+});
+
+const settings = store.items.find((item) => item.label === 'Settings') as NavGroup;
+const sales = store.items.find((item) => item.label === 'Sales') as NavLink;
+
+test('every Settings page keeps Settings lit, with exactly one child active', () => {
+  assert.ok(isNavGroup(settings), 'Settings is a group');
+  const cases: [string, string][] = [
+    ['/settings', 'Store Settings'],
+    ['/settings/users', 'Staff Accounts'],
+    ['/settings/roles', 'Roles & Permissions'],
+    ['/settings/subscription', 'Subscription & Billing'],
+  ];
+  for (const [pathname, expected] of cases) {
+    const active = settings.children.filter((link) => isNavLinkActive(link, pathname)).map((link) => link.label);
+    assert.deepEqual(active, [expected], pathname);
+    assert.ok(isNavItemActive(settings, pathname), `${pathname} highlights Settings`);
+  }
+});
+
+test('refund pages belong to Sales', () => {
+  for (const pathname of ['/sales', '/sales/abc', '/returns', '/returns/abc']) assert.ok(isNavLinkActive(sales, pathname), pathname);
+  assert.ok(!isNavLinkActive(sales, '/returns-old'));
+});
+
+test('the owner sees every settings page; staff see only what they may open', () => {
+  const ownerSettings = visibleNavigation(NAVIGATION, grantedFor('owner'))
+    .flatMap((section) => section.items)
+    .find((item) => item.label === 'Settings');
+  assert.ok(ownerSettings && isNavGroup(ownerSettings));
+  assert.deepEqual(labels(ownerSettings.children), ['Store Settings', 'Staff Accounts', 'Roles & Permissions', 'Subscription & Billing']);
+
+  for (const slug of ['cashier', 'inventory-staff']) {
+    const items = visibleNavigation(NAVIGATION, grantedFor(slug)).flatMap((section) => section.items);
+    assert.ok(!items.some((item) => item.label === 'Settings'), `${slug} has no Settings`);
+  }
+  // Someone delegated only staff management still finds it.
+  const delegated = visibleNavigation(NAVIGATION, new Set(['users.view'])).flatMap((section) => section.items);
+  const delegatedSettings = delegated.find((item) => item.label === 'Settings');
+  assert.ok(delegatedSettings && isNavGroup(delegatedSettings));
+  assert.deepEqual(labels(delegatedSettings.children), ['Staff Accounts']);
+});
+
+test('an unknown address inside the app is answered within the shell, not by a bare page', () => {
+  const missing = readFileSync('src/app/(app)/[...missing]/page.tsx', 'utf8');
+  assert.match(missing, /notFound\(\)/);
+  const layout = readFileSync('src/app/(app)/layout.tsx', 'utf8');
+  assert.match(layout, /getSettings\(\)\.catch\(/);
 });
