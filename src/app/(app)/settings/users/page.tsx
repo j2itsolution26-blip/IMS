@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/page-header';
 import { StaffAccountsManager, type StaffRow } from '@/features/admin/staff-accounts-manager';
 import { CapacityNotice } from '@/features/subscription/capacity-notice';
 import { capacityFor } from '@/server/services/plan-ui';
+import { shiftReference } from '@/lib/shift-review';
 
 export const metadata: Metadata = { title: 'Staff Accounts' };
 export const dynamic = 'force-dynamic';
@@ -46,6 +47,25 @@ export default async function StaffAccountsPage() {
     db.role.findMany({ orderBy: { name: 'asc' }, select: ROLE_SELECT }),
   ]);
 
+  // Open drawers and the latest Deactivated / Reactivated entry per account,
+  // so the owner sees what a status change affects and who last made one.
+  const ids = users.map((user) => user.id);
+  const [openShifts, statusEntries] = await Promise.all([
+    db.cashierShift.findMany({ where: { status: 'OPEN', userId: { in: ids } }, select: { id: true, number: true, userId: true, openedAt: true } }),
+    db.auditLog.findMany({
+      where: {
+        entity: 'User',
+        entityId: { in: ids },
+        OR: [{ summary: { startsWith: 'Deactivated ' } }, { summary: { startsWith: 'Reactivated ' } }],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { entityId: true, summary: true, createdAt: true, user: { select: { name: true } } },
+    }),
+  ]);
+  const openShiftOf = new Map(openShifts.map((shift) => [shift.userId, shift]));
+  const lastStatusOf = new Map<string, (typeof statusEntries)[number]>();
+  for (const entry of statusEntries) if (entry.entityId && !lastStatusOf.has(entry.entityId)) lastStatusOf.set(entry.entityId, entry);
+
   const actor = {
     id: currentUser.id,
     role: { slug: currentUser.role.slug, permissions: currentUser.permissions },
@@ -70,6 +90,14 @@ export default async function StaffAccountsPage() {
       roleName: user.role.name,
       isOwner: user.role.slug === OWNER_ROLE_SLUG,
       isActive: user.isActive,
+      openShift: (() => {
+        const shift = openShiftOf.get(user.id);
+        return shift ? { id: shift.id, reference: shiftReference(shift.number), openedAt: shift.openedAt.toISOString() } : null;
+      })(),
+      lastStatusChange: (() => {
+        const entry = lastStatusOf.get(user.id);
+        return entry ? { summary: entry.summary, at: entry.createdAt.toISOString(), by: entry.user?.name ?? null } : null;
+      })(),
       actions: {
         edit: canUpdate && may('edit'),
         changeRole: canUpdate && may('changeRole'),

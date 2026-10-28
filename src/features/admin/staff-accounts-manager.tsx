@@ -6,14 +6,17 @@ import { useForm, Controller } from 'react-hook-form';
 import { Fingerprint, KeyRound, MoreHorizontal, Pencil, Plus, Trash2, UserCheck, UserX, Users, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ColumnDef } from '@tanstack/react-table';
-import { createUser, deleteUser, resetUserPassword, revokeUserPasskeys, updateUser } from '@/features/admin/actions';
+import Link from 'next/link';
+import { createUser, deleteUser, resetUserPassword, revokeUserPasskeys, setUserStatus, updateUser } from '@/features/admin/actions';
 import { DataTable } from '@/components/data-table';
 import { EmptyState } from '@/components/empty-state';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/misc';
+import { Avatar, AvatarFallback, Checkbox } from '@/components/ui/misc';
+import { Label } from '@/components/ui/label';
+import { formatDateTime } from '@/lib/format';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
@@ -39,6 +42,10 @@ export interface StaffRow {
   roleName: string;
   isOwner: boolean;
   isActive: boolean;
+  /** The drawer this person has open right now, if any. */
+  openShift: { id: string; reference: string; openedAt: string } | null;
+  /** The latest Deactivated / Reactivated audit entry: who, when and why. */
+  lastStatusChange: { summary: string; at: string; by: string | null } | null;
   /**
    * What the signed-in user may do to this account, decided on the server by
    * the same policy the actions enforce.
@@ -120,6 +127,8 @@ export function StaffAccountsManager({
   const [passkeyTarget, setPasskeyTarget] = React.useState<StaffRow | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [formError, setFormError] = React.useState<string | null>(null);
+  const [statusReason, setStatusReason] = React.useState('');
+  const [leaveShiftOpen, setLeaveShiftOpen] = React.useState(false);
 
   const createForm = useForm<CreateValues>({
     defaultValues: emptyCreate(roles),
@@ -217,25 +226,28 @@ export function StaffAccountsManager({
     router.refresh();
   });
 
+  const openStatus = (staff: StaffRow) => {
+    setStatusReason('');
+    setLeaveShiftOpen(false);
+    setStatusTarget(staff);
+  };
+
   const onToggleStatus = async () => {
-    if (!statusTarget) return;
+    if (!statusTarget || busy) return;
     setBusy(true);
-    const result = await updateUser(statusTarget.id, {
-      name: statusTarget.name,
-      username: statusTarget.username,
-      phone: statusTarget.phone ?? '',
-      roleId: statusTarget.roleId,
+    const result = await setUserStatus(statusTarget.id, {
       isActive: !statusTarget.isActive,
+      reason: statusReason.trim() || undefined,
+      leaveShiftOpen,
     });
     setBusy(false);
 
     if (!result.ok) {
       toast.error(result.error, { duration: 8000 });
-      setStatusTarget(null);
       return;
     }
 
-    toast.success(`${statusTarget.name} ${statusTarget.isActive ? 'disabled' : 'enabled'}.`);
+    toast.success(`${statusTarget.name} ${statusTarget.isActive ? 'disabled and signed out' : 'enabled'}.`);
     setStatusTarget(null);
     router.refresh();
   };
@@ -312,11 +324,23 @@ export function StaffAccountsManager({
       {
         accessorKey: 'isActive',
         header: 'Status',
-        cell: ({ row }) => (
-          <Badge variant={row.original.isActive ? 'success' : 'destructive'}>
-            {row.original.isActive ? 'Active' : 'Inactive'}
-          </Badge>
-        ),
+        cell: ({ row }) => {
+          const staff = row.original;
+          return (
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge variant={staff.isActive ? 'success' : 'destructive'}>{staff.isActive ? 'Active' : 'Inactive'}</Badge>
+                {staff.openShift && <Badge variant="warning">Shift {staff.openShift.reference} open</Badge>}
+              </div>
+              {staff.lastStatusChange && (
+                <p className="max-w-[260px] truncate text-xs text-muted-foreground" title={staff.lastStatusChange.summary}>
+                  {formatDateTime(staff.lastStatusChange.at)}
+                  {staff.lastStatusChange.by ? ` · ${staff.lastStatusChange.by}` : ''}
+                </p>
+              )}
+            </div>
+          );
+        },
       },
       {
         id: 'actions',
@@ -355,7 +379,7 @@ export function StaffAccountsManager({
                   </DropdownMenuItem>
                 )}
                 {changeStatus && (
-                  <DropdownMenuItem onSelect={() => setStatusTarget(staff)}>
+                  <DropdownMenuItem onSelect={() => openStatus(staff)}>
                     {staff.isActive ? (
                       <>
                         <UserX /> Disable Account
@@ -699,19 +723,77 @@ export function StaffAccountsManager({
         </DialogContent>
       </Dialog>
 
-      <ConfirmDialog
-        open={statusTarget !== null}
-        onOpenChange={(open) => !open && setStatusTarget(null)}
-        title={statusTarget?.isActive ? `Disable ${statusTarget?.name}?` : `Enable ${statusTarget?.name}?`}
-        description={
-          statusTarget?.isActive
-            ? 'They will be signed out immediately and will not be able to sign in until you enable the account again.'
-            : 'They will be able to sign in again with their existing password.'
-        }
-        confirmLabel={statusTarget?.isActive ? 'Disable account' : 'Enable account'}
-        loading={busy}
-        onConfirm={onToggleStatus}
-      />
+      <Dialog open={statusTarget !== null} onOpenChange={(open) => !open && !busy && setStatusTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{statusTarget?.isActive ? `Disable ${statusTarget?.name}?` : `Enable ${statusTarget?.name}?`}</DialogTitle>
+            <DialogDescription>
+              {statusTarget?.isActive
+                ? 'They are signed out on every device at once and cannot sign in until you enable the account again. Their sales, shifts and stock records keep their name.'
+                : 'They can sign in again with their existing password. This uses one of the active staff accounts on your plan.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {statusTarget?.isActive && statusTarget.openShift && (
+            <div role="alert" className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+              <p className="font-medium text-warning-text">
+                {statusTarget.name} has shift {statusTarget.openShift.reference} open since{' '}
+                {formatDateTime(statusTarget.openShift.openedAt)}.
+              </p>
+              <p className="text-muted-foreground">
+                The drawer still holds that shift&apos;s cash. Best: count it and{' '}
+                <Link href={`/shifts/${statusTarget.openShift.id}`} className="font-medium text-primary underline-offset-4 hover:underline">
+                  close the shift
+                </Link>{' '}
+                first. If you must lock them out now, the shift stays open for you to close.
+              </p>
+              <label htmlFor="leave-shift-open" className="flex cursor-pointer items-start gap-2">
+                <Checkbox
+                  id="leave-shift-open"
+                  checked={leaveShiftOpen}
+                  onCheckedChange={(checked) => setLeaveShiftOpen(checked === true)}
+                  className="mt-0.5"
+                />
+                <span>Disable now and leave {statusTarget.openShift.reference} open for me to close.</span>
+              </label>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <Label htmlFor="status-reason">
+              Reason <span className="font-normal text-muted-foreground">(optional, kept in the audit log)</span>
+            </Label>
+            <Input
+              id="status-reason"
+              value={statusReason}
+              maxLength={200}
+              onChange={(event) => setStatusReason(event.target.value)}
+              placeholder={statusTarget?.isActive ? 'e.g. Left the store, lost phone' : 'e.g. Back from leave'}
+            />
+          </div>
+
+          {statusTarget?.lastStatusChange && (
+            <p className="text-xs text-muted-foreground">
+              Last change: {statusTarget.lastStatusChange.summary} ({formatDateTime(statusTarget.lastStatusChange.at)}
+              {statusTarget.lastStatusChange.by ? `, by ${statusTarget.lastStatusChange.by}` : ''})
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusTarget(null)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              variant={statusTarget?.isActive ? 'destructive' : 'default'}
+              onClick={onToggleStatus}
+              loading={busy}
+              disabled={Boolean(statusTarget?.isActive && statusTarget.openShift && !leaveShiftOpen)}
+            >
+              {statusTarget?.isActive ? 'Disable account' : 'Enable account'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={deleteTarget !== null}

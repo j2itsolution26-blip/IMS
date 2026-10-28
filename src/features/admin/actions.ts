@@ -11,6 +11,7 @@ import { authenticate, authorize, type CurrentUser } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, ForbiddenError, NotFoundError, PlanLimitError, ValidationError } from '@/lib/errors';
 import { planLimitFromDatabase } from '@/lib/plans';
+import { shiftReference } from '@/lib/shift-review';
 import { runAsProvisioning } from '@/lib/provisioning-context';
 import { recordAudit, recordAuditFor } from '@/server/services/audit-service';
 import { PRIVILEGED_ROLE_SLUGS, STORE_PERMISSION_KEYS } from '@/lib/permissions';
@@ -468,12 +469,11 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
     if (values.roleId !== target.roleId) {
       enforce(canManageAccount(policyActor(admin), subject, 'changeRole'), 'User');
     }
+    // Status has its own action (setUserStatus): it records a reason and
+    // handles an open shift. Refused here so this route cannot skip that.
     if (values.isActive !== target.isActive) {
-      enforce(canManageAccount(policyActor(admin), subject, 'changeStatus'), 'User');
+      throw new ConflictError('Use Disable or Enable account to change whether this account can sign in.');
     }
-
-    // Reactivating an account takes a seat in the plan's staff quota.
-    if (values.isActive && !target.isActive) await requireWithinLimit('staff');
 
     const newRole =
       values.roleId === target.roleId ? target.role : await loadAssignableRole(admin, values.roleId);
@@ -513,23 +513,87 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
       })
       .catch(rethrowUsernameConflict);
 
-    // Revoking access should take effect immediately, not when the cookie expires.
-    if (!values.isActive) {
-      await db.session.deleteMany({ where: { userId: id } });
-    }
-
     await recordAudit({
       action: 'UPDATE',
       entity: 'User',
       entityId: id,
       summary: `Updated user ${target.email} — ${
         usernameChanged ? `username @${target.username} → @${values.username}, ` : ''
-      }role ${target.role.name} → ${newRole.name}, ${values.isActive ? 'active' : 'deactivated'}`,
+      }role ${target.role.name} → ${newRole.name}`,
       userId: admin.id,
     });
 
     revalidatePath('/settings/users');
     return { id };
+  });
+}
+
+const statusSchema = z.object({
+  isActive: z.boolean(),
+  reason: z.string().trim().max(200).optional(),
+  // Deactivating someone with an open shift: the owner confirmed it should
+  // stay open for them to count and close from Shift Management.
+  leaveShiftOpen: z.boolean().default(false),
+});
+
+/**
+ * Turns a staff account on or off. Only the owner (or staff the owner
+ * delegated users.update to) may, never on their own account, and never on
+ * the owner's — the account policy decides. Nothing is deleted: sales,
+ * shifts, stock movements and audit entries keep the account's name.
+ *
+ * Deactivating signs the account out everywhere at once. If the person has
+ * a shift open, the drawer still holds the shift's cash, so the default is to
+ * refuse until the owner closes it; `leaveShiftOpen` deactivates anyway (a
+ * lost phone, suspected theft) and leaves the shift for the owner to close.
+ * Reactivating takes a seat in the plan's staff quota, so switching accounts
+ * off and on can never get round the limit.
+ */
+export async function setUserStatus(id: string, input: unknown): Promise<ActionResult<{ id: string; isActive: boolean }>> {
+  return runAction(async () => {
+    const admin = await authorize('users.update');
+    const values = parseInput(statusSchema, input);
+    const target = await loadManagedAccount(admin, id, ['changeStatus']);
+    const db = await storeDb();
+    const reason = values.reason?.trim() || null;
+
+    if (values.isActive === target.isActive) return { id, isActive: target.isActive };
+
+    if (values.isActive) {
+      await requireWithinLimit('staff');
+    }
+
+    const openShift = values.isActive
+      ? null
+      : await db.cashierShift.findFirst({ where: { userId: id, status: 'OPEN' }, select: { id: true, number: true } });
+    if (openShift && !values.leaveShiftOpen) {
+      throw new ConflictError(
+        `${target.name} has shift ${shiftReference(openShift.number)} open. Close it from Shift Management after counting the drawer, or confirm that it should stay open for you to close.`,
+      );
+    }
+
+    await db.user.update({ where: { id }, data: { isActive: values.isActive } });
+    // Access ends now, not when the cookie expires.
+    if (!values.isActive) await db.session.deleteMany({ where: { userId: id } });
+
+    await recordAudit({
+      action: 'UPDATE',
+      entity: 'User',
+      entityId: id,
+      summary: `${values.isActive ? 'Reactivated' : 'Deactivated'} ${target.name} (@${target.username})${reason ? `: ${reason}` : ''}${
+        openShift ? ` — shift ${shiftReference(openShift.number)} left open for the owner to close` : ''
+      }`,
+      changes: {
+        isActive: { from: target.isActive, to: values.isActive },
+        reason,
+        ...(openShift ? { openShiftLeftOpen: shiftReference(openShift.number) } : {}),
+      },
+      userId: admin.id,
+    });
+
+    revalidatePath('/settings/users');
+    revalidatePath('/shifts', 'layout');
+    return { id, isActive: values.isActive };
   });
 }
 
