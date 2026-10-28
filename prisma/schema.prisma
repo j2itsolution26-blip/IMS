@@ -2,9 +2,10 @@
 //
 // Design notes:
 //  * Money is Decimal(18,4) everywhere. Never Float.
-//  * Every product is counted and sold by the piece. There are no units of
-//    measure. Quantity columns keep their Decimal(18,3) storage type, but CHECK
-//    constraints (migration 20261019090000) hold them to whole numbers.
+//  * Each product has one unit (piece, kg, m, …) and says whether it may be
+//    sold in fractions of it. Quantities are Decimal(18,3) in that unit; a
+//    trigger (migration 20261106090000) keeps them whole for products that do
+//    not allow decimals.
 //  * `Inventory` is the single source of truth for on-hand stock and is only ever
 //    mutated inside a transaction that also writes an `InventoryTransaction` row.
 //    The ledger and the balance can therefore never drift.
@@ -815,6 +816,13 @@ model Product {
   status      ProductStatus @default(ACTIVE)
   isTrackable Boolean       @default(true)
 
+  // What the product is counted and sold in, and whether fractions of it may
+  // be sold (0.5 kg, 1.5 m). Stock is stored in this unit, never converted.
+  // A trigger (migration 20261106090000) refuses a fractional quantity on a
+  // product that does not allow decimals. Existing products: PIECE, whole.
+  unit          ProductUnit @default(PIECE)
+  allowsDecimal Boolean     @default(false)
+
   inventory             Inventory[]
   inventoryTransactions InventoryTransaction[]
   saleItems             SaleItem[]
@@ -837,6 +845,20 @@ enum ProductStatus {
   ACTIVE
   INACTIVE
   ARCHIVED
+}
+
+enum ProductUnit {
+  PIECE
+  PACK
+  BOX
+  BOTTLE
+  SACK
+  BAG
+  KILOGRAM
+  GRAM
+  LITER
+  MILLILITER
+  METER
 }
 
 // Price changes are auditable and drive the "Price Changed" notification.

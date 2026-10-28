@@ -63,6 +63,16 @@ export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T
     if (quota) {
       return fail(quota, 'PLAN_LIMIT');
     }
+    // A fraction the database refused for a product sold in whole units
+    // (migration 20261106090000); the services normally catch it first.
+    if (error instanceof Error && error.message.includes('UNIT_PRECISION')) {
+      return fail(
+        /moved in fractions/.test(error.message)
+          ? 'This product has already been stocked or sold in fractions, so it must keep allowing decimals.'
+          : 'This product is sold in whole units only. Enter a whole number, or allow decimals on the product first.',
+        'VALIDATION_ERROR',
+      );
+    }
     if (error instanceof z.ZodError) {
       return fail('Please correct the highlighted fields.', 'VALIDATION_ERROR', error.flatten().fieldErrors as Record<string, string[]>);
     }

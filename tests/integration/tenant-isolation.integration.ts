@@ -99,7 +99,7 @@ if (!URL_ENV) {
   async function rejects(fn: () => Promise<unknown>, label: string) {
     await assert.rejects(fn, (error: unknown) => {
       const message = String((error as Error)?.message ?? error);
-      return error instanceof StoreScopeError || /another store|cannot move|No record was found|not found|Store isolation|violat|Unique constraint|null value|Null constraint|23502|Failing row|cannot be changed|append-only/i.test(message);
+      return error instanceof StoreScopeError || /another store|cannot move|No record was found|not found|Store isolation|violat|Unique constraint|null value|Null constraint|23502|Failing row|cannot be changed|append-only|UNIT_PRECISION|check constraint/i.test(message);
     }, label);
   }
 
@@ -300,6 +300,34 @@ if (!URL_ENV) {
       );
       await rejects(() => platform.cashMovement.update({ where: { id: original.id }, data: { amount: 1 } }), 'edit');
       await rejects(() => platform.cashMovement.delete({ where: { id: original.id } }), 'delete');
+    });
+
+    test('fractions are refused for whole-unit products, allowed for decimal ones, and a decimal product cannot turn back', async () => {
+      const prod = `units_${run}`;
+      await platform.product.create({
+        data: { id: prod, storeId: A.storeId, sku: `KG-${run}`, name: `Rice ${run}`, categoryId: A.cat, sellingPrice: 52, costPrice: 45 },
+      });
+      // Created as a whole-piece product (the default): no fractions anywhere.
+      await rejects(
+        () => platform.inventory.create({ data: { storeId: A.storeId, productId: prod, warehouseId: A.wh, quantity: 2.5 } }),
+        'fractional stock of a piece product',
+      );
+      await rejects(
+        () => platform.saleItem.create({ data: { storeId: A.storeId, saleId: A.sale, productId: prod, quantity: 1.5, unitPrice: 52, unitCost: 45, total: 78 } }),
+        'fractional sale line of a piece product',
+      );
+      await rejects(() => platform.product.update({ where: { id: prod }, data: { reorderLevel: 2.5 } }), 'fractional threshold');
+
+      // Sold by the kilogram with decimals: fractions are fine, to 3 places.
+      await platform.product.update({ where: { id: prod }, data: { unit: 'KILOGRAM', allowsDecimal: true, reorderLevel: 2.5 } });
+      await platform.inventory.create({ data: { storeId: A.storeId, productId: prod, warehouseId: A.wh, quantity: 12.75 } });
+      await platform.inventoryTransaction.create({
+        data: { storeId: A.storeId, productId: prod, warehouseId: A.wh, type: 'STOCK_IN', quantity: 12.75, balanceBefore: 0, balanceAfter: 12.75 },
+      });
+      await platform.saleItem.create({ data: { storeId: A.storeId, saleId: A.sale, productId: prod, quantity: 1.25, unitPrice: 52, unitCost: 45, total: 65 } });
+
+      // Having moved in fractions, it cannot go back to whole units.
+      await rejects(() => platform.product.update({ where: { id: prod }, data: { allowsDecimal: false, reorderLevel: 2 } }), 'turn back to whole units');
     });
 
     test('a returned quantity can never exceed the quantity sold', async () => {

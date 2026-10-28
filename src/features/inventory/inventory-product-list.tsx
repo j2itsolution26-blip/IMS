@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { StockStatus } from '@/server/analytics/inventory-analytics';
 import { formatCurrency, formatDateTime, formatNumber, formatQuantity, formatRelative } from '@/lib/format';
-import { formatPieces } from '@/lib/quantity';
+import { formatPieces, type ProductUnit } from '@/lib/quantity';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ProductImage } from '@/components/product-image';
 import { ProductRowActions } from '@/features/inventory/product-row-actions';
@@ -21,6 +21,8 @@ export interface InventoryListRow {
   status: StockStatus;
   /** The latest stock-ledger entry of any kind; null when stock never moved. */
   lastMovementAt: Date | null;
+  unit: ProductUnit;
+  allowsDecimal: boolean;
 }
 
 /**
@@ -157,13 +159,13 @@ export function InventoryProductList({
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 <span className="tabular font-semibold">{formatCurrency(row.sellingPrice, currency)}</span>
                 <span className="tabular text-muted-foreground">
-                  {formatPieces(row.onHand)}
+                  {formatPieces(row.onHand, row.unit)}
                 </span>
                 <StatusPill status={row.status} />
               </div>
               <StockBar row={row} />
               <p className="mt-1 truncate text-xs text-muted-foreground">
-                {row.reorderLevel > 0 ? `Low at ${formatPieces(row.reorderLevel)} · ` : ''}
+                {row.reorderLevel > 0 ? `Low at ${formatPieces(row.reorderLevel, row.unit)} · ` : ''}
                 <LastMovement at={row.lastMovementAt} />
               </p>
             </div>
@@ -172,6 +174,8 @@ export function InventoryProductList({
               productName={row.name}
               sku={row.sku}
               onHand={row.onHand}
+              unit={row.unit}
+              allowsDecimal={row.allowsDecimal}
               canAdjustStock={canAdjustStock}
               canEditProduct={canEditProduct}
             />
@@ -258,7 +262,7 @@ export function InventoryProductList({
                   </TableCell>
 
                   <TableCell className={cn(CELL, 'tabular whitespace-nowrap text-sm text-muted-foreground')}>
-                    {row.reorderLevel > 0 ? formatPieces(row.reorderLevel) : 'Not set'}
+                    {row.reorderLevel > 0 ? formatPieces(row.reorderLevel, row.unit) : 'Not set'}
                   </TableCell>
 
                   <TableCell className={CELL}>
@@ -275,6 +279,8 @@ export function InventoryProductList({
                       productName={row.name}
                       sku={row.sku}
                       onHand={row.onHand}
+                      unit={row.unit}
+                      allowsDecimal={row.allowsDecimal}
                       canAdjustStock={canAdjustStock}
                       canEditProduct={canEditProduct}
                     />

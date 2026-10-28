@@ -128,7 +128,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                             {item.sku}
                             {item.returnedQuantity > 0 && (
                               <span className="ml-1 text-warning-text">
-                                · {formatPieces(item.returnedQuantity)} returned
+                                · {formatPieces(item.returnedQuantity, item.unit)} returned
                               </span>
                             )}
                           </p>
@@ -136,7 +136,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                       </div>
                     </TableCell>
                     <TableCell className="tabular text-right">
-                      {formatPieces(item.quantity)}
+                      {formatPieces(item.quantity, item.unit)}
                     </TableCell>
                     <TableCell className="tabular text-right">
                       {formatCurrency(item.unitPrice, currency)}

@@ -122,6 +122,8 @@ export async function getStockPickerProducts({ includeCost = false }: { includeC
       sku: true,
       barcode: true,
       costPrice: true,
+      unit: true,
+      allowsDecimal: true,
       inventory: { select: { quantity: true, reserved: true } },
     },
   });
@@ -136,6 +138,8 @@ export async function getStockPickerProducts({ includeCost = false }: { includeC
       sku: product.sku,
       barcode: product.barcode,
       costPrice: includeCost ? toNum(product.costPrice) : 0,
+      unit: product.unit,
+      allowsDecimal: product.allowsDecimal,
       onHand,
       available: onHand - reserved,
     };
@@ -180,6 +184,8 @@ export async function findInventoryProductByBarcode(
       status: true,
       isTrackable: true,
       costPrice: true,
+      unit: true,
+      allowsDecimal: true,
       inventory: { select: { quantity: true, reserved: true } },
     },
   });
@@ -196,6 +202,8 @@ export async function findInventoryProductByBarcode(
       sku: product.sku,
       barcode: product.barcode,
       costPrice: includeCost ? toNum(product.costPrice) : 0,
+      unit: product.unit,
+      allowsDecimal: product.allowsDecimal,
       onHand,
       available: onHand - reserved,
       productStatus: product.status,

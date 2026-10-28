@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { FormField, FormError, applyServerErrors } from '@/components/form';
 import { Label } from '@/components/ui/label';
 import { formatCurrency } from '@/lib/format';
+import { UNIT_ORDER, UNITS, type ProductUnit } from '@/lib/quantity';
 import { ProductPhotoField, type PhotoUploadStatus } from '@/components/product-photo-field';
 import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
 import { BarcodeDuplicateNotice } from '@/features/inventory/barcode-duplicate-notice';
@@ -56,6 +57,8 @@ const EMPTY: ProductInput = {
   reorderQty: 0,
   status: 'ACTIVE',
   isTrackable: true,
+  unit: 'PIECE',
+  allowsDecimal: false,
 };
 
 /** Quick-add for a category, without leaving the product form. */
@@ -152,6 +155,11 @@ export function ProductForm({
   const costPrice = Number(watch('costPrice')) || 0;
   const sellingPrice = Number(watch('sellingPrice')) || 0;
   const isTrackable = watch('isTrackable');
+  const unit = (watch('unit') ?? 'PIECE') as ProductUnit;
+  const allowsDecimal = Boolean(watch('allowsDecimal'));
+  const unitSingular = UNITS[unit].singular;
+  const unitPlural = UNITS[unit].plural;
+  const thresholdStep = allowsDecimal ? 'any' : '1';
 
   // Live margin so the user sees the consequence of a price before saving.
   const margin = sellingPrice > 0 ? ((sellingPrice - costPrice) / sellingPrice) * 100 : 0;
@@ -252,7 +260,7 @@ export function ProductForm({
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Pricing</CardTitle>
               <CardDescription>
-                Prices are per piece. Cost is re-averaged automatically each time you stock in at a different price.
+                Prices are per {unitSingular}. Cost is re-averaged automatically each time you stock in at a different price.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -284,7 +292,7 @@ export function ProductForm({
 
               {canViewProfit && (
                 <div className="flex flex-wrap items-center gap-4 rounded-md bg-muted/60 px-3 py-2 text-sm">
-                  <span className="text-muted-foreground">Profit per piece</span>
+                  <span className="text-muted-foreground">Profit per {unitSingular}</span>
                   <span className={`tabular font-medium ${profitPerPiece < 0 ? 'text-destructive-text' : ''}`}>
                     {formatCurrency(profitPerPiece, currency)}
                   </span>
@@ -305,11 +313,65 @@ export function ProductForm({
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Stock control</CardTitle>
               <CardDescription>
-                Counted in pieces. The low-stock level drives the low-stock badge and dashboard alerts; the
+                Counted in {unitPlural}. The low-stock level drives the low-stock badge and dashboard alerts; the
                 reorder quantity (or the maximum) is used to suggest how many to restock.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  id="unit"
+                  label="Sold by"
+                  error={errors.unit}
+                  description="The unit stock is counted and priced in. Nothing is converted between units."
+                >
+                  <Controller
+                    name="unit"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        value={field.value ?? 'PIECE'}
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          // A new product follows the unit's usual setting; an
+                          // existing one keeps what the owner chose.
+                          if (!productId) setValue('allowsDecimal', UNITS[value as ProductUnit].decimalsByDefault);
+                        }}
+                      >
+                        <SelectTrigger id="unit">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {UNIT_ORDER.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {UNITS[value].label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </FormField>
+                <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+                  <div>
+                    <Label htmlFor="allowsDecimal">Sell in decimals</Label>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {allowsDecimal
+                        ? `e.g. 0.5 or 1.25 ${unitPlural} (up to 3 decimals).`
+                        : `Whole ${unitPlural} only.`}
+                    </p>
+                    {errors.allowsDecimal && <p className="mt-1 text-xs text-destructive-text">{errors.allowsDecimal.message}</p>}
+                  </div>
+                  <Controller
+                    name="allowsDecimal"
+                    control={control}
+                    render={({ field }) => (
+                      <Switch id="allowsDecimal" checked={Boolean(field.value)} onCheckedChange={field.onChange} />
+                    )}
+                  />
+                </div>
+              </div>
+
               <div className="flex items-start justify-between gap-4 rounded-md border p-3">
                 <div>
                   <Label htmlFor="isTrackable">Track stock levels</Label>
@@ -330,20 +392,20 @@ export function ProductForm({
                 <div className="grid gap-4 sm:grid-cols-2">
                   <FormField
                     id="reorderLevel"
-                    label="Low-stock level (pcs)"
+                    label={`Low-stock level (${unitPlural})`}
                     error={errors.reorderLevel}
                     description="Flagged orange at or below this quantity."
                   >
-                    <Input id="reorderLevel" type="number" step="1" min="0" inputMode="numeric" {...register('reorderLevel')} />
+                    <Input id="reorderLevel" type="number" step={thresholdStep} min="0" inputMode={allowsDecimal ? 'decimal' : 'numeric'} {...register('reorderLevel')} />
                   </FormField>
-                  <FormField id="reorderQty" label="Reorder quantity (pcs)" error={errors.reorderQty}>
-                    <Input id="reorderQty" type="number" step="1" min="0" inputMode="numeric" {...register('reorderQty')} />
+                  <FormField id="reorderQty" label={`Reorder quantity (${unitPlural})`} error={errors.reorderQty}>
+                    <Input id="reorderQty" type="number" step={thresholdStep} min="0" inputMode={allowsDecimal ? 'decimal' : 'numeric'} {...register('reorderQty')} />
                   </FormField>
-                  <FormField id="minStock" label="Minimum (pcs)" error={errors.minStock}>
-                    <Input id="minStock" type="number" step="1" min="0" inputMode="numeric" {...register('minStock')} />
+                  <FormField id="minStock" label={`Minimum (${unitPlural})`} error={errors.minStock}>
+                    <Input id="minStock" type="number" step={thresholdStep} min="0" inputMode={allowsDecimal ? 'decimal' : 'numeric'} {...register('minStock')} />
                   </FormField>
-                  <FormField id="maxStock" label="Maximum (pcs)" error={errors.maxStock}>
-                    <Input id="maxStock" type="number" step="1" min="0" inputMode="numeric" {...register('maxStock')} />
+                  <FormField id="maxStock" label={`Maximum (${unitPlural})`} error={errors.maxStock}>
+                    <Input id="maxStock" type="number" step={thresholdStep} min="0" inputMode={allowsDecimal ? 'decimal' : 'numeric'} {...register('maxStock')} />
                   </FormField>
                 </div>
               )}

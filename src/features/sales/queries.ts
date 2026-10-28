@@ -153,7 +153,7 @@ export async function getSale(id: string, { includeCost = false }: { includeCost
       items: {
         include: {
           product: {
-            select: { id: true, name: true, sku: true, imageUrl: true },
+            select: { id: true, name: true, sku: true, imageUrl: true, unit: true, allowsDecimal: true },
           },
         },
       },
@@ -200,7 +200,10 @@ export async function getSale(id: string, { includeCost = false }: { includeCost
       imageUrl: item.product.imageUrl,
       quantity: toNum(item.quantity),
       returnedQuantity: toNum(item.returnedQuantity),
-      returnable: toNum(item.quantity) - toNum(item.returnedQuantity),
+      returnable: Math.round((toNum(item.quantity) - toNum(item.returnedQuantity)) * 1000) / 1000,
+      unit: item.product.unit,
+      // A line sold in a fraction can be refunded in one, whatever the product says now.
+      allowsDecimal: item.product.allowsDecimal || !Number.isInteger(toNum(item.quantity)),
       unitPrice: toNum(item.unitPrice),
       unitCost: includeCost ? toNum(item.unitCost) : 0,
       discount: toNum(item.discount),
@@ -243,6 +246,7 @@ export async function getReceiptData(id: string, { cashierId = null }: { cashier
     lines: sale.items.map((item) => ({
       name: item.name,
       quantity: item.quantity,
+      unit: item.unit,
       unitPrice: item.unitPrice,
       discount: item.discount,
       total: item.total,

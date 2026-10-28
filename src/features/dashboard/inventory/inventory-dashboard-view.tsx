@@ -358,13 +358,15 @@ function AttentionTable({
                   {row.barcode ?? row.sku} · {row.categoryName}
                 </p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
-                  <span className="tabular font-semibold">{formatPieces(row.available)}</span>
-                  {threshold > 0 && <span className="text-xs text-muted-foreground">reorder at {formatPieces(threshold)}</span>}
+                  <span className="tabular font-semibold">{formatPieces(row.available, row.unit)}</span>
+                  {threshold > 0 && <span className="text-xs text-muted-foreground">reorder at {formatPieces(threshold, row.unit)}</span>}
                   <StatusPill band={band} />
                 </div>
               </div>
               <ProductRowActions
                 productId={row.productId}
+                unit={row.unit}
+                allowsDecimal={row.allowsDecimal}
                 productName={row.name}
                 sku={row.sku}
                 onHand={row.onHand}
@@ -439,6 +441,8 @@ function AttentionTable({
                   <TableCell className="px-4 py-2.5 text-right">
                     <ProductRowActions
                       productId={row.productId}
+                      unit={row.unit}
+                      allowsDecimal={row.allowsDecimal}
                       productName={row.name}
                       sku={row.sku}
                       onHand={row.onHand}

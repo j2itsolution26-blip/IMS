@@ -4,7 +4,7 @@ import { storeDb } from '@/lib/tenant/context';
 import { D, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { RefundError, refundAmounts } from '@/lib/refund-math';
-import { applyStockMovement, wholePieces } from '@/server/services/inventory-service';
+import { applyStockMovement, quantityFor, validQuantity } from '@/server/services/inventory-service';
 import { refundShiftFor } from '@/server/services/shift-service';
 import { lockSale } from '@/server/services/sale-service';
 import { nextDocumentNumber } from '@/server/services/numbering-service';
@@ -87,7 +87,7 @@ export async function createSaleReturn(input: CreateSaleReturnInput): Promise<Co
         const sale = await tx.sale.findUnique({
           where: { id: input.saleId },
           include: {
-            items: true,
+            items: { include: { product: { select: { name: true, unit: true, allowsDecimal: true } } } },
             returns: { where: { status: 'COMPLETED' }, select: { subtotal: true, total: true } },
           },
         });
@@ -100,10 +100,16 @@ export async function createSaleReturn(input: CreateSaleReturnInput): Promise<Co
           amounts = refundAmounts({
             sale,
             items: sale.items,
-            request: input.lines.map((line) => ({
-              saleItemId: line.saleItemId,
-              quantity: wholePieces(line.quantity, 'A returned quantity'),
-            })),
+            request: input.lines.map((line) => {
+              const item = sale.items.find((i) => i.id === line.saleItemId);
+              if (!item) return { saleItemId: line.saleItemId, quantity: validQuantity(line.quantity, 'A returned quantity') };
+              // A line sold in a fraction can be refunded in one, whatever the product says now.
+              const allowsDecimal = item.product.allowsDecimal || !D(item.quantity).isInteger();
+              return {
+                saleItemId: line.saleItemId,
+                quantity: quantityFor(line.quantity, `Returned quantity of ${item.product.name}`, { allowsDecimal, unit: item.product.unit }),
+              };
+            }),
             previous: {
               subtotal: sale.returns.reduce((acc, r) => acc.plus(D(r.subtotal)), D(0)),
               total: sale.returns.reduce((acc, r) => acc.plus(D(r.total)), D(0)),

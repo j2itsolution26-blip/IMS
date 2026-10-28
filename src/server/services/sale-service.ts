@@ -5,7 +5,7 @@ import { type TxClient } from '@/lib/prisma';
 import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { D, money, sum, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
-import { applyStockMovement, assertStockAvailable, wholePieces } from '@/server/services/inventory-service';
+import { applyStockMovement, assertStockAvailable, quantityFor } from '@/server/services/inventory-service';
 import { nextDocumentNumber } from '@/server/services/numbering-service';
 import { recordAudit } from '@/server/services/audit-service';
 import { getSettings, readNumber } from '@/server/services/settings-service';
@@ -97,7 +97,7 @@ async function priceBasket(
 
   const products = await db.product.findMany({
     where: { id: { in: items.map((i) => i.productId) } },
-    select: { id: true, name: true, sellingPrice: true, costPrice: true, status: true },
+    select: { id: true, name: true, sellingPrice: true, costPrice: true, status: true, unit: true, allowsDecimal: true },
   });
   const byId = new Map(products.map((p) => [p.id, p]));
 
@@ -108,9 +108,10 @@ async function priceBasket(
       throw new ConflictError(`${product.name} is ${product.status.toLowerCase()} and cannot be sold.`);
     }
 
-    const quantity = wholePieces(item.quantity, `Quantity for ${product.name}`);
-    if (quantity.lessThan(1)) {
-      throw new ValidationError(`Quantity for ${product.name} must be at least 1 piece.`);
+    // Whole units unless this product is sold in decimals (0.5 kg, 1.5 m).
+    const quantity = quantityFor(item.quantity, `Quantity for ${product.name}`, product);
+    if (quantity.lessThanOrEqualTo(0)) {
+      throw new ValidationError(`Quantity for ${product.name} must be more than zero.`);
     }
 
     const unitPrice = money(item.unitPrice ?? product.sellingPrice);

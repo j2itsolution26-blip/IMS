@@ -1,3 +1,4 @@
+import { isProductUnit, type ProductUnit } from '@/lib/quantity';
 import 'server-only';
 
 import { getStoreContext } from '@/lib/tenant/context';
@@ -36,9 +37,14 @@ export interface StockLevelRow {
   lastReceivedAt: Date | null;
   /** The latest ledger entry of any kind for this product. */
   lastMovementAt: Date | null;
+  /** What the product is counted in, and whether fractions of it are allowed. */
+  unit: ProductUnit;
+  allowsDecimal: boolean;
 }
 
 interface StockLevelSqlRow {
+  unit: string;
+  allowsDecimal: boolean;
   productId: string;
   name: string;
   sku: string;
@@ -166,6 +172,8 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         p.sku                                                   AS "sku",
         p.barcode                                               AS "barcode",
         p."imageUrl"                                            AS "imageUrl",
+        p.unit::text                                            AS "unit",
+        p."allowsDecimal"                                       AS "allowsDecimal",
         c.name                                                  AS "categoryName",
         ${query.warehouseId ? 'MAX(w.name)' : 'NULL::text'}     AS "warehouseName",
         COALESCE(SUM(i.quantity), 0)                            AS on_hand,
@@ -201,7 +209,7 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
   const rows = await db.$queryRawUnsafe<StockLevelSqlRow[]>(
     `
     SELECT
-      "productId", "name", "sku", "barcode", "imageUrl", "categoryName", "warehouseName",
+      "productId", "name", "sku", "barcode", "imageUrl", "unit", "allowsDecimal", "categoryName", "warehouseName",
       on_hand::text          AS "onHand",
       reserved::text         AS "reserved",
       reorder_level::text    AS "reorderLevel",
@@ -257,6 +265,8 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         lastSoldAt: r.lastSoldAt,
         lastReceivedAt: r.lastReceivedAt,
         lastMovementAt: r.lastMovementAt,
+        unit: isProductUnit(r.unit) ? r.unit : 'PIECE',
+        allowsDecimal: r.allowsDecimal === true,
       };
     }),
     total,

@@ -55,6 +55,7 @@ import { PosCameraScanner, type ScanOutcome } from '@/features/pos/pos-camera-sc
 import { QuantityInput } from '@/features/pos/quantity-input';
 import { useOnlineStatus } from '@/features/pwa/use-online-status';
 import { formatCurrency, formatQuantity } from '@/lib/format';
+import { UNITS, type ProductUnit } from '@/lib/quantity';
 import { cn } from '@/lib/utils';
 
 /**
@@ -112,6 +113,9 @@ interface BasketLine {
   discount: number;
   available: number;
   isTrackable: boolean;
+  /** Optional: orders held before units existed are whole pieces. */
+  unit?: ProductUnit;
+  allowsDecimal?: boolean;
 }
 
 /**
@@ -292,6 +296,8 @@ export function PosTerminal({
           discount: 0,
           available: product.available,
           isTrackable: product.isTrackable,
+          unit: product.unit,
+          allowsDecimal: product.allowsDecimal,
         },
       ];
     });
@@ -471,11 +477,15 @@ export function PosTerminal({
   };
 
   const setQuantity = (productId: string, requested: number) => {
-    // Sold by the piece: a cart quantity is always a whole number.
-    const quantity = Number.isFinite(requested) ? Math.floor(requested) : 0;
     setBasket((current) =>
       current.flatMap((line) => {
         if (line.productId !== productId) return [line];
+        // Whole units unless the product is sold in decimals (to 3 places).
+        const quantity = !Number.isFinite(requested)
+          ? 0
+          : line.allowsDecimal
+            ? Math.round(requested * 1000) / 1000
+            : Math.floor(requested);
         if (quantity <= 0) return [];
         if (line.isTrackable && quantity > line.available) {
           toast.warning(`Only ${formatQuantity(line.available)} available.`);
@@ -533,7 +543,12 @@ export function PosTerminal({
     if (!heldOrder) return;
     // An order parked by an older version could carry a fractional amount;
     // the till only sells whole pieces now.
-    setBasket(heldOrder.lines.map((line) => ({ ...line, quantity: Math.max(1, Math.round(line.quantity)) })));
+    setBasket(
+      heldOrder.lines.map((line) => ({
+        ...line,
+        quantity: line.allowsDecimal ? Math.max(0.001, Math.round(line.quantity * 1000) / 1000) : Math.max(1, Math.round(line.quantity)),
+      })),
+    );
     setOrderDiscount(heldOrder.discount);
     setNotes(heldOrder.notes);
     try {
@@ -660,6 +675,7 @@ export function PosTerminal({
       lines: basket.map((line) => ({
         name: line.name,
         quantity: line.quantity,
+        unit: line.unit ?? 'PIECE',
         unitPrice: line.unitPrice,
         discount: line.discount,
         total: round(line.unitPrice * line.quantity - line.discount),
@@ -735,6 +751,7 @@ export function PosTerminal({
               unitPrice: line.unitPrice,
               quantity: line.quantity,
               discount: line.discount,
+              allowsDecimal: line.allowsDecimal,
             }))}
             total={totals.total}
             itemCount={totals.itemCount}
@@ -893,6 +910,8 @@ export function PosTerminal({
                     <QuantityInput
                       value={line.quantity}
                       onChange={(quantity) => setQuantity(line.productId, quantity)}
+                      allowsDecimal={line.allowsDecimal}
+                      unitLabel={UNITS[line.unit ?? 'PIECE'].plural}
                       label={`Quantity for ${line.name}`}
                     />
 

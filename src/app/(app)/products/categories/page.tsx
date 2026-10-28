@@ -3,6 +3,8 @@ import { requirePermission, userCan } from '@/lib/session';
 import { listCategories } from '@/features/catalogue/queries';
 import { PageHeader } from '@/components/page-header';
 import { CategoriesManager } from '@/features/catalogue/managers';
+import { SuggestedCategoriesButton } from '@/features/catalogue/suggested-categories-button';
+import { missingTemplates } from '@/lib/category-templates';
 
 export const metadata: Metadata = { title: 'Categories' };
 export const dynamic = 'force-dynamic';
@@ -24,6 +26,11 @@ export default async function CategoriesPage() {
         title="Categories"
         description="Groups your products for the POS and reports. You can also add one while creating a product."
         breadcrumbs={[{ label: 'Products', href: '/products' }, { label: 'Categories' }]}
+        actions={
+          categoryPermissions.canCreate ? (
+            <SuggestedCategoriesButton missing={missingTemplates(categories.map((category) => category.name)).map((t) => t.name)} />
+          ) : undefined
+        }
       />
       <CategoriesManager rows={categories} permissions={categoryPermissions} />
     </>

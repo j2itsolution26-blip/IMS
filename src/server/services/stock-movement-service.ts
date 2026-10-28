@@ -3,7 +3,7 @@ import 'server-only';
 import { storeDb } from '@/lib/tenant/context';
 import { D, money, qty as q3, toNum, type Numeric } from '@/lib/decimal';
 import { NotFoundError, ValidationError } from '@/lib/errors';
-import { applyStockMovement, wholePieces } from '@/server/services/inventory-service';
+import { applyStockMovement, validQuantity } from '@/server/services/inventory-service';
 import { nextDocumentNumber } from '@/server/services/numbering-service';
 import { recordAudit } from '@/server/services/audit-service';
 import { getDefaultWarehouseId } from '@/server/services/warehouse-service';
@@ -27,8 +27,9 @@ export interface StockInInput {
  */
 export async function createStockIn(input: StockInInput) {
   const db = await storeDb();
-  if (wholePieces(input.quantity, 'Pieces received').lessThan(1)) {
-    throw new ValidationError('Enter at least 1 piece received.');
+  // Precision for this product is checked when the movement is applied.
+  if (validQuantity(input.quantity, 'Quantity received').lessThanOrEqualTo(0)) {
+    throw new ValidationError('Enter a quantity received above zero.');
   }
 
   const warehouseId = await getDefaultWarehouseId();
@@ -114,7 +115,7 @@ export async function createAdjustment(input: CreateAdjustmentInput) {
         });
 
         const onHand = D(current?.quantity ?? 0);
-        const entered = wholePieces(line.quantity, 'An adjustment quantity');
+        const entered = validQuantity(line.quantity, 'An adjustment quantity');
         if (input.mode === 'ABSOLUTE' && entered.lessThan(0)) {
           throw new ValidationError('A counted quantity cannot be negative.');
         }

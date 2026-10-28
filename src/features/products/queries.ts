@@ -289,6 +289,8 @@ export async function searchSellableProducts(term: string, limit = 24, filters: 
       imageUrl: true,
       sellingPrice: true,
       isTrackable: true,
+      unit: true,
+      allowsDecimal: true,
       category: { select: { name: true } },
       inventory: {
         where: { warehouseId },
@@ -309,6 +311,8 @@ export async function searchSellableProducts(term: string, limit = 24, filters: 
       imageUrl: p.imageUrl,
       sellingPrice: toNum(p.sellingPrice),
       isTrackable: p.isTrackable,
+      unit: p.unit,
+      allowsDecimal: p.allowsDecimal,
       categoryName: p.category.name,
       available,
     };

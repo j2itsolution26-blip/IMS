@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { authorize, userCan } from '@/lib/session';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
-import { countQuantity, pieceQuantity, signedPieceQuantity } from '@/lib/quantity';
+import { countQuantity, lineQuantity, signedQuantity } from '@/lib/quantity';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { createAdjustment, createStockIn } from '@/server/services/stock-movement-service';
 import { findInventoryProductByBarcode, type InventoryBarcodeLookup } from '@/features/inventory/queries';
@@ -14,7 +14,7 @@ import { findInventoryProductByBarcode, type InventoryBarcodeLookup } from '@/fe
 const stockInSchema = z.object({
   productId: z.string().min(1),
   /** Pieces received: a whole number, at least 1. */
-  quantity: pieceQuantity,
+  quantity: lineQuantity,
   unitCost: z.number().min(0).optional(),
 });
 
@@ -59,7 +59,7 @@ const adjustmentSchema = z.object({
         productId: z.string().min(1),
         // A counted quantity (ABSOLUTE) or a signed change (RELATIVE), in
         // whole pieces either way. The mode-specific bound is checked below.
-        quantity: signedPieceQuantity,
+        quantity: signedQuantity,
         unitCost: z.number().min(0).optional(),
       }),
     )

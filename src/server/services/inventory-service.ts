@@ -9,6 +9,7 @@ import type { DbClient, TxClient } from '@/lib/prisma';
 import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { D, qty as q3, money, toNum, type Numeric } from '@/lib/decimal';
 import { InsufficientStockError, NotFoundError, ValidationError } from '@/lib/errors';
+import { QUANTITY_DECIMALS, UNITS, type ProductUnit } from '@/lib/quantity';
 import { getSettings, readBoolean } from '@/server/services/settings-service';
 
 /**
@@ -135,18 +136,38 @@ async function updateMovingAverageCost(
 }
 
 /**
- * Every product is counted by the piece, so a stock quantity is always a whole
- * number. Returns the value as a Decimal, or throws a ValidationError naming
- * what was wrong. Fractional input is rejected rather than rounded: rounding
- * 2.5 to 3 would silently record stock that was never counted.
+ * A quantity as typed: a finite number with at most 3 decimals, returned as a
+ * Decimal. Never rounded — rounding 2.5 to 3 would record stock nobody
+ * counted. Whether a fraction is allowed depends on the product; see
+ * `quantityFor`.
  */
-export function wholePieces(value: Numeric, what = 'Quantity'): Prisma.Decimal {
+export function validQuantity(value: Numeric, what = 'Quantity'): Prisma.Decimal {
   const quantity = D(value);
-  if (!quantity.isFinite() || !quantity.isInteger()) {
-    throw new ValidationError(`${what} must be a whole number of pieces.`);
+  if (!quantity.isFinite()) throw new ValidationError(`${what} must be a number.`);
+  if (quantity.decimalPlaces() > QUANTITY_DECIMALS) {
+    throw new ValidationError(`${what} can have at most ${QUANTITY_DECIMALS} decimal places.`);
   }
   return quantity;
 }
+
+/**
+ * A quantity of one product: whole units unless the product allows decimals
+ * (its own setting, read from the database, never from the browser).
+ */
+export function quantityFor(
+  value: Numeric,
+  what: string,
+  product: { allowsDecimal: boolean; unit: ProductUnit },
+): Prisma.Decimal {
+  const quantity = validQuantity(value, what);
+  if (!product.allowsDecimal && !quantity.isInteger()) {
+    throw new ValidationError(`${what} must be whole ${UNITS[product.unit].plural} — this product is not sold in decimals.`);
+  }
+  return quantity;
+}
+
+/** Older name: a quantity with valid precision, before the product is known. */
+export const wholePieces = validQuantity;
 
 /**
  * Applies one stock movement. Must run inside a transaction.
@@ -159,17 +180,19 @@ export async function applyStockMovement(
   tx: TxClient,
   input: StockMovementInput,
 ): Promise<StockMovementResult> {
-  const delta = wholePieces(input.quantity, 'A stock movement');
+  const product = await tx.product.findUnique({
+    where: { id: input.productId },
+    select: { id: true, name: true, costPrice: true, isTrackable: true, reorderLevel: true, minStock: true, unit: true, allowsDecimal: true },
+  });
+  if (!product) throw new NotFoundError('Product');
+
+  // The one check every sale, refund, receipt and adjustment passes through:
+  // whole units unless this product allows decimals (the database agrees).
+  const delta = quantityFor(input.quantity, `A stock movement of ${product.name}`, product);
   if (delta.isZero()) {
     // A zero movement would write a ledger row that says nothing happened.
     throw new ValidationError('A stock movement must change the quantity by a non-zero amount.');
   }
-
-  const product = await tx.product.findUnique({
-    where: { id: input.productId },
-    select: { id: true, name: true, costPrice: true, isTrackable: true, reorderLevel: true, minStock: true },
-  });
-  if (!product) throw new NotFoundError('Product');
 
   const unitCost = money(input.unitCost ?? product.costPrice);
 

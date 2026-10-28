@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { authorize } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
-import { ConflictError, NotFoundError } from '@/lib/errors';
+import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { money, toNum } from '@/lib/decimal';
 import { diff, recordAudit } from '@/server/services/audit-service';
 import { deleteProductImage, uploadProductImage } from '@/server/services/storage-service';
@@ -84,6 +84,8 @@ export async function createProduct(input: unknown): Promise<ActionResult<{ id: 
         reorderQty: values.reorderQty,
         status: values.status,
         isTrackable: values.isTrackable,
+        unit: values.unit,
+        allowsDecimal: values.allowsDecimal,
       },
       select: { id: true, name: true, sku: true },
     });
@@ -101,6 +103,20 @@ export async function createProduct(input: unknown): Promise<ActionResult<{ id: 
   });
 }
 
+/** Whether any stock movement of the product was a fraction (raw: Prisma cannot filter on a fractional part). */
+async function hasFractionalHistory(db: Awaited<ReturnType<typeof storeDb>>, productId: string): Promise<boolean> {
+  const { storeId } = await getStoreContext();
+  const rows = await db.$queryRaw<{ found: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM inventory_transactions
+      WHERE "storeId" = ${storeId} AND "productId" = ${productId} AND quantity <> trunc(quantity)
+    ) OR EXISTS (
+      SELECT 1 FROM inventory
+      WHERE "storeId" = ${storeId} AND "productId" = ${productId} AND quantity <> trunc(quantity)
+    ) AS found`;
+  return rows[0]?.found === true;
+}
+
 export async function updateProduct(id: string, input: unknown): Promise<ActionResult<{ id: string }>> {
   const db = await storeDb();
   return runAction(async () => {
@@ -111,6 +127,16 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
     if (!before) throw new NotFoundError('Product');
     // Bringing a product back from the archive counts against the quota again.
     if (before.status === 'ARCHIVED' && values.status !== 'ARCHIVED') await requireWithinLimit('products');
+
+    // Once a product has moved in fractions (stock, a sale or a refund), it
+    // keeps allowing decimals, so its past fractional sales stay refundable
+    // and restockable. The database refuses the switch too.
+    if (before.allowsDecimal && !values.allowsDecimal && (await hasFractionalHistory(db, id))) {
+      throw new ValidationError(
+        'This product has already been stocked or sold in fractions, so it must keep allowing decimals. Create a new product for whole-unit sales.',
+        { allowsDecimal: ['Already moved in fractions.'] },
+      );
+    }
 
     const updated = await db.product.update({
       where: { id },
@@ -129,6 +155,8 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
         reorderQty: values.reorderQty,
         status: values.status,
         isTrackable: values.isTrackable,
+        unit: values.unit,
+        allowsDecimal: values.allowsDecimal,
       },
       select: { id: true, name: true, sku: true },
     });

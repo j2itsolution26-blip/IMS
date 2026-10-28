@@ -42,7 +42,7 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
         items: {
           include: {
             product: {
-              select: { id: true, name: true, sku: true },
+              select: { id: true, name: true, sku: true, unit: true },
             },
           },
         },
@@ -105,7 +105,7 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
                       <p className="text-xs text-muted-foreground">{item.product.sku}</p>
                     </TableCell>
                     <TableCell className="tabular text-right">
-                      {formatPieces(toNum(item.quantity))}
+                      {formatPieces(toNum(item.quantity), item.product.unit)}
                     </TableCell>
                     <TableCell className="tabular text-right">
                       {formatCurrency(toNum(item.unitPrice), currency)}

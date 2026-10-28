@@ -100,6 +100,8 @@ export default async function InventoryPage({
     reorderLevel: row.reorderLevel,
     status: row.status,
     lastMovementAt: row.lastMovementAt,
+    unit: row.unit,
+    allowsDecimal: row.allowsDecimal,
   }));
 
   const firstRow = result.total === 0 ? 0 : (result.page - 1) * PAGE_SIZE + 1;

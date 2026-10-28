@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { formatCurrency, formatDateTime, formatQuantity } from '@/lib/format';
+import { UNITS, formatUnits, type ProductUnit } from '@/lib/quantity';
 
 /**
  * Printable receipt.
@@ -14,6 +15,8 @@ import { formatCurrency, formatDateTime, formatQuantity } from '@/lib/format';
 export interface ReceiptLine {
   name: string;
   quantity: number;
+  /** Absent on receipts from before units: pieces. */
+  unit?: ProductUnit;
   unitPrice: number;
   discount: number;
   total: number;
@@ -70,7 +73,9 @@ export function Receipt({ data }: { data: ReceiptData }) {
                 <span className="block">{line.name}</span>
                 <span className="flex justify-between">
                   <span>
-                    {formatQuantity(line.quantity)} × {formatCurrency(line.unitPrice, currency)}
+                    {line.unit && line.unit !== 'PIECE' ? formatUnits(line.quantity, line.unit) : formatQuantity(line.quantity)} ×{' '}
+                    {formatCurrency(line.unitPrice, currency)}
+                    {line.unit && line.unit !== 'PIECE' ? `/${UNITS[line.unit].singular}` : ''}
                     {line.discount > 0 && ` − ${formatCurrency(line.discount, currency)}`}
                   </span>
                   <span>{formatCurrency(line.total, currency)}</span>
@@ -115,7 +120,9 @@ export function Receipt({ data }: { data: ReceiptData }) {
 
       <p className="text-center">{company.receiptFooter}</p>
       <p className="mt-1 text-center text-[10px]">
-        {formatQuantity(data.lines.reduce((acc, line) => acc + line.quantity, 0))} item(s)
+        {data.lines.every((line) => !line.unit || line.unit === 'PIECE')
+          ? `${formatQuantity(data.lines.reduce((acc, line) => acc + line.quantity, 0))} item(s)`
+          : `${data.lines.length} line(s)`}
       </p>
     </div>
   );

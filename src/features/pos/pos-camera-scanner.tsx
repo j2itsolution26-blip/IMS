@@ -37,6 +37,8 @@ export interface ScannerCartLine {
   code: string;
   unitPrice: number;
   quantity: number;
+  /** Sold in fractions of its unit (0.5 kg); absent means whole units. */
+  allowsDecimal?: boolean;
   discount: number;
 }
 
@@ -193,6 +195,7 @@ function ScannerCart({
                   onFocusChange={onEditing}
                   label={`Quantity for ${line.name}`}
                   size={isLast ? 'lg' : 'default'}
+                  allowsDecimal={line.allowsDecimal}
                 />
                 <div className="min-w-0 text-right">
                   <p className="tabular text-xs text-muted-foreground">

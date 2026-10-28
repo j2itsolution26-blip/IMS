@@ -73,15 +73,15 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           label="Available"
-          value={product.isTrackable ? formatPieces(available) : 'Not tracked'}
+          value={product.isTrackable ? formatPieces(available, product.unit) : 'Not tracked'}
           tone={stockTone}
           icon={Package}
           hint={
             product.isTrackable
               ? reserved > 0
-                ? `${formatPieces(onHand)} on hand · ${formatPieces(reserved)} reserved`
+                ? `${formatPieces(onHand, product.unit)} on hand · ${formatPieces(reserved, product.unit)} reserved`
                 : reorderLevel > 0
-                  ? `Reorder at ${formatPieces(reorderLevel)}`
+                  ? `Reorder at ${formatPieces(reorderLevel, product.unit)}`
                   : 'No reorder level set'
               : 'Service or fee item'
           }
@@ -109,10 +109,10 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             />
             <KpiCard
               label="Low-stock level"
-              value={product.isTrackable && reorderLevel > 0 ? formatPieces(reorderLevel) : '—'}
+              value={product.isTrackable && reorderLevel > 0 ? formatPieces(reorderLevel, product.unit) : '—'}
               hint={
                 toNum(product.reorderQty) > 0
-                  ? `Restock ${formatPieces(toNum(product.reorderQty))} at a time`
+                  ? `Restock ${formatPieces(toNum(product.reorderQty), product.unit)} at a time`
                   : 'No reorder quantity set'
               }
             />
@@ -120,7 +120,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         )}
         <KpiCard
           label={`Sold (${history.performance.windowDays}d)`}
-          value={formatPieces(history.performance.piecesSold)}
+          value={formatPieces(history.performance.piecesSold, product.unit)}
           hint={
             history.performance.piecesSold === 0
               ? 'No sales in this window'
@@ -257,10 +257,10 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                           )}
                         >
                           {inbound ? '+' : ''}
-                          {formatPieces(movement.quantity)}
+                          {formatPieces(movement.quantity, product.unit)}
                         </TableCell>
                         <TableCell className="tabular text-right">
-                          {formatPieces(movement.balanceAfter)}
+                          {formatPieces(movement.balanceAfter, product.unit)}
                         </TableCell>
                         <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
                           {movement.userName}

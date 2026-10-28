@@ -60,6 +60,8 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
           reorderQty: toNum(product.reorderQty),
           status: product.status,
           isTrackable: product.isTrackable,
+          unit: product.unit,
+          allowsDecimal: product.allowsDecimal,
         }}
       />
     </>

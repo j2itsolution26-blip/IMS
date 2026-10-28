@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/misc';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatCurrency } from '@/lib/format';
-import { formatPieces } from '@/lib/quantity';
+import { UNITS, decimalPlaces, formatPieces, type ProductUnit } from '@/lib/quantity';
 import { cn } from '@/lib/utils';
 
 /**
@@ -39,6 +39,8 @@ interface Line {
   onHand: number;
   costPrice: number;
   value: string;
+  unit: ProductUnit;
+  allowsDecimal: boolean;
 }
 
 export function AdjustmentForm({
@@ -79,6 +81,8 @@ export function AdjustmentForm({
     onHand: product.onHand,
     costPrice: product.costPrice,
     value,
+    unit: product.unit,
+    allowsDecimal: product.allowsDecimal,
   });
 
   const addLine = (product: StockPickerProduct) => setLines((current) => [...current, lineFor(product)]);
@@ -118,17 +122,19 @@ export function AdjustmentForm({
   const setValue = (productId: string, value: string) =>
     setLines((current) => current.map((line) => (line.productId === productId ? { ...line, value } : line)));
 
-  /** Whole pieces only: a blank, fractional or negative count is not a valid entry. */
+  /** Whole units unless the product allows decimals; a count is never negative. */
   const isValidEntry = (line: Line): boolean => {
     if (line.value === '') return true;
     const entered = Number(line.value);
-    return Number.isSafeInteger(entered) && (mode === 'RELATIVE' || entered >= 0);
+    if (!Number.isFinite(entered) || decimalPlaces(line.value) > 3) return false;
+    if (!line.allowsDecimal && !Number.isInteger(entered)) return false;
+    return mode === 'RELATIVE' || entered >= 0;
   };
 
   const deltaFor = (line: Line): number => {
     const entered = Number(line.value);
     if (line.value === '' || !isValidEntry(line)) return 0;
-    return mode === 'ABSOLUTE' ? entered - line.onHand : entered;
+    return Math.round((mode === 'ABSOLUTE' ? entered - line.onHand : entered) * 1000) / 1000;
   };
 
   const effective = lines.filter((line) => deltaFor(line) !== 0);
@@ -142,8 +148,8 @@ export function AdjustmentForm({
     if (invalid) {
       toast.error(
         mode === 'ABSOLUTE'
-          ? `${invalid.name}: enter the pieces counted — a whole number, 0 or more.`
-          : `${invalid.name}: enter the change in whole pieces, e.g. -3 or 12.`,
+          ? `${invalid.name}: enter the ${UNITS[invalid.unit].plural} counted — 0 or more${invalid.allowsDecimal ? ', up to 3 decimals' : ', whole numbers only'}.`
+          : `${invalid.name}: enter the change in ${UNITS[invalid.unit].plural}, e.g. -3 or 12${invalid.allowsDecimal ? ' (decimals allowed)' : ''}.`,
       );
       return;
     }
@@ -305,14 +311,14 @@ export function AdjustmentForm({
                           <p className="text-xs text-muted-foreground">{line.sku}</p>
                         </TableCell>
                         <TableCell className="tabular text-right text-muted-foreground">
-                          {formatPieces(line.onHand)}
+                          {formatPieces(line.onHand, line.unit)}
                         </TableCell>
                         <TableCell className="text-right">
                           <Input
                             type="number"
-                            step="1"
+                            step={line.allowsDecimal ? 'any' : '1'}
                             min={mode === 'ABSOLUTE' ? 0 : undefined}
-                            inputMode="numeric"
+                            inputMode={line.allowsDecimal ? 'decimal' : 'numeric'}
                             value={line.value}
                             aria-invalid={!isValidEntry(line)}
                             onChange={(event) => setValue(line.productId, event.target.value)}
@@ -328,7 +334,7 @@ export function AdjustmentForm({
                           )}
                         >
                           {delta > 0 ? '+' : ''}
-                          {formatPieces(delta)}
+                          {formatPieces(delta, line.unit)}
                         </TableCell>
                         {canViewCost && (
                           <TableCell className="tabular hidden text-right text-sm text-muted-foreground sm:table-cell">

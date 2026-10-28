@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { validateImageUrl } from '@/lib/image-url';
-import { MAX_LINE_QUANTITY } from '@/lib/quantity';
+import { MAX_LINE_QUANTITY, QUANTITY_DECIMALS, UNIT_ORDER, UNITS, decimalPlaces, type ProductUnit } from '@/lib/quantity';
 
 /**
  * Product validation. Shared by the client form and the server action so the
@@ -15,13 +15,17 @@ const decimalField = (label: string, { min = 0, max = 1_000_000_000 } = {}) =>
     .max(max, `${label} is unreasonably large.`)
     .finite();
 
-/** A stock threshold: zero or more whole pieces. "" from an empty input is 0. */
+/**
+ * A stock threshold: zero or more of the product's unit, up to 3 decimals.
+ * Whole numbers only unless the product allows decimals (checked below).
+ * "" from an empty input is 0.
+ */
 const pieceField = (label: string) =>
   z.coerce
     .number({ invalid_type_error: `${label} must be a number.` })
-    .int(`${label} is counted in whole pieces.`)
     .min(0, `${label} cannot be less than 0.`)
-    .max(MAX_LINE_QUANTITY, `${label} is unreasonably large.`);
+    .max(MAX_LINE_QUANTITY, `${label} is unreasonably large.`)
+    .refine((n) => decimalPlaces(n) <= QUANTITY_DECIMALS, `${label}: use at most ${QUANTITY_DECIMALS} decimal places.`);
 
 export const productSchema = z
   .object({
@@ -64,7 +68,13 @@ export const productSchema = z
     costPrice: decimalField('Cost price'),
     sellingPrice: decimalField('Selling price'),
 
-    // Stock thresholds are counted in whole pieces, like every quantity.
+    // What the product is counted and sold in, and whether fractions of it
+    // can be sold (0.5 kg of rice, 1.5 m of wire). Existing products are
+    // pieces, whole numbers only.
+    unit: z.enum(UNIT_ORDER as [ProductUnit, ...ProductUnit[]]).default('PIECE'),
+    allowsDecimal: z.boolean().default(false),
+
+    // Stock thresholds are counted in the product's unit.
     minStock: pieceField('Minimum stock'),
     maxStock: pieceField('Maximum stock'),
     reorderLevel: pieceField('Low-stock level'),
@@ -74,6 +84,18 @@ export const productSchema = z
     isTrackable: z.boolean().default(true),
   })
   .superRefine((values, ctx) => {
+    // A product sold in whole units keeps whole thresholds too.
+    if (!values.allowsDecimal) {
+      for (const field of ['minStock', 'maxStock', 'reorderLevel', 'reorderQty'] as const) {
+        if (!Number.isInteger(values[field])) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `Whole ${UNITS[values.unit].plural} only, unless the product is sold in decimals.`,
+          });
+        }
+      }
+    }
     // A max below the min would make the overstock and reorder maths nonsense.
     if (values.maxStock > 0 && values.maxStock < values.minStock) {
       ctx.addIssue({

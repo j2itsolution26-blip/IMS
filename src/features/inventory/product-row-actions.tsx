@@ -1,5 +1,6 @@
 'use client';
 
+import type { ProductUnit } from '@/lib/quantity';
 import * as React from 'react';
 import Link from 'next/link';
 import { ClipboardEdit, History, MoreHorizontal, PackagePlus, Pencil } from 'lucide-react';
@@ -22,6 +23,8 @@ export function ProductRowActions({
   productName,
   sku,
   onHand,
+  unit = 'PIECE',
+  allowsDecimal,
   canAdjustStock,
   canEditProduct,
   needsRestock = false,
@@ -30,6 +33,8 @@ export function ProductRowActions({
   productName: string;
   sku: string;
   onHand: number;
+  unit?: ProductUnit;
+  allowsDecimal?: boolean;
   canAdjustStock: boolean;
   canEditProduct: boolean;
   /** Low or out of stock — the row's action becomes the thing to do about it. */
@@ -102,6 +107,8 @@ export function ProductRowActions({
             productId={productId}
             productName={productName}
             currentStock={onHand}
+            unit={unit}
+            allowsDecimal={allowsDecimal}
           />
           <CorrectStockDialog
             open={activeDialog === 'correct-stock'}
@@ -109,6 +116,8 @@ export function ProductRowActions({
             productId={productId}
             productName={productName}
             currentStock={onHand}
+            unit={unit}
+            allowsDecimal={allowsDecimal}
           />
         </>
       )}

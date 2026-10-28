@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  countQuantity,
   formatPieces,
   isWholeQuantity,
-  pieceQuantity,
-  signedPieceQuantity,
-  countQuantity,
+  lineQuantity,
+  quantityProblem,
+  signedQuantity,
 } from '@/lib/quantity';
 import { stockBand, stockThreshold, suggestedRestock } from '@/lib/stock-status';
 import { resolveDashboardVariant } from '@/lib/dashboard-access';
@@ -22,37 +23,44 @@ import { canOpenReport, visibleReportResult } from '@/server/reports/report-acce
 import { productSchema } from '@/features/products/schema';
 
 /* -------------------------------------------------------------------------- */
-/* Whole pieces                                                                */
+/* Quantities (whole pieces by default, decimals where a product allows)       */
 /* -------------------------------------------------------------------------- */
 
-test('a sale or receipt line is at least one whole piece', () => {
-  assert.equal(pieceQuantity.safeParse(1).success, true);
-  assert.equal(pieceQuantity.safeParse(4).success, true);
-  assert.equal(pieceQuantity.safeParse(0).success, false);
-  assert.equal(pieceQuantity.safeParse(-2).success, false);
-  assert.equal(pieceQuantity.safeParse(2.5).success, false);
-  assert.equal(pieceQuantity.safeParse(0.25).success, false);
-  assert.equal(pieceQuantity.safeParse('3').success, false, 'strings are not coerced on the server');
+test('a sale or receipt line is above zero with at most 3 decimals; the product decides about fractions', () => {
+  assert.equal(lineQuantity.safeParse(1).success, true);
+  assert.equal(lineQuantity.safeParse(4).success, true);
+  assert.equal(lineQuantity.safeParse(1.5).success, true);
+  assert.equal(lineQuantity.safeParse(0.125).success, true);
+  assert.equal(lineQuantity.safeParse(0).success, false);
+  assert.equal(lineQuantity.safeParse(-2).success, false);
+  assert.equal(lineQuantity.safeParse(0.1234).success, false);
+  assert.equal(lineQuantity.safeParse('3').success, false, 'strings are not coerced on the server');
+  // A piece product refuses a fraction; a decimal product takes one.
+  assert.match(quantityProblem(2.5, { allowsDecimal: false }) ?? '', /whole pcs/);
+  assert.equal(quantityProblem(2.5, { allowsDecimal: true, unit: 'KILOGRAM' }), null);
 });
 
-test('an adjustment is a whole number, positive or negative', () => {
-  assert.equal(signedPieceQuantity.safeParse(-3).success, true);
-  assert.equal(signedPieceQuantity.safeParse(12).success, true);
-  assert.equal(signedPieceQuantity.safeParse(-0.5).success, false);
+test('an adjustment may be positive or negative, up to 3 decimals', () => {
+  assert.equal(signedQuantity.safeParse(-3).success, true);
+  assert.equal(signedQuantity.safeParse(12).success, true);
+  assert.equal(signedQuantity.safeParse(-0.5).success, true);
+  assert.equal(signedQuantity.safeParse(0.0001).success, false);
 });
 
-test('a counted quantity is zero or more whole pieces', () => {
+test('a counted quantity is zero or more', () => {
   assert.equal(countQuantity.safeParse(0).success, true);
   assert.equal(countQuantity.safeParse(47).success, true);
+  assert.equal(countQuantity.safeParse(4.25).success, true);
   assert.equal(countQuantity.safeParse(-1).success, false);
-  assert.equal(countQuantity.safeParse(4.2).success, false);
 });
 
-test('quantities read as pieces', () => {
+test('quantities read as pieces unless a unit is given, and fractions are never rounded away', () => {
   assert.equal(formatPieces(1), '1 pc');
   assert.equal(formatPieces(12), '12 pcs');
   assert.equal(formatPieces(-3), '-3 pcs');
   assert.equal(formatPieces(0), '0 pcs');
+  assert.equal(formatPieces(1.5, 'METER'), '1.5 m');
+  assert.equal(formatPieces(0.25, 'KILOGRAM'), '0.25 kg');
   assert.equal(isWholeQuantity(3), true);
   assert.equal(isWholeQuantity(3.5), false);
 });
@@ -60,11 +68,11 @@ test('quantities read as pieces', () => {
 test('Fudgee Barr: 4 pcs at ₱25.00 is ₱100.00', () => {
   const unitPrice = 25;
   const quantity = 4;
-  assert.equal(pieceQuantity.safeParse(quantity).success, true);
+  assert.equal(lineQuantity.safeParse(quantity).success, true);
   assert.equal(unitPrice * quantity, 100);
 });
 
-test('product stock thresholds must be whole pieces; the form has no unit field', () => {
+test('stock thresholds follow the unit: whole for piece products, decimals when allowed', () => {
   const base = {
     name: 'Fudgee Barr',
     sku: 'FUDGEE',
@@ -81,11 +89,16 @@ test('product stock thresholds must be whole pieces; the form has no unit field'
     status: 'ACTIVE' as const,
     isTrackable: true,
   };
-  assert.equal(productSchema.safeParse(base).success, true);
+  const parsed = productSchema.parse(base);
+  // An existing product posted without a unit stays a whole-piece product.
+  assert.equal(parsed.unit, 'PIECE');
+  assert.equal(parsed.allowsDecimal, false);
   assert.equal(productSchema.safeParse({ ...base, reorderLevel: 2.5 }).success, false);
   assert.equal(productSchema.safeParse({ ...base, reorderQty: 0.5 }).success, false);
-  const parsed = productSchema.parse({ ...base, unitId: 'unit_box' });
-  assert.equal('unitId' in parsed, false, 'a posted unitId is stripped, never stored');
+  assert.equal(productSchema.safeParse({ ...base, unit: 'KILOGRAM', allowsDecimal: true, reorderLevel: 2.5 }).success, true);
+  assert.equal(productSchema.safeParse({ ...base, unit: 'KILOGRAM', allowsDecimal: true, reorderLevel: 2.5555 }).success, false);
+  assert.equal(productSchema.safeParse({ ...base, unit: 'LITRE' }).success, false, 'only known units');
+  assert.equal('unitId' in productSchema.parse({ ...base, unitId: 'unit_box' }), false, 'a posted unitId is stripped');
 });
 
 /* -------------------------------------------------------------------------- */
