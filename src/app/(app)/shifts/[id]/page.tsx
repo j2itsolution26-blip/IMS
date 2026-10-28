@@ -108,6 +108,9 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
             <Line label="+ Cash in" value={money(shift.cashIn)} />
             <Line label="− Cash refunds" value={money(shift.cashRefunds)} />
             <Line label="− Cash out" value={money(shift.cashOut)} />
+            {shift.walletCash !== 0 && (
+              <Line label={`${shift.walletCash >= 0 ? '+' : '−'} GCash services (cash)`} value={money(Math.abs(shift.walletCash))} />
+            )}
             <Line label="Expected drawer cash" value={money(shift.expectedCash)} strong />
             <Line label="Counted cash" value={shift.actualCash == null ? 'Not counted yet' : money(shift.actualCash)} />
             <Line

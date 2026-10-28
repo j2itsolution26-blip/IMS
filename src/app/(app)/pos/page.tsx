@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { requirePermission, userCan } from '@/lib/session';
 import { getPosCategories, searchSellableProducts } from '@/features/products/queries';
-import { getCompanyProfile, getSettings, readNumber } from '@/server/services/settings-service';
+import { getCompanyProfile, getSettings, readBoolean, readNumber } from '@/server/services/settings-service';
 import { getOpenShift } from '@/server/services/shift-service';
 import { PageHeader } from '@/components/page-header';
 import { PosTerminal } from '@/features/pos/pos-terminal';
@@ -57,6 +57,7 @@ export default async function PosPage({ searchParams }: { searchParams: Promise<
         lowStockLevel={lowStockLevel}
         openShift={openShift ? { id: openShift.id, openedAt: openShift.openedAt.toISOString(), openingCash: openShift.openingCash } : null}
         suggestedOpeningCash={readNumber(settings, 'pos.suggestedOpeningCash')}
+        walletServices={readBoolean(settings, 'pos.gcashServices')}
       />
     </>
   );

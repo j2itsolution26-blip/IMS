@@ -48,6 +48,7 @@ export const MODEL_SCOPES: Record<Prisma.ModelName, ModelScope> = {
   ShiftAdjustment: { kind: 'store' },
   Notification: { kind: 'store' },
   CashMovement: { kind: 'store' },
+  WalletTransaction: { kind: 'store' },
   Sale: { kind: 'store' },
   SaleItem: { kind: 'store' },
   Payment: { kind: 'store' },

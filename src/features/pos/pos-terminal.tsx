@@ -99,6 +99,8 @@ export interface PosTerminalProps {
   openShift: OpenShiftInfo | null;
   /** Settings › suggested starting cash; a hint on the Open Shift dialog only. */
   suggestedOpeningCash: number;
+  /** GCash cash-in / cash-out services, turned on by the owner in Settings. */
+  walletServices?: boolean;
 }
 
 interface BasketLine {
@@ -177,6 +179,7 @@ export function PosTerminal({
   lowStockLevel,
   openShift,
   suggestedOpeningCash,
+  walletServices = false,
 }: PosTerminalProps) {
   const router = useRouter();
 
@@ -718,6 +721,7 @@ export function PosTerminal({
           openingCash={openShift.openingCash}
           currency={currency}
           hasUnfinishedOrder={basket.length > 0 || heldOrder !== null}
+          walletServices={walletServices}
         />
 
         <form onSubmit={onSearchSubmit} className="flex flex-col gap-2 sm:flex-row">

@@ -330,6 +330,23 @@ if (!URL_ENV) {
       await rejects(() => platform.product.update({ where: { id: prod }, data: { allowsDecimal: false, reorderLevel: 2 } }), 'turn back to whole units');
     });
 
+    test('GCash services: one live entry per reference, one reversal, no edits, no other store’s shift', async () => {
+      const entry = (reference: string) => ({
+        storeId: A.storeId, shiftId: A.shift, userId: A.user, type: 'CASH_OUT' as const, amount: 1000, fee: 15, reference,
+      });
+      const ref = `REF${run}`.toUpperCase();
+      const first = await platform.walletTransaction.create({ data: entry(ref) });
+      await rejects(() => platform.walletTransaction.create({ data: entry(ref) }), 'same reference twice');
+      await rejects(() => platform.walletTransaction.create({ data: { ...entry(`${ref}X`), fee: 1000 } }), 'fee not below amount');
+      await rejects(() => platform.walletTransaction.create({ data: { ...entry(`${ref}Y`), shiftId: B.shift } }), 'another store’s shift');
+      await rejects(() => platform.walletTransaction.update({ where: { id: first.id }, data: { amount: 1 } }), 'edit');
+      await rejects(() => platform.walletTransaction.delete({ where: { id: first.id } }), 'delete');
+      await platform.walletTransaction.update({ where: { id: first.id }, data: { reversedAt: new Date(), reversedById: A.user, reversalReason: 'typo' } });
+      await rejects(() => platform.walletTransaction.update({ where: { id: first.id }, data: { reversalReason: 'changed' } }), 'second reversal');
+      // Once reversed, the same GCash reference may be recorded correctly.
+      await platform.walletTransaction.create({ data: entry(ref) });
+    });
+
     test('a returned quantity can never exceed the quantity sold', async () => {
       await rejects(
         () => platform.$executeRawUnsafe(`UPDATE sale_items SET "returnedQuantity" = quantity + 1 WHERE id = '${A.item}'`),

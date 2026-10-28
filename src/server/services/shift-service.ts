@@ -177,7 +177,7 @@ export interface ShiftCloseSummary extends DrawerTotals {
 /** The live drawer figures for a shift, from the sales, payments and movements tied to it. */
 export async function computeShiftSummary(shiftId: string, openingCash: Numeric, db?: Db): Promise<ShiftCloseSummary> {
   db ??= await storeDb();
-  const [tendered, sales, refunds, movements] = await Promise.all([
+  const [tendered, sales, refunds, movements, wallet] = await Promise.all([
     db.payment.aggregate({
       where: { shiftId, method: 'CASH', direction: 'INBOUND', sale: { status: { not: 'VOIDED' } } },
       _sum: { amount: true },
@@ -192,6 +192,8 @@ export async function computeShiftSummary(shiftId: string, openingCash: Numeric,
       _sum: { amount: true },
     }),
     db.cashMovement.groupBy({ by: ['type'], where: { shiftId }, _sum: { amount: true } }),
+    // GCash services still standing (a reversed one no longer counts).
+    db.walletTransaction.groupBy({ by: ['type'], where: { shiftId, reversedAt: null }, _sum: { amount: true, fee: true } }),
   ]);
 
   const movement = (type: CashMovementType) => movements.find((m) => m.type === type)?._sum.amount ?? 0;
@@ -204,10 +206,27 @@ export async function computeShiftSummary(shiftId: string, openingCash: Numeric,
       cashIn: movement('CASH_IN'),
       cashRefunds: refunds._sum.amount ?? 0,
       cashOut: movement('CASH_OUT'),
+      walletCash: walletDrawerCash(wallet),
     }),
     totalSales: toNum(money(sales._sum.total ?? 0)),
     transactionCount: sales._count._all,
   };
+}
+
+/**
+ * Net drawer cash from GCash services: a cash-in adds its amount and fee, a
+ * cash-out takes its amount and keeps its fee (see src/lib/wallet.ts).
+ */
+function walletDrawerCash(rows: { type: 'CASH_IN' | 'CASH_OUT'; _sum: { amount: Numeric | null; fee: Numeric | null } }[]): Prisma.Decimal {
+  const of = (type: 'CASH_IN' | 'CASH_OUT') => rows.find((row) => row.type === type)?._sum;
+  const cashIn = of('CASH_IN');
+  const cashOut = of('CASH_OUT');
+  return money(
+    D(cashIn?.amount ?? 0)
+      .plus(D(cashIn?.fee ?? 0))
+      .minus(D(cashOut?.amount ?? 0))
+      .plus(D(cashOut?.fee ?? 0)),
+  );
 }
 
 /** Read-only preview of what closing the cashier's own shift right now would show. */
@@ -274,6 +293,7 @@ async function closeShiftById(input: {
         cashRefunds: summary.cashRefunds,
         cashIn: summary.cashIn,
         cashOut: summary.cashOut,
+        walletCash: summary.walletCash,
         notes: input.notes?.trim() || null,
         reviewStatus,
       },
@@ -626,6 +646,7 @@ async function totalsFor(row: {
   cashRefunds: Numeric | null;
   cashIn: Numeric | null;
   cashOut: Numeric | null;
+  walletCash?: Numeric | null;
   totalSales: Numeric | null;
   transactionCount: number | null;
 }): Promise<ShiftCloseSummary> {
@@ -636,6 +657,7 @@ async function totalsFor(row: {
       cashRefunds: toNum(row.cashRefunds),
       cashIn: toNum(row.cashIn),
       cashOut: toNum(row.cashOut),
+      walletCash: toNum(row.walletCash ?? 0),
       expectedCash: toNum(row.expectedCash),
       totalSales: toNum(row.totalSales),
       transactionCount: row.transactionCount ?? 0,

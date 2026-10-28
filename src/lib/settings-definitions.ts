@@ -57,6 +57,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   // Sales.
   { key: 'sales.defaultTaxRate', value: '0', type: 'NUMBER', group: 'sales', label: 'Tax rate (%)', description: 'Applied to the subtotal of every sale. Set to 0 to disable tax.', rules: { min: 0, max: 100 } },
   { key: 'pos.receiptFooter', value: 'Thank you for your business!', type: 'STRING', group: 'sales', label: 'Receipt footer', description: 'Message printed at the bottom of every receipt.', rules: { maxLength: 300 } },
+  { key: 'pos.gcashServices', value: 'false', type: 'BOOLEAN', group: 'sales', label: 'GCash cash-in / cash-out services', description: 'Lets cashiers record GCash cash-in and cash-out for customers, with your service fee, from the POS. These are kept apart from product sales; only the fee is revenue.' },
   { key: 'pos.suggestedOpeningCash', value: '1000', type: 'NUMBER', group: 'sales', label: 'Suggested starting cash (₱)', description: 'Shown as a hint when a cashier opens a shift. The cashier still enters the cash they actually counted. 0 hides the hint.', rules: { min: 0, max: 10_000_000 } },
 
   // Shifts — when a drawer count needs the owner's review, and when an open

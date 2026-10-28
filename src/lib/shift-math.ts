@@ -4,6 +4,7 @@ import { D, money, toNum, type Numeric } from '@/lib/decimal';
  * The drawer arithmetic, in exact decimals.
  *
  *   expected = starting cash + cash from sales + cash in − cash refunds − cash out
+ *              + GCash services (cash-in amount + fee, less cash-out paid out)
  *   variance = counted − expected   (0 balanced, + overage, − shortage)
  *
  * "Cash from sales" is the cash customers handed over less the change given
@@ -19,6 +20,8 @@ export interface DrawerParts {
   cashIn: Numeric;
   cashRefunds: Numeric;
   cashOut: Numeric;
+  /** Net drawer cash from GCash cash-in / cash-out services; 0 when none. */
+  walletCash?: Numeric;
 }
 
 export interface DrawerTotals {
@@ -27,13 +30,19 @@ export interface DrawerTotals {
   cashIn: number;
   cashRefunds: number;
   cashOut: number;
+  walletCash: number;
   expectedCash: number;
 }
 
 export function drawerTotals(parts: DrawerParts): DrawerTotals {
   const cashSales = money(D(parts.cashTendered).minus(D(parts.changeGiven)));
   const expected = money(
-    D(parts.openingCash).plus(cashSales).plus(D(parts.cashIn)).minus(D(parts.cashRefunds)).minus(D(parts.cashOut)),
+    D(parts.openingCash)
+      .plus(cashSales)
+      .plus(D(parts.cashIn))
+      .minus(D(parts.cashRefunds))
+      .minus(D(parts.cashOut))
+      .plus(D(parts.walletCash ?? 0)),
   );
   return {
     openingCash: toNum(money(parts.openingCash)),
@@ -41,6 +50,7 @@ export function drawerTotals(parts: DrawerParts): DrawerTotals {
     cashIn: toNum(money(parts.cashIn)),
     cashRefunds: toNum(money(parts.cashRefunds)),
     cashOut: toNum(money(parts.cashOut)),
+    walletCash: toNum(money(parts.walletCash ?? 0)),
     expectedCash: toNum(expected),
   };
 }

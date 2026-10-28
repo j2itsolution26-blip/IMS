@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
-import { ArrowDownToLine, ArrowUpFromLine, Scale, Wallet } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowDownToLine, ArrowUpFromLine, Scale, Smartphone, Wallet } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import type { CashMovementCategory, CashMovementType } from '@prisma/client';
 import { requirePermission, userCan } from '@/lib/session';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
@@ -85,7 +87,14 @@ export default async function CashMovementsPage({
               : 'Cash you put into or took out of your drawer. Sales and refunds are not listed here.'}
           </p>
         </div>
-        <PeriodPicker current={period} allowCustom customFrom={custom?.from} customTo={custom?.to} />
+        <div className="flex flex-wrap items-end gap-2">
+          <PeriodPicker current={period} allowCustom customFrom={custom?.from} customTo={custom?.to} />
+          <Button asChild variant="outline" size="lg" className="h-11">
+            <Link href="/gcash-services">
+              <Smartphone /> GCash services
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <section aria-label="Cash in and out summary" className="mb-4 grid gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">

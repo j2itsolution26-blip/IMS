@@ -83,6 +83,7 @@ model Store {
   paymentReceipts       SubscriptionPaymentReceipt[]
   invoices              Invoice[]
   supportTickets        SupportTicket[]
+  walletTransactions    WalletTransaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -585,6 +586,8 @@ model User {
   closedShifts         CashierShift[]               @relation("ShiftClosedBy")
   reviewedShifts       CashierShift[]               @relation("ShiftReviewedBy")
   cashMovements        CashMovement[]
+  walletTransactions   WalletTransaction[]          @relation("WalletTransactionBy")
+  reversedWallet       WalletTransaction[]          @relation("WalletTransactionReversedBy")
   shiftAdjustments     ShiftAdjustment[]
   readNotifications    Notification[]               @relation("NotificationReadBy")
   passkeys             Passkey[]
@@ -1051,6 +1054,9 @@ model CashierShift {
   cashRefunds      Decimal?  @db.Decimal(18, 4)
   cashIn           Decimal?  @db.Decimal(18, 4)
   cashOut          Decimal?  @db.Decimal(18, 4)
+  // Net drawer cash from GCash cash-in / cash-out services (amounts and fees),
+  // frozen at close. Null for shifts closed before migration 20261107090000.
+  walletCash       Decimal?  @db.Decimal(18, 4)
   // Who closed it: the cashier, or the owner closing a shift left open.
   closedById       String?
   closedBy         User?     @relation("ShiftClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
@@ -1073,6 +1079,7 @@ model CashierShift {
   sales         Sale[]
   payments      Payment[]
   movements     CashMovement[]
+  walletTransactions WalletTransaction[]
   adjustments   ShiftAdjustment[]
   notifications Notification[]
 
@@ -1218,6 +1225,64 @@ model CashMovement {
 }
 
 enum CashMovementType {
+  CASH_IN
+  CASH_OUT
+}
+
+// A GCash cash-in or cash-out service for a customer: the store acts as an
+// agent, moving money between its drawer and its own GCash account. Not a
+// product sale; only the service fee is revenue.
+//
+//   CASH_IN   customer pays cash (amount + fee); the store sends `amount`
+//             from its GCash. Drawer +amount +fee, wallet -amount.
+//   CASH_OUT  customer sends `amount` to the store's GCash; the store hands
+//             back amount - fee in cash. Drawer -amount +fee, wallet +amount.
+//
+// Append-only: a mistake is reversed once, with a reason, while the shift is
+// still open (trigger, migration 20261107090000). A reversed entry no longer
+// counts anywhere. There is no connection to GCash itself: the cashier
+// records what happened in the store's GCash app.
+model WalletTransaction {
+  id String @id @default(cuid())
+
+  storeId String                @default(dbgenerated())
+  store   Store                 @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  // Shown as GC-000123.
+  number  Int                   @unique @default(autoincrement())
+  type    WalletTransactionType
+  channel String                @default("GCASH")
+  // What moves through GCash. Always positive.
+  amount  Decimal               @db.Decimal(18, 4)
+  // The store's service fee, typed in by the cashier; collected in cash.
+  fee     Decimal               @default(0) @db.Decimal(18, 4)
+  // The GCash reference, normalised. One live entry per reference per store.
+  reference String
+  // Only the last four digits of the customer's number, if given.
+  customerMobileLast4 String?
+  notes               String?
+
+  shiftId String
+  shift   CashierShift @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  userId  String
+  user    User         @relation("WalletTransactionBy", fields: [userId], references: [id], onDelete: Restrict)
+
+  reversedAt     DateTime?
+  reversedById   String?
+  reversedBy     User?     @relation("WalletTransactionReversedBy", fields: [reversedById], references: [id], onDelete: Restrict)
+  reversalReason String?
+
+  clientRequestId String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([storeId, clientRequestId])
+  @@index([storeId, createdAt])
+  @@index([shiftId])
+  @@index([userId, createdAt])
+  @@map("wallet_transactions")
+}
+
+enum WalletTransactionType {
   CASH_IN
   CASH_OUT
 }

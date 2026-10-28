@@ -97,6 +97,7 @@ export const SETTINGS_SECTIONS: SectionLayout[] = [
       { key: 'sales.defaultTaxRate', label: 'Tax rate', width: 'short', suffix: '%' },
       { key: 'pos.suggestedOpeningCash', label: 'Suggested starting cash', width: 'short', prefix: 'currency' },
       { key: 'pos.receiptFooter', full: true, counter: true },
+      { key: 'pos.gcashServices', full: true },
     ],
   },
   {

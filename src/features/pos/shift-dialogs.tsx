@@ -4,7 +4,8 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { AlertCircle, ArrowDownToLine, ArrowUpFromLine, Lock, LogOut, TriangleAlert, Wallet } from 'lucide-react';
+import { AlertCircle, ArrowDownToLine, ArrowUpFromLine, Lock, LogOut, Smartphone, TriangleAlert, Wallet } from 'lucide-react';
+import { WalletDialog } from '@/features/wallet/wallet-dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input, Textarea } from '@/components/ui/input';
@@ -59,15 +60,18 @@ export function ShiftBar({
   openingCash,
   currency,
   hasUnfinishedOrder,
+  walletServices = false,
 }: {
   openedAt: string;
   openingCash: number;
   currency: string;
+  walletServices?: boolean;
   /** A basket in progress or a held order in this browser. */
   hasUnfinishedOrder: boolean;
 }) {
   const [movement, setMovement] = React.useState<'CASH_IN' | 'CASH_OUT' | null>(null);
   const [closing, setClosing] = React.useState(false);
+  const [walletOpen, setWalletOpen] = React.useState(false);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
@@ -82,12 +86,18 @@ export function ShiftBar({
         <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setMovement('CASH_OUT')}>
           <ArrowUpFromLine className="h-3.5 w-3.5" /> Cash out
         </Button>
+        {walletServices && (
+          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setWalletOpen(true)}>
+            <Smartphone className="h-3.5 w-3.5" /> GCash in / out
+          </Button>
+        )}
         <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setClosing(true)}>
           <LogOut className="h-3.5 w-3.5" /> Close shift
         </Button>
       </div>
 
       <CashMovementDialog type={movement} onClose={() => setMovement(null)} currency={currency} />
+      {walletServices && <WalletDialog open={walletOpen} onOpenChange={setWalletOpen} currency={currency} />}
       <CloseShiftDialog open={closing} onOpenChange={setClosing} currency={currency} hasUnfinishedOrder={hasUnfinishedOrder} />
     </div>
   );
@@ -246,6 +256,8 @@ interface Summary {
   cashIn: number;
   cashRefunds: number;
   cashOut: number;
+  /** Net drawer cash from GCash services; absent before they existed. */
+  walletCash?: number;
   expectedCash: number;
   totalSales: number;
   transactionCount: number;
@@ -412,6 +424,12 @@ function CloseShiftDialog({
             <Line label="Cash in" value={`+ ${formatCurrency(shown.cashIn, currency)}`} />
             <Line label="Cash refunds" value={`− ${formatCurrency(shown.cashRefunds, currency)}`} />
             <Line label="Cash out" value={`− ${formatCurrency(shown.cashOut, currency)}`} />
+            {Boolean(shown.walletCash) && (
+              <Line
+                label="GCash services (cash)"
+                value={`${(shown.walletCash ?? 0) >= 0 ? '+' : '−'} ${formatCurrency(Math.abs(shown.walletCash ?? 0), currency)}`}
+              />
+            )}
             <Separator />
             <Line label="Expected in drawer" value={formatCurrency(shown.expectedCash, currency)} strong />
             <Line label="Counted" value={formatCurrency(step === 'done' && result ? result.actualCash : parsed.ok ? parsed.value : 0, currency)} strong />

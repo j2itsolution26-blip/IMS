@@ -175,6 +175,9 @@ function ShiftCard({
     ['Cash sales this shift', formatCurrency(summary.cashSales, currency)],
     ['Cash in / out', `+${formatCurrency(summary.cashIn, currency)} / −${formatCurrency(summary.cashOut, currency)}`],
     ['Cash refunds', `−${formatCurrency(summary.cashRefunds, currency)}`],
+    ...(summary.walletCash
+      ? ([['GCash services (cash)', `${summary.walletCash >= 0 ? '+' : '−'}${formatCurrency(Math.abs(summary.walletCash), currency)}`]] as [string, string][])
+      : []),
   ];
   return (
     <section aria-labelledby="shift-card-title" className="mb-4 rounded-card border bg-card p-4 shadow-card sm:p-5">
