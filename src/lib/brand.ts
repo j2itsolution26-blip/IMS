@@ -7,8 +7,14 @@ export const APP_NAME = 'TindahanProMax Mobile POS';
 export const APP_SHORT_NAME = 'TindahanProMax';
 export const APP_DESCRIPTION = 'Point of sale and inventory for your tindahan.';
 
-/** The company behind the product, credited in the sign-in footer. */
-export const VENDOR_NAME = 'J2ItSecureTech';
+/** The company behind the product, credited on the sign-in screens. */
+export const VENDOR_NAME = 'J2SecureTech';
+
+/**
+ * The company's official logo, exactly as supplied (a square JPG on white).
+ * Shown on a white tile so its own background is never cut out or recoloured.
+ */
+export const VENDOR_LOGO = { src: '/brand/j2securetech-logo.jpg', width: 360, height: 360 } as const;
 
 /** Deep navy of the branding panel, sidebar and installed-app chrome. */
 export const BRAND_NAVY = '#0B1A2E';

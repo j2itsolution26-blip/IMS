@@ -190,7 +190,8 @@ test('cost columns are stripped for staff, kept for the owner', () => {
  * forgets to do so fails here instead of leaking figures to staff.
  */
 test('no report shows a money column to staff', () => {
-  const source = fs.readFileSync(path.join(process.cwd(), 'src/server/reports/registry.ts'), 'utf8');
+  // Line endings vary with the checkout (Windows writes CRLF); compare on LF.
+  const source = fs.readFileSync(path.join(process.cwd(), 'src/server/reports/registry.ts'), 'utf8').replace(/\r\n/g, '\n');
   const blocks = source.split(/\n  \{\n    id: '/).slice(1);
   assert.ok(blocks.length >= 10, 'parsed the report definitions');
 

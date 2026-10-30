@@ -8,6 +8,7 @@ import { InstallAppLink } from '@/features/pwa/install-app-link';
 import { passkeyConfig } from '@/lib/auth';
 import { passkeysAvailableAt } from '@/lib/passkey-config';
 import { requestOrigin } from '@/lib/request-origin';
+import { APP_NAME } from '@/lib/brand';
 
 export const metadata: Metadata = { title: 'Sign in' };
 export const dynamic = 'force-dynamic';
@@ -47,7 +48,7 @@ export default async function SignInPage({
       <div className="space-y-1.5">
         <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
         <p className="text-sm text-muted-foreground">
-          Sign in to your TindahanProMax account.
+          Sign in to your {APP_NAME} account.
         </p>
       </div>
 
