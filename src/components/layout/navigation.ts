@@ -161,6 +161,7 @@ export const NAVIGATION: NavSection[] = [
           { label: 'Store Settings', href: '/settings', icon: SlidersHorizontal, permission: 'settings.view', exact: true },
           { label: 'Staff Accounts', href: '/settings/users', icon: Users, permission: 'users.view' },
           { label: 'Roles & Permissions', href: '/settings/roles', icon: KeyRound, permission: 'roles.view' },
+          { label: 'Activity Log', href: '/settings/audit', icon: ScrollText, permission: 'audit.view' },
           { label: 'Subscription & Billing', href: '/settings/subscription', icon: CreditCard, permission: 'billing.view' },
         ],
       },

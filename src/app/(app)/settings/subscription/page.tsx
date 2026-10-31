@@ -9,7 +9,8 @@ import { Panel } from '@/components/panel';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/misc';
-import { auditHistoryStart, usageSummary } from '@/server/services/entitlements';
+import { usageSummary } from '@/server/services/entitlements';
+import { auditWindowWhere } from '@/server/services/audit-queries';
 import { billingBannerKind, billingSnapshot, invoiceDisplayStatus, overviewStatus, paymentDisplayStatus, paymentTimeline } from '@/lib/billing';
 import { getBillingConfig, isStoreOwner } from '@/server/platform/billing-service';
 import { checkoutAccounts, reportableMethods } from '@/lib/payment-accounts';
@@ -48,7 +49,6 @@ export default async function SubscriptionPage() {
   // page agree even if the daily job did not run. Idempotent.
   await runBillingRemindersForStore(store.id, now).catch((error) => console.error('[billing] reminder check failed', error));
 
-  const historyStart = auditHistoryStart(ctx, now);
   const [meters, payments, history, invoices, config, storeRow] = await Promise.all([
     usageSummary(ctx),
     ctx.db.subscriptionPayment.findMany({
@@ -66,7 +66,7 @@ export default async function SubscriptionPage() {
       where: {
         entity: { in: ['Store', 'SubscriptionPayment', 'Invoice'] },
         action: { in: ['SUBSCRIPTION', 'PAYMENT', 'CREATE'] },
-        ...(historyStart && { createdAt: { gte: historyStart } }),
+        ...auditWindowWhere(ctx, now),
       },
       orderBy: { createdAt: 'desc' },
       take: 20,

@@ -4,6 +4,7 @@ import { platformPrisma } from '@/lib/prisma';
 import { AppError, FeatureLockedError, PlanLimitError, StoreReadOnlyError } from '@/lib/errors';
 import { FEATURE_LABEL, limitMessage, lowestPlanWith, type Feature, type LimitKey } from '@/lib/plans';
 import { storeParts } from '@/lib/store-time';
+import { auditWindowStart } from '@/lib/audit-log';
 import { getStoreContext, type StoreContext } from '@/lib/tenant/context';
 import { returnUsageUnit, takeUsageUnit } from '@/server/services/usage-counter';
 import { syncLimits } from '@/server/platform/store-setup';
@@ -141,8 +142,7 @@ export async function consumeMetered(
  * The earliest audit entry the store's plan lets it see; null = all of it.
  */
 export function auditHistoryStart(ctx: { access: Pick<StoreContext['access'], 'plan'> }, now: Date = new Date()): Date | null {
-  const days = ctx.access.plan.auditHistoryDays;
-  return days === null ? null : new Date(now.getTime() - days * 86_400_000);
+  return auditWindowStart(ctx.access.plan.auditHistoryDays, now);
 }
 
 /**

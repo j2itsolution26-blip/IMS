@@ -110,6 +110,7 @@ test('every Settings page keeps Settings lit, with exactly one child active', ()
     ['/settings/users', 'Staff Accounts'],
     ['/settings/roles', 'Roles & Permissions'],
     ['/settings/subscription', 'Subscription & Billing'],
+    ['/settings/audit', 'Activity Log'],
   ];
   for (const [pathname, expected] of cases) {
     const active = settings.children.filter((link) => isNavLinkActive(link, pathname)).map((link) => link.label);
@@ -128,7 +129,7 @@ test('the owner sees every settings page; staff see only what they may open', ()
     .flatMap((section) => section.items)
     .find((item) => item.label === 'Settings');
   assert.ok(ownerSettings && isNavGroup(ownerSettings));
-  assert.deepEqual(labels(ownerSettings.children), ['Store Settings', 'Staff Accounts', 'Roles & Permissions', 'Subscription & Billing']);
+  assert.deepEqual(labels(ownerSettings.children), ['Store Settings', 'Staff Accounts', 'Roles & Permissions', 'Activity Log', 'Subscription & Billing']);
 
   for (const slug of ['cashier', 'inventory-staff']) {
     const items = visibleNavigation(NAVIGATION, grantedFor(slug)).flatMap((section) => section.items);

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { requirePermission, userCan } from '@/lib/session';
-import { storeDb } from '@/lib/tenant/context';
+import { getStoreContext } from '@/lib/tenant/context';
+import { auditWindowWhere } from '@/server/services/audit-queries';
 import { OWNER_ROLE_SLUG } from '@/lib/permissions';
 import { STORE_ACCOUNT_WHERE, canAssignRole, canManageAccount } from '@/server/services/account-policy';
 import { PageHeader } from '@/components/page-header';
@@ -26,7 +27,8 @@ const toPolicyRole = (role: { slug: string; permissions: { permission: { key: st
 
 export default async function StaffAccountsPage() {
   const currentUser = await requirePermission('users.view');
-  const db = await storeDb();
+  const ctx = await getStoreContext();
+  const { db } = ctx;
 
   // Scoped in the query, not filtered afterwards: platform accounts never
   // leave the database for a store screen.
@@ -54,6 +56,8 @@ export default async function StaffAccountsPage() {
     db.cashierShift.findMany({ where: { status: 'OPEN', userId: { in: ids } }, select: { id: true, number: true, userId: true, openedAt: true } }),
     db.auditLog.findMany({
       where: {
+        // The plan's audit history window, as on every store audit screen.
+        ...auditWindowWhere(ctx),
         entity: 'User',
         entityId: { in: ids },
         OR: [{ summary: { startsWith: 'Deactivated ' } }, { summary: { startsWith: 'Reactivated ' } }],
