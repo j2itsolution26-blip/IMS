@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, Crown, Gem, Minus, Package, Users, type LucideIcon } from 'lucide-react';
-import { FEATURE_LABEL, PLANS, type Feature, type LimitKey, type PlanId } from '@/lib/plans';
+import { CORE_FEATURES, FEATURE_LABEL, PLANS, previousPlan, type Feature, type LimitKey, type PlanId } from '@/lib/plans';
 import { annualSavingsPercent, type BillingInterval, type PlanPricing } from '@/lib/billing';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -84,6 +84,15 @@ export function featureLines(id: PlanId): { text: string; included: boolean }[] 
   return [...lines.filter((line) => line.included), ...lines.filter((line) => !line.included)];
 }
 
+/**
+ * The lines above a plan's limits: the core features on the first plan,
+ * "Everything in <previous plan>" on the others.
+ */
+export function highlightLines(id: PlanId): string[] {
+  const previous = previousPlan(id);
+  return previous ? [`Everything in ${previous.name}`] : [...CORE_FEATURES];
+}
+
 /** The three cards' grid. Cards line their rows up through subgrid; Enterprise centres under the others on tablets. */
 export function PlanCardGrid({ children, className }: { children: React.ReactNode; className?: string }) {
   return <ul className={cn('grid gap-5 pt-3 md:grid-cols-2 xl:grid-cols-3', className)}>{children}</ul>;
@@ -140,7 +149,7 @@ export function PlanCard({
       </div>
       {popular && (
         <span className="absolute -top-3.5 left-5 z-10 inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-md">
-          <Crown className="h-3.5 w-3.5" aria-hidden="true" /> Most popular
+          <Crown className="h-3.5 w-3.5" aria-hidden="true" /> Most Popular
         </span>
       )}
 
@@ -171,7 +180,14 @@ export function PlanCard({
               {interval === 'ANNUAL' && pricing.annualPerMonth !== null && (
                 <span className="tabular">{peso(pricing.annualPerMonth)} a month, billed yearly</span>
               )}
-              {savePercent !== null && <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-semibold', theme.soft)}>Save {savePercent}%</span>}
+              {interval === 'ANNUAL' && pricing.annualSavings !== null && (
+                <span className={cn('tabular rounded-full px-2.5 py-0.5 text-xs font-semibold', theme.soft)}>
+                  Save {peso(pricing.annualSavings)} a year{savePercent !== null ? ` (${savePercent}%)` : ''}
+                </span>
+              )}
+              {interval === 'MONTHLY' && savePercent !== null && (
+                <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-semibold', theme.soft)}>Save {savePercent}% yearly</span>
+              )}
             </p>
           </>
         ) : (
@@ -185,7 +201,13 @@ export function PlanCard({
       </div>
 
       {/* Row 3: what it includes */}
-      <ul className="relative space-y-2.5 text-sm">
+      <ul className="relative space-y-2.5 text-sm" aria-label={`${plan.name} includes`}>
+        {highlightLines(id).map((text) => (
+          <li key={text} className="flex items-start gap-2.5 font-medium">
+            <Check className={cn('mt-0.5 h-4 w-4 shrink-0', theme.check)} strokeWidth={3} aria-hidden="true" />
+            <span>{text}</span>
+          </li>
+        ))}
         {featureLines(id).map((line) => (
           <li key={line.text} className={cn('flex items-start gap-2.5', !line.included && 'text-muted-foreground')}>
             {line.included ? (

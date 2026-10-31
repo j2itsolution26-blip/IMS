@@ -31,7 +31,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     id: 'BASIC',
     name: 'Basic',
     description: 'For a single store getting started.',
-    limits: { branches: 1, staff: 2, products: 500, backgroundRemovalsPerMonth: 0 },
+    limits: { branches: 1, staff: 2, products: 1500, backgroundRemovalsPerMonth: 0 },
     features: { reportExports: false, customRoles: false, backgroundRemoval: false },
     auditHistoryDays: 90,
   },
@@ -64,6 +64,25 @@ export const TRIAL_PLAN: PlanId = 'BUSINESS';
 export const GRACE_DAYS = 7;
 
 export const PLAN_ORDER: PlanId[] = ['BASIC', 'BUSINESS', 'ENTERPRISE'];
+
+/**
+ * What every plan includes, whatever its limits. Each of these ships today;
+ * nothing planned belongs here.
+ */
+export const CORE_FEATURES = [
+  'POS checkout and barcode scanning',
+  'Inventory management and low-stock alerts',
+  'Sales dashboard and standard reports',
+] as const;
+
+/** Support is the same help desk on every plan. */
+export const SUPPORT_LABEL = 'Help desk tickets';
+
+/** The plan below this one, for "Everything in Basic"; null for the first plan. */
+export function previousPlan(id: PlanId): PlanDefinition | null {
+  const index = PLAN_ORDER.indexOf(id);
+  return index > 0 ? PLANS[PLAN_ORDER[index - 1]] : null;
+}
 
 /** The cheapest plan that has a feature — for "available on Business" messages. */
 export function lowestPlanWith(feature: Feature): PlanDefinition | null {

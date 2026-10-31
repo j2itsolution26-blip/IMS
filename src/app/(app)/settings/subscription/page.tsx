@@ -293,7 +293,7 @@ export default async function SubscriptionPage() {
           </section>
         )}
 
-        <Card id="plans" className="min-w-0 scroll-mt-20 overflow-hidden rounded-card">
+        <Card id="plans" className="min-w-0 scroll-mt-20 overflow-hidden rounded-card border-slate-800 shadow-lg">
           <PlanCards
             prices={config.prices}
             terms={config.terms ? { version: config.terms.version, body: config.terms.body } : null}

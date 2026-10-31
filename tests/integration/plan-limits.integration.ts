@@ -131,6 +131,28 @@ if (!URL_ENV) {
     });
   });
 
+  describe('Basic plan product limit', () => {
+    test('a Basic store takes exactly 1,500 products, including a bulk insert and a racing pair at the edge', async () => {
+      const { PLANS } = await import('@/lib/plans');
+      const { storedLimits } = await import('@/lib/store-access');
+      const limit = PLANS.BASIC.limits.products!;
+      assert.equal(limit, 1500);
+      const s = await makeStore(storedLimits({ plan: 'BASIC', status: 'ACTIVE' }));
+      const db = storeClient(s.storeId);
+
+      // A bulk insert cannot skip the trigger: it is checked row by row.
+      await db.product.createMany({ data: Array.from({ length: limit - 1 }, (_, i) => product(s, i)) });
+      await assert.rejects(db.product.createMany({ data: [product(s, 5000), product(s, 5001)] }), isQuota);
+      assert.equal(await platform.product.count({ where: { storeId: s.storeId } }), limit - 1, 'a refused batch adds nothing');
+
+      // Two creates racing for the last place: exactly one wins.
+      const results = await Promise.allSettled([db.product.create({ data: product(s, 6000) }), db.product.create({ data: product(s, 6001) })]);
+      assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+      assert.equal(await platform.product.count({ where: { storeId: s.storeId, status: { not: 'ARCHIVED' } } }), limit);
+      await assert.rejects(db.product.create({ data: product(s, 7000) }), (error) => isQuota(error) && /products 1500/.test(String(error)));
+    });
+  });
+
   describe('staff quota', () => {
     test('20 concurrent staff accounts against a limit of 3 end at exactly 3, owner not counted', async () => {
       const s = await makeStore({ staffLimit: 3 });

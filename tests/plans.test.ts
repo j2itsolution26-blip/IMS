@@ -47,7 +47,7 @@ test('staff accounts per plan: Basic 2, Business 10, Enterprise unlimited', () =
   assert.equal(PLANS.BASIC.limits.staff, 2);
   assert.equal(PLANS.BUSINESS.limits.staff, 10);
   assert.equal(PLANS.ENTERPRISE.limits.staff, null);
-  assert.equal(PLANS.BASIC.limits.products, 500);
+  assert.equal(PLANS.BASIC.limits.products, 1500);
 });
 
 test('a trial follows the plan recorded on the store, never a higher one', () => {
@@ -106,15 +106,15 @@ test('a suspended store is never writable', () => {
 });
 
 test('the quotas copied onto the store row follow the effective plan', () => {
-  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'ACTIVE' }), { productLimit: 500, staffLimit: 2 });
-  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'TRIAL' }), { productLimit: 500, staffLimit: 2 });
+  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'ACTIVE' }), { productLimit: 1500, staffLimit: 2 });
+  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'TRIAL' }), { productLimit: 1500, staffLimit: 2 });
   assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'TRIAL' }), { productLimit: 5000, staffLimit: 10 });
   assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'PAST_DUE' }), { productLimit: 5000, staffLimit: 10 });
   assert.deepEqual(storedLimits({ plan: 'ENTERPRISE', status: 'ACTIVE' }), { productLimit: null, staffLimit: null });
 });
 
 test('the latest migration backfill uses the same numbers as the plan configuration', () => {
-  const sql = readFileSync('prisma/migrations/20261102090000_staff_limits_v2/migration.sql', 'utf8');
+  const sql = readFileSync('prisma/migrations/20261109090000_basic_product_limit/migration.sql', 'utf8');
   const backfill = sql.slice(sql.indexOf('UPDATE "stores"'), sql.indexOf('-- End backfill.'));
   // Trials are no longer lifted to another plan's quotas.
   assert.doesNotMatch(backfill, /TRIAL/);

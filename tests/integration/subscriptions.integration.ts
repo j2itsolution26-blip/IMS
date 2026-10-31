@@ -227,13 +227,15 @@ if (!URL_ENV) {
       const { storeId } = await newStore();
       await pay(storeId, `DG-${run}`, { plan: 'BUSINESS' });
       const category = await platform.category.create({ data: { storeId, name: 'General', slug: 'general' } });
+      // One more than Basic allows, read from the plan configuration.
+      const count = PLANS.BASIC.limits.products! + 10;
       await platform.$executeRaw`
         INSERT INTO products (id, "storeId", sku, name, "categoryId", "sellingPrice", "costPrice", "createdAt", "updatedAt")
-        SELECT 'dg_' || ${run} || '_' || g, ${storeId}, 'DG-' || g, 'Item ' || g, ${category.id}, 10, 5, now(), now() FROM generate_series(1, 510) g`;
+        SELECT 'dg_' || ${run} || '_' || g, ${storeId}, 'DG-' || g, 'Item ' || g, ${category.id}, 10, 5, now(), now() FROM generate_series(1, ${count}::int) g`;
       const result = await svc.changePlan(admin, { storeId, plan: 'BASIC', reason: 'customer downgraded' });
       assert.equal(result.overLimits.length, 1);
-      assert.match(result.overLimits[0], /510 products/);
-      assert.equal(await platform.product.count({ where: { storeId } }), 510);
+      assert.match(result.overLimits[0], new RegExp(`${count.toLocaleString('en-US')} products|${count} products`));
+      assert.equal(await platform.product.count({ where: { storeId } }), count);
       const store = await platform.store.findUniqueOrThrow({ where: { id: storeId } });
       assert.deepEqual([store.plan, store.productLimit, store.staffLimit], ['BASIC', PLANS.BASIC.limits.products, PLANS.BASIC.limits.staff]);
       await assert.rejects(svc.changePlan(admin, { storeId, plan: 'BASIC', reason: 'again' }), /already on/);

@@ -442,6 +442,17 @@ export function maxAnnualSavingsPercent(prices: { plan: PlanId; interval: Billin
   return percents.length ? Math.max(...percents) : null;
 }
 
+/**
+ * The saving shown on the "Annually" option: "Save 17%" when every plan saves
+ * the same, "Save up to 17%" when they differ, null when none saves.
+ */
+export function annualSavingsLabel(prices: { plan: PlanId; interval: BillingInterval; amount: number }[]): string | null {
+  const percents = PLAN_ORDER.map((plan) => annualSavingsPercent(planPricing(prices, plan))).filter((p): p is number => p !== null);
+  if (!percents.length) return null;
+  const best = Math.max(...percents);
+  return percents.length === PLAN_ORDER.length && percents.every((p) => p === best) ? `Save ${best}%` : `Save up to ${best}%`;
+}
+
 /** The plan the cards recommend. A label only: it is never shown as selected. */
 export const POPULAR_PLAN: PlanId = 'BUSINESS';
 

@@ -328,7 +328,7 @@ test('plan direction follows plan order', () => {
 test('plan differences come from the plan configuration and flag what a downgrade loses', () => {
   const down = planDifferences('BUSINESS', 'BASIC');
   const products = down.find((row) => row.label === 'Products');
-  assert.deepEqual(products, { label: 'Products', from: '5,000', to: '500', lower: true });
+  assert.deepEqual(products, { label: 'Products', from: '5,000', to: '1,500', lower: true });
   assert.ok(down.find((row) => row.label === 'Report exports')?.lower);
   assert.ok(planDifferences('BASIC', 'ENTERPRISE').every((row) => !row.lower));
   assert.deepEqual(planDifferences('BASIC', 'BASIC'), []);
