@@ -428,4 +428,53 @@ if (!URL_ENV) {
       );
     });
   });
+
+  describe('activity log and data download (own store only)', () => {
+    test('the CSV download reads only the signed-in store, and hides cost without permission', async () => {
+      const { buildDataExport } = await import('@/server/services/data-export-service');
+      const products = await buildDataExport(dbA, 'products', { includeCost: false });
+      const skus = products.result.rows.map((row) => row.sku);
+      assert.ok(skus.includes('SKU-a'), 'own product present');
+      assert.ok(!skus.includes('SKU-b'), 'other store product absent');
+      assert.ok(!products.result.columns.some((column) => column.key === 'costPrice'), 'no cost column');
+      const withCost = await buildDataExport(dbA, 'products', { includeCost: true });
+      assert.ok(withCost.result.columns.some((column) => column.key === 'costPrice'));
+
+      const sales = await buildDataExport(dbA, 'sales', { includeCost: false });
+      const invoices = sales.result.rows.map((row) => row.invoice);
+      // Other tests in this suite add more of store A's own sales; store B's never appear.
+      assert.ok(invoices.includes('INV-a'), 'own sale present');
+      assert.ok(!invoices.includes('INV-b'), 'other store sale absent');
+      const ownIds = new Set((await platform.sale.findMany({ where: { storeId: A.storeId }, select: { invoiceNumber: true } })).map((sale) => sale.invoiceNumber));
+      assert.ok(invoices.every((invoice) => ownIds.has(String(invoice))), 'every row is store A');
+      assert.equal(sales.result.rows.find((row) => row.invoice === 'INV-a')?.methods, 'CASH');
+      assert.ok(!sales.result.columns.some((column) => column.key === 'costOfGoods'));
+    });
+
+    test('audit reads through the store client see only this store, inside the window', async () => {
+      const { auditWindowStart } = await import('@/lib/audit-log');
+      const old = `old_audit_${run}`;
+      await platform.auditLog.create({
+        data: { id: old, storeId: A.storeId, action: 'UPDATE', entity: 'Product', summary: 'old', createdAt: new Date(Date.now() - 120 * 86_400_000) },
+      });
+      const start = auditWindowStart(90)!;
+      const visible = await dbA.auditLog.findMany({ where: { createdAt: { gte: start } }, select: { id: true, storeId: true } });
+      assert.ok(visible.every((row) => row.storeId === A.storeId), 'only store A');
+      assert.ok(visible.some((row) => row.id === A.audit));
+      assert.ok(!visible.some((row) => row.id === old), 'older than 90 days is hidden on Basic');
+      assert.ok(!visible.some((row) => row.id === B.audit));
+      // Full history (Enterprise) still has it: nothing was deleted.
+      assert.ok(await dbA.auditLog.findUnique({ where: { id: old } }));
+    });
+
+    test('a store cannot edit or delete its audit entries', async () => {
+      await assert.rejects(() => dbA.auditLog.delete({ where: { id: A.audit } }), /cannot be deleted/, 'delete audit entry');
+      await assert.rejects(() => dbA.auditLog.update({ where: { id: A.audit }, data: { summary: 'changed' } }), /cannot be edited/, 'edit audit entry');
+      assert.equal((await platform.auditLog.findUnique({ where: { id: A.audit } }))?.summary, 'seeded a');
+    });
+
+    test('the audit.view permission exists after migrations', async () => {
+      assert.ok(await platform.permission.findUnique({ where: { key: 'audit.view' } }));
+    });
+  });
 }

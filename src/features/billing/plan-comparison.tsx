@@ -29,7 +29,7 @@ export function comparisonRows(): { group: string; rows: { label: string; value:
     {
       group: 'Management',
       rows: [
-        { label: 'Report exports', value: (p) => p.features.reportExports },
+        { label: 'Report exports (CSV, Excel, PDF)', value: (p) => p.features.reportExports },
         { label: 'Custom roles and permission editing', value: (p) => p.features.customRoles },
         {
           label: 'Photo background removal',

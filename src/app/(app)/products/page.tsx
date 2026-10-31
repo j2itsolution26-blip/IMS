@@ -7,6 +7,7 @@ import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { listProducts, getProductFormOptions } from '@/features/products/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { PageHeader } from '@/components/page-header';
+import { DownloadCsvButton } from '@/features/data-export/download-csv-button';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
 import { FilterBar, PaginationBar } from '@/components/filter-bar';
@@ -54,13 +55,17 @@ export default async function ProductsPage({
         title="All Products"
         description="Your catalogue and live stock on hand."
         actions={
-          canCreate && (
-            <Button asChild>
-              <Link href="/products/new">
-                <Plus /> New product
-              </Link>
-            </Button>
-          )
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Every plan can download its own products as CSV. */}
+            {userCan(user, 'products.export') && <DownloadCsvButton dataset="products" />}
+            {canCreate && (
+              <Button asChild>
+                <Link href="/products/new">
+                  <Plus /> New product
+                </Link>
+              </Button>
+            )}
+          </div>
         }
       />
 

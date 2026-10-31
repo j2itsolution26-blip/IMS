@@ -25,13 +25,13 @@ test('both views list the same plan contents, straight from the plan configurati
 
   const soon = 'Multi-branch (more than one location per store) — coming soon';
   assert.deepEqual(included('BASIC'), ['1 location', 'Up to 2 staff accounts', 'Up to 1,500 products', '90-day audit history']);
-  assert.deepEqual(missing('BASIC'), ['Background removals / month', 'Report exports', 'Custom roles and permission editing', soon]);
+  assert.deepEqual(missing('BASIC'), ['Background removals / month', 'Report exports (CSV, Excel, PDF)', 'Custom roles and permission editing', soon]);
   assert.deepEqual(included('BUSINESS'), [
     '1 location',
     'Up to 10 staff accounts',
     'Up to 5,000 products',
     'Up to 100 background removals / month',
-    'Report exports',
+    'Report exports (CSV, Excel, PDF)',
     'Custom roles and permission editing',
     '365-day audit history',
   ]);
@@ -41,7 +41,7 @@ test('both views list the same plan contents, straight from the plan configurati
     'Unlimited staff accounts',
     'Unlimited products',
     'Up to 1,000 background removals / month',
-    'Report exports',
+    'Report exports (CSV, Excel, PDF)',
     'Custom roles and permission editing',
     'Full audit history',
   ]);

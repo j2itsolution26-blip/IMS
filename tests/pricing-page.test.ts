@@ -59,7 +59,7 @@ test('the comparison table reads from the plan configuration, including the 1,50
   assert.deepEqual(row('Multi-branch (more than one location per store)'), ['Coming soon', 'Coming soon', 'Coming soon']);
   assert.deepEqual(row('Staff accounts'), ['2', '10', 'Unlimited']);
   assert.deepEqual(row('Products'), ['1,500', '5,000', 'Unlimited']);
-  assert.deepEqual(row('Report exports'), [false, true, true]);
+  assert.deepEqual(row('Report exports (CSV, Excel, PDF)'), [false, true, true]);
   assert.deepEqual(row('Custom roles and permission editing'), [false, true, true]);
   assert.deepEqual(row('Audit history'), ['90 days', '365 days', 'Full history']);
   assert.deepEqual(row('Support'), ['Help desk tickets', 'Help desk tickets', 'Help desk tickets']);

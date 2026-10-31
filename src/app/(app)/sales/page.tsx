@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Calculator, PackageCheck, Receipt, ShoppingCart, TrendingUp, Undo2, Wallet } from 'lucide-react';
 import type { PaymentMethod, SaleStatus } from '@prisma/client';
 import { requirePermission, userCan } from '@/lib/session';
+import { DownloadCsvButton } from '@/features/data-export/download-csv-button';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { listCashiers, listSales } from '@/features/sales/queries';
 import { getCurrency } from '@/server/services/settings-service';
@@ -110,6 +111,8 @@ export default async function SalesPage({
               </Link>
             </Button>
           )}
+          {/* Every plan can download its own sales as CSV; formatted reports are a paid feature. */}
+          {userCan(user, 'sales.export') && <DownloadCsvButton dataset="sales" />}
           {canViewProfit && (
             <PlanGate feature="reportExports" label="Export">
               <ExportMenu />

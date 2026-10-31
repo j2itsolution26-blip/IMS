@@ -80,6 +80,7 @@ export const CORE_FEATURES = [
   'Cashier shifts and cash reconciliation',
   'Refunds, voids and cash movements',
   'Sales dashboard and standard reports',
+  'CSV download of your products and sales',
 ] as const;
 
 /**
@@ -106,7 +107,7 @@ export function lowestPlanWith(feature: Feature): PlanDefinition | null {
 }
 
 export const FEATURE_LABEL: Record<Feature, string> = {
-  reportExports: 'Report exports',
+  reportExports: 'Report exports (CSV, Excel, PDF)',
   customRoles: 'Custom roles and permission editing',
   backgroundRemoval: 'Photo background removal',
 };
