@@ -23,27 +23,29 @@ test('both views list the same plan contents, straight from the plan configurati
   const included = (plan: 'BASIC' | 'BUSINESS' | 'ENTERPRISE') => featureLines(plan).filter((line) => line.included).map((line) => line.text);
   const missing = (plan: 'BASIC' | 'BUSINESS' | 'ENTERPRISE') => featureLines(plan).filter((line) => !line.included).map((line) => line.text);
 
-  assert.deepEqual(included('BASIC'), ['1 branch', 'Up to 2 staff accounts', 'Up to 1,500 products', '90-day audit history']);
-  assert.deepEqual(missing('BASIC'), ['Background removals / month', 'Report exports', 'Custom roles']);
+  const soon = 'Multi-branch (more than one location per store) — coming soon';
+  assert.deepEqual(included('BASIC'), ['1 location', 'Up to 2 staff accounts', 'Up to 1,500 products', '90-day audit history']);
+  assert.deepEqual(missing('BASIC'), ['Background removals / month', 'Report exports', 'Custom roles and permission editing', soon]);
   assert.deepEqual(included('BUSINESS'), [
-    'Up to 3 branches',
+    '1 location',
     'Up to 10 staff accounts',
     'Up to 5,000 products',
     'Up to 100 background removals / month',
     'Report exports',
-    'Custom roles',
+    'Custom roles and permission editing',
     '365-day audit history',
   ]);
-  assert.deepEqual(missing('BUSINESS'), []);
+  assert.deepEqual(missing('BUSINESS'), [soon]);
   assert.deepEqual(included('ENTERPRISE'), [
-    'Up to 10 branches',
+    '1 location',
     'Unlimited staff accounts',
     'Unlimited products',
     'Up to 1,000 background removals / month',
     'Report exports',
-    'Custom roles',
+    'Custom roles and permission editing',
     'Full audit history',
   ]);
+  assert.deepEqual(missing('ENTERPRISE'), [soon]);
 
   // No limit is written into the card itself: they all come from lib/plans.
   const card = read('src/features/billing/plan-card.tsx');

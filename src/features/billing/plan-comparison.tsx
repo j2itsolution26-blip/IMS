@@ -1,5 +1,5 @@
 import { Check, Minus } from 'lucide-react';
-import { CORE_FEATURES, PLANS, PLAN_ORDER, SUPPORT_LABEL, type PlanDefinition, type PlanId } from '@/lib/plans';
+import { COMING_SOON, CORE_FEATURES, PLANS, PLAN_ORDER, SUPPORT_LABEL, type PlanDefinition, type PlanId } from '@/lib/plans';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -17,7 +17,7 @@ export function comparisonRows(): { group: string; rows: { label: string; value:
     {
       group: 'Capacity',
       rows: [
-        { label: 'Store branches', value: (p) => limit(p.limits.branches) },
+        { label: 'Locations', value: (p) => limit(p.limits.branches) },
         { label: 'Staff accounts', value: (p) => limit(p.limits.staff) },
         { label: 'Products', value: (p) => limit(p.limits.products) },
       ],
@@ -30,7 +30,7 @@ export function comparisonRows(): { group: string; rows: { label: string; value:
       group: 'Management',
       rows: [
         { label: 'Report exports', value: (p) => p.features.reportExports },
-        { label: 'Custom roles and permissions', value: (p) => p.features.customRoles },
+        { label: 'Custom roles and permission editing', value: (p) => p.features.customRoles },
         {
           label: 'Photo background removal',
           value: (p) => (p.features.backgroundRemoval && p.limits.backgroundRemovalsPerMonth ? `${limit(p.limits.backgroundRemovalsPerMonth)} / month` : false),
@@ -38,6 +38,10 @@ export function comparisonRows(): { group: string; rows: { label: string; value:
         { label: 'Audit history', value: (p) => (p.auditHistoryDays === null ? 'Full history' : `${formatNumber(p.auditHistoryDays, 0)} days`) },
         { label: 'Support', value: () => SUPPORT_LABEL },
       ],
+    },
+    {
+      group: 'Coming soon',
+      rows: COMING_SOON.map((label) => ({ label, value: () => 'Coming soon' })),
     },
   ];
 }

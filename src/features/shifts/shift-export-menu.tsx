@@ -1,13 +1,17 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { ChevronDown, Download, Printer } from 'lucide-react';
+import { ChevronDown, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 const FILTER_KEYS = ['view', 'cashier', 'discrepancy', 'sort', 'q', 'period', 'from', 'to'] as const;
 
-/** Downloads the shift list as it is filtered on screen, or prints the page. */
+/**
+ * Downloads the shift list as it is filtered on screen (a paid plan feature).
+ * Printing is not here: it is ordinary browser printing, on every plan, from
+ * the page's own Print button.
+ */
 export function ShiftExportMenu() {
   const searchParams = useSearchParams();
   const href = (format: string) => {
@@ -36,10 +40,6 @@ export function ShiftExportMenu() {
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <a href={href('pdf')}>PDF</a>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => window.print()}>
-          <Printer /> Print this page
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

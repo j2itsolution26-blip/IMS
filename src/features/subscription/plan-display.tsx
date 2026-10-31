@@ -12,7 +12,7 @@ import type { AccessState } from '@/lib/store-access';
 export const METER_LABEL: Record<LimitKey, string> = {
   products: 'Products',
   staff: 'Staff accounts',
-  branches: 'Branches',
+  branches: 'Locations',
   backgroundRemovalsPerMonth: 'Background removals this month',
 };
 

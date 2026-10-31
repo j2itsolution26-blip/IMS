@@ -372,7 +372,7 @@ export interface PlanDifference {
 }
 
 const LIMIT_NAME: Record<LimitKey, string> = {
-  branches: 'Branches',
+  branches: 'Locations',
   staff: 'Staff accounts',
   products: 'Products',
   backgroundRemovalsPerMonth: 'Background removals / month',

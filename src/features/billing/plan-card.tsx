@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, Crown, Gem, Minus, Package, Users, type LucideIcon } from 'lucide-react';
-import { CORE_FEATURES, FEATURE_LABEL, PLANS, previousPlan, type Feature, type LimitKey, type PlanId } from '@/lib/plans';
+import { COMING_SOON, CORE_FEATURES, FEATURE_LABEL, PLANS, previousPlan, type Feature, type LimitKey, type PlanId } from '@/lib/plans';
 import { annualSavingsPercent, type BillingInterval, type PlanPricing } from '@/lib/billing';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -59,7 +59,7 @@ export const THEME: Record<
 };
 
 const LIMIT_ROWS: { key: LimitKey; one: string; many: string }[] = [
-  { key: 'branches', one: 'branch', many: 'branches' },
+  { key: 'branches', one: 'location', many: 'locations' },
   { key: 'staff', one: 'staff account', many: 'staff accounts' },
   { key: 'products', one: 'product', many: 'products' },
   { key: 'backgroundRemovalsPerMonth', one: 'background removal / month', many: 'background removals / month' },
@@ -73,7 +73,10 @@ function limitLine(value: number | null, row: { one: string; many: string }): { 
   return { text: `Up to ${formatNumber(value, 0)} ${row.many}`, included: true };
 }
 
-/** What a plan includes, from the plan configuration: included lines first, then what it lacks. */
+/**
+ * What a plan includes, from the plan configuration: included lines first,
+ * then what it lacks, then what is announced but not built yet.
+ */
 export function featureLines(id: PlanId): { text: string; included: boolean }[] {
   const plan = PLANS[id];
   const lines = [
@@ -81,7 +84,8 @@ export function featureLines(id: PlanId): { text: string; included: boolean }[] 
     ...FEATURE_ROWS.map((feature) => ({ text: FEATURE_LABEL[feature], included: plan.features[feature] })),
     { text: plan.auditHistoryDays === null ? 'Full audit history' : `${plan.auditHistoryDays}-day audit history`, included: true },
   ];
-  return [...lines.filter((line) => line.included), ...lines.filter((line) => !line.included)];
+  const comingSoon = COMING_SOON.map((text) => ({ text: `${text} — coming soon`, included: false }));
+  return [...lines.filter((line) => line.included), ...lines.filter((line) => !line.included), ...comingSoon];
 }
 
 /**

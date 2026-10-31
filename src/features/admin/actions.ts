@@ -775,10 +775,12 @@ export async function updateRolePermissions(
     const db = await storeDb();
     const role = await db.role.findUnique({ where: { id: roleId }, select: { ...ROLE_POLICY_SELECT, isSystem: true } });
     if (!role) throw new NotFoundError('Role');
-    // Built-in roles stay editable on every plan; custom ones need a plan with
-    // custom roles. A store that downgraded keeps its custom roles (and can
-    // still assign or delete them), it just cannot reshape them.
-    if (!role.isSystem) await requireFeature('customRoles');
+    // Changing any role's permissions — built-in or custom — needs a plan with
+    // custom roles; Basic uses the built-in roles as they come. Checked here,
+    // on the server, so a direct call cannot get round the locked editor. A
+    // store that downgraded keeps its roles and their current permissions (and
+    // can still assign or delete custom ones); it just cannot reshape them.
+    await requireFeature('customRoles');
 
     const valid = permissionKeys.filter((key) => STORE_PERMISSION_KEYS.includes(key as never));
 

@@ -8,7 +8,7 @@ import { GRACE_DAYS, PLANS, type PlanDefinition, type PlanId } from './plans';
  *   TRIAL      trial not yet over: the store's plan's features
  *   GRACE      up to GRACE_DAYS after the trial or paid period ended (or
  *              PAST_DUE): still works normally, with a warning
- *   READ_ONLY  after the grace period: sign in, view and export only
+ *   READ_ONLY  after the grace period: sign in, view, print and download only
  *   SUSPENDED  shut out entirely (handled by the store context)
  *
  * Pure, so every boundary is unit-tested.

@@ -64,10 +64,10 @@ export class RateLimitError extends AppError {
   }
 }
 
-/** The store's subscription ended more than the grace period ago: view and export only. */
+/** The store's subscription ended more than the grace period ago: view, print and download only. */
 export class StoreReadOnlyError extends AppError {
   constructor(
-    message = 'This store is read-only because its subscription has ended. You can still view and export your records; renew to make changes again.',
+    message = 'This store is read-only because its subscription has ended. You can still view, print and download your records; renew to make changes again.',
   ) {
     super(message, 'STORE_READ_ONLY', 403);
   }

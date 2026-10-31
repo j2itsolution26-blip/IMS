@@ -38,16 +38,16 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   BUSINESS: {
     id: 'BUSINESS',
     name: 'Business',
-    description: 'For growing stores with a team and a few branches.',
-    limits: { branches: 3, staff: 10, products: 5000, backgroundRemovalsPerMonth: 100 },
+    description: 'For growing stores with a team.',
+    limits: { branches: 1, staff: 10, products: 5000, backgroundRemovalsPerMonth: 100 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: 365,
   },
   ENTERPRISE: {
     id: 'ENTERPRISE',
     name: 'Enterprise',
-    description: 'For multi-branch operations with large catalogs.',
-    limits: { branches: 10, staff: null, products: null, backgroundRemovalsPerMonth: 1000 },
+    description: 'For busy stores with large catalogs and big teams.',
+    limits: { branches: 1, staff: null, products: null, backgroundRemovalsPerMonth: 1000 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: null,
   },
@@ -67,13 +67,28 @@ export const PLAN_ORDER: PlanId[] = ['BASIC', 'BUSINESS', 'ENTERPRISE'];
 
 /**
  * What every plan includes, whatever its limits. Each of these ships today;
- * nothing planned belongs here.
+ * nothing planned belongs here (see COMING_SOON).
+ *
+ * Low stock is shown as indicators (sidebar badge, dashboard, report); no
+ * notification is sent, so it is not called an alert.
  */
 export const CORE_FEATURES = [
   'POS checkout and barcode scanning',
-  'Inventory management and low-stock alerts',
+  'Inventory, stock-in and adjustments',
+  'Low-stock indicators',
+  'Product photos and printable receipts',
+  'Cashier shifts and cash reconciliation',
+  'Refunds, voids and cash movements',
   'Sales dashboard and standard reports',
 ] as const;
+
+/**
+ * Announced but not built. Shown as "Coming soon" and never as capacity.
+ * Every store is one location today: `branches` is 1 on every plan until
+ * multi-branch (branch creation, switching, per-branch stock and staff,
+ * transfers) ships as its own project.
+ */
+export const COMING_SOON = ['Multi-branch (more than one location per store)'] as const;
 
 /** Support is the same help desk on every plan. */
 export const SUPPORT_LABEL = 'Help desk tickets';
@@ -92,12 +107,12 @@ export function lowestPlanWith(feature: Feature): PlanDefinition | null {
 
 export const FEATURE_LABEL: Record<Feature, string> = {
   reportExports: 'Report exports',
-  customRoles: 'Custom roles',
+  customRoles: 'Custom roles and permission editing',
   backgroundRemoval: 'Photo background removal',
 };
 
 export const LIMIT_LABEL: Record<LimitKey, string> = {
-  branches: 'branches',
+  branches: 'locations',
   staff: 'active staff accounts',
   products: 'products (archived ones do not count)',
   backgroundRemovalsPerMonth: 'background removals this month',

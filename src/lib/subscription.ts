@@ -111,7 +111,7 @@ export function accessHeadline(access: StoreAccess, now: Date): string {
     case 'GRACE':
       return `Your subscription has ended. The store keeps working until the grace period ends ${inDays(days)}, then becomes read-only.`;
     case 'READ_ONLY':
-      return 'Your subscription has ended. The store is read-only: you can view and export records, but not make changes.';
+      return 'Your subscription has ended. The store is read-only: you can view, print and download your records, but not make changes.';
     case 'SUSPENDED':
       return 'This store has been suspended by the platform administrator.';
   }

@@ -157,3 +157,42 @@ test('a read-only client tells raw writes from raw reads', () => {
   assert.equal(isRawWrite({ strings: ['WITH qualifying AS (SELECT "updatedAt" FROM sales) SELECT * FROM qualifying'] }), false);
   assert.equal(isRawWrite('SELECT 1'), false);
 });
+
+test('every plan includes the core store operations, and nothing announced is sold', async () => {
+  const { CORE_FEATURES, COMING_SOON } = await import('@/lib/plans');
+  for (const feature of [
+    'POS checkout and barcode scanning',
+    'Inventory, stock-in and adjustments',
+    'Low-stock indicators',
+    'Product photos and printable receipts',
+    'Cashier shifts and cash reconciliation',
+    'Refunds, voids and cash movements',
+    'Sales dashboard and standard reports',
+  ]) {
+    assert.ok((CORE_FEATURES as readonly string[]).includes(feature), `missing core feature: ${feature}`);
+  }
+  assert.ok(COMING_SOON.some((item) => /multi-branch/i.test(item)));
+});
+
+test('changing any role\'s permissions is a paid feature, checked on the server', () => {
+  const source = readFileSync('src/features/admin/actions.ts', 'utf8');
+  const update = source.slice(source.indexOf('export async function updateRolePermissions'), source.indexOf('export async function deleteRole'));
+  assert.match(update, /await requireFeature\('customRoles'\);/, 'built-in and custom roles alike');
+  assert.doesNotMatch(update, /if \(!role\.isSystem\) await requireFeature/, 'built-in roles must not be exempt');
+  // Creating a role is gated too; assigning and deleting are not.
+  const create = source.slice(source.indexOf('export async function createRole'), source.indexOf('export async function updateRolePermissions'));
+  assert.match(create, /requireFeature\('customRoles'\)/);
+  const del = source.slice(source.indexOf('export async function deleteRole'), source.indexOf('// --- Profile'));
+  assert.doesNotMatch(del, /requireFeature/);
+  // The editor locks built-in roles on Basic as well (the Owner role is never editable).
+  const manager = readFileSync('src/features/admin/roles-manager.tsx', 'utf8');
+  assert.match(manager, /const planLocked = Boolean\(customRolesLock\) && selected !== undefined && !isOwner;/);
+});
+
+test('printing the shift list is on every plan; only the file export is gated', () => {
+  const page = readFileSync('src/app/(app)/shifts/page.tsx', 'utf8');
+  const gate = page.slice(page.indexOf('<PlanGate'), page.indexOf('</PlanGate>'));
+  assert.doesNotMatch(gate, /print/i);
+  assert.match(page, /<PrintButton \/>/);
+  assert.doesNotMatch(readFileSync('src/features/shifts/shift-export-menu.tsx', 'utf8'), /window\.print/);
+});

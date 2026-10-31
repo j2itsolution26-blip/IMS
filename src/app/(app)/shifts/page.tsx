@@ -16,7 +16,7 @@ import { KpiCard } from '@/components/kpi-card';
 import { resolveShiftQuery, type ShiftSearchParams } from '@/features/shifts/params';
 import { ShiftMonitorTable } from '@/features/shifts/shift-monitor-table';
 import { ShiftExportMenu } from '@/features/shifts/shift-export-menu';
-import { AutoRefresh } from '@/features/shifts/auto-refresh';
+import { AutoRefresh, PrintButton } from '@/features/shifts/auto-refresh';
 import { PlanGate } from '@/features/subscription/plan-gate';
 
 export const metadata: Metadata = { title: 'Shift Management' };
@@ -58,6 +58,8 @@ export default async function ShiftManagementPage({ searchParams }: { searchPara
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <AutoRefresh renderedAt={new Date().toISOString()} />
+            {/* Printing is on every plan; only file exports are a paid feature. */}
+            <PrintButton />
             <PlanGate feature="reportExports" label="Export">
               <ShiftExportMenu />
             </PlanGate>

@@ -59,7 +59,10 @@ export function RolesManager({
   ownRoleId: string;
   allPermissions: PermissionMeta[];
   permissions: { canCreate: boolean; canUpdate: boolean; canDelete: boolean };
-  /** Set when the plan has no custom roles: creating and reshaping them is locked (deleting is not). */
+  /**
+   * Set when the plan has no custom roles: creating roles and changing any
+   * role's permissions is locked (assigning and deleting are not).
+   */
   customRolesLock?: UpgradeInfo | null;
 }) {
   const router = useRouter();
@@ -79,7 +82,9 @@ export function RolesManager({
 
   const selected = roles.find((role) => role.id === selectedId) ?? roles[0];
   const isOwner = selected?.slug === 'owner';
-  const planLocked = Boolean(customRolesLock) && selected !== undefined && !selected.isSystem;
+  // Permission editing is a plan feature for built-in roles too; the Owner
+  // role has its own notice and is never editable.
+  const planLocked = Boolean(customRolesLock) && selected !== undefined && !isOwner;
   const editable = can.canUpdate && !isOwner && selected?.id !== ownRoleId && !planLocked;
 
   const select = (role: RoleRow) => {
@@ -226,7 +231,7 @@ export function RolesManager({
                 <CardTitle className="flex items-center gap-2 text-base">
                   <ShieldCheck className="h-4 w-4 text-primary" aria-hidden="true" />
                   {selected.name}
-                  {selected.isSystem && <Badge variant="secondary">Built-in</Badge>}
+                  {selected?.isSystem && <Badge variant="secondary">Built-in</Badge>}
                 </CardTitle>
                 <CardDescription>
                   {selected.description ?? 'No description.'}
@@ -244,8 +249,10 @@ export function RolesManager({
               {planLocked && customRolesLock && (
                 <p className="flex flex-wrap items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
                   <PlanBadge planName={customRolesLock.planName} />
-                  This custom role keeps working for the staff who have it. Changing its permissions needs the{' '}
-                  {customRolesLock.planName ?? 'higher'} plan; you can still delete it.
+                  {selected?.isSystem
+                    ? 'This built-in role keeps its standard permissions and works for the staff who have it. Changing them needs the '
+                    : 'This custom role keeps working for the staff who have it. Changing its permissions needs the '}
+                  {customRolesLock.planName ?? 'higher'} plan{selected?.isSystem ? '.' : '; you can still delete it.'}
                 </p>
               )}
               {isOwner && (
