@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next';
-import { APP_DESCRIPTION, APP_NAME, APP_SHORT_NAME, BRAND_ICON_VERSION, BRAND_NAVY } from '@/lib/brand';
+import { APP_DESCRIPTION, APP_NAME, APP_SHORT_NAME, BRAND_COLORS, BRAND_ICON_VERSION } from '@/lib/brand';
 
 const icon = (name: string) => `/brand/${name}.png?v=${BRAND_ICON_VERSION}`;
 
@@ -17,8 +17,9 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: 'en',
     categories: ['business', 'finance', 'productivity'],
     prefer_related_applications: false,
-    background_color: BRAND_NAVY,
-    theme_color: BRAND_NAVY,
+    // Brand dark green behind the launch screen and in the installed app's title bar.
+    background_color: BRAND_COLORS.darkGreen,
+    theme_color: BRAND_COLORS.darkGreen,
     // The official app icon, rendered from public/brand/tindahanpromax-icon.svg.
     // BRAND_ICON_VERSION changes the URLs when the artwork changes, so browsers
     // and Android's installed-app updater fetch the new files.

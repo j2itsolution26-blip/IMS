@@ -1,6 +1,6 @@
 'use client';
 
-import { BrandLockup } from '@/components/brand';
+import { BrandLogo } from '@/components/brand';
 import { LockScreen } from '@/features/auth/lock-screen';
 import type { UnlockMethod } from '@/lib/pos-pin';
 
@@ -17,7 +17,7 @@ export function LockedView({
 }) {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-background p-4">
-      <BrandLockup />
+      <BrandLogo priority sizes="160px" className="w-[140px] sm:w-[160px]" />
       <LockScreen
         name={name}
         username={username}

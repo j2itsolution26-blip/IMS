@@ -16,13 +16,27 @@ export const VENDOR_NAME = 'J2SecureTech';
  */
 export const VENDOR_LOGO = { src: '/brand/j2securetech-logo.jpg', width: 360, height: 360 } as const;
 
-/** Deep navy of the branding panel, sidebar and installed-app chrome. */
-export const BRAND_NAVY = '#0B1A2E';
+/** The brand palette: green leads, gold is an accent only. */
+export const BRAND_COLORS = {
+  emerald: '#059669',
+  darkGreen: '#064E3B',
+  gold: '#F59E0B',
+  white: '#FFFFFF',
+} as const;
 
 /**
- * The official app icon: a white shopping cart in a green rounded square.
- * The one source for every logo in the app; the favicon and install icons
- * are rendered from it by scripts/build-brand-assets.ts.
+ * The full TindahanProMax logo (cart, scanning phone and wordmark), for
+ * screens with room for it. A web copy of the approved master
+ * public/brand/tindahanpromax-logo.png, trimmed of its transparent margin and
+ * scaled proportionally by scripts/build-brand-assets.ts.
+ */
+export const BRAND_LOGO = { src: '/brand/tindahanpromax-logo-960.png', width: 960, height: 771 } as const;
+
+/**
+ * The compact app icon: the logo's cart and barcode simplified into a white
+ * mark on a green rounded square, readable down to 16px. Used in the sidebar
+ * and header; the favicon and install icons are rendered from it by
+ * scripts/build-brand-assets.ts.
  */
 export const BRAND_MARK_SRC = '/brand/tindahanpromax-icon.svg';
 

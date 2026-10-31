@@ -28,30 +28,42 @@ test('no screen spells out the old product name by hand', () => {
   }
 });
 
-test('one official app icon: the green cart mark everywhere the product brand appears', async () => {
-  const { BRAND_MARK_SRC } = await import('../src/lib/brand');
-  assert.equal(BRAND_MARK_SRC, '/brand/tindahanpromax-icon.svg');
+test('one approved logo: the full logo where there is room, its compact cart icon everywhere small', async () => {
+  const { BRAND_COLORS, BRAND_LOGO, BRAND_MARK_SRC } = await import('../src/lib/brand');
   const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+  const exists = (path: string) => existsSync(new URL(`../${path}`, import.meta.url));
 
-  // Entry screens and the app shell show the mark through the shared component.
+  // The approved master is kept; the app shows its trimmed web copy.
+  assert.ok(exists('public/brand/tindahanpromax-logo.png'), 'the approved master logo');
+  assert.equal(BRAND_LOGO.src, '/brand/tindahanpromax-logo-960.png');
+  assert.ok(exists(`public${BRAND_LOGO.src}`));
+  assert.match(read('scripts/build-brand-assets.ts'), /tindahanpromax-logo\.png/);
+  assert.equal(BRAND_MARK_SRC, '/brand/tindahanpromax-icon.svg');
+
+  // Entry screens show the full logo; the app shell shows the compact icon.
   for (const path of [
     'src/app/(auth)/layout.tsx',
     'src/app/not-found.tsx',
     'src/features/auth/locked-view.tsx',
     'src/features/auth/change-password-view.tsx',
   ]) {
-    assert.match(read(path), /<BrandLockup\b/, path);
+    assert.match(read(path), /<BrandLogo\b/, path);
   }
   assert.match(read('src/components/layout/sidebar.tsx'), /<BrandMark\b/);
   assert.match(read('src/components/layout/app-shell.tsx'), /<BrandMark\b/);
-  assert.doesNotMatch(read('src/components/brand.tsx'), /tindahanpromax-logo/, 'the promotional logo is not the app icon');
 
-  // Favicon, home-screen and install icons are all generated from the SVG.
-  for (const file of ['src/app/favicon.ico', 'src/app/icon.png', 'src/app/apple-icon.png', 'public/brand/icon-192.png', 'public/brand/icon-512.png', 'public/brand/icon-maskable-192.png', 'public/brand/icon-maskable-512.png']) {
-    assert.ok(existsSync(new URL(`../${file}`, import.meta.url)), file);
+  // No screen points at a brand image by hand: they all go through lib/brand.
+  for (const path of ['src/app/(auth)/layout.tsx', 'src/app/not-found.tsx', 'src/components/layout/sidebar.tsx', 'src/components/layout/app-shell.tsx']) {
+    assert.doesNotMatch(read(path), /\/brand\/tindahanpromax/, path);
   }
-  assert.match(read('scripts/build-brand-assets.ts'), /tindahanpromax-icon\.svg/);
+
+  // Favicon, home-screen and install icons, all generated from the compact icon.
+  for (const file of ['src/app/favicon.ico', 'src/app/icon.png', 'src/app/apple-icon.png', 'public/brand/icon-192.png', 'public/brand/icon-512.png', 'public/brand/icon-maskable-192.png', 'public/brand/icon-maskable-512.png']) {
+    assert.ok(exists(file), file);
+  }
   const manifest = read('src/app/manifest.ts');
   assert.match(manifest, /icon\('icon-maskable-192'\), sizes: '192x192', type: 'image\/png', purpose: 'maskable'/);
   assert.match(manifest, /icon\('icon-maskable-512'\), sizes: '512x512', type: 'image\/png', purpose: 'maskable'/);
+  assert.match(manifest, /theme_color: BRAND_COLORS\.darkGreen/);
+  assert.equal(BRAND_COLORS.darkGreen, '#064E3B');
 });

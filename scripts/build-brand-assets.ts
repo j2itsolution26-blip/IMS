@@ -1,17 +1,19 @@
 /**
- * Regenerates every app icon from the one official source:
+ * Regenerates every brand derivative from the two committed sources:
  *
- *   public/brand/tindahanpromax-icon.svg  the official app icon — a white
- *                                         shopping cart in a green rounded square
+ *   public/brand/tindahanpromax-logo.png  the approved full logo (master, never modified)
+ *   public/brand/tindahanpromax-icon.svg  the compact app icon: the logo's cart and
+ *                                         barcode as a white mark on green
  *
- * Every size is rendered from the vector, so edges stay sharp and the
- * artwork is never redrawn, cropped or stretched. Where a platform rounds or
- * masks the icon itself (iOS home screen, Android maskable icons) the same
- * artwork is drawn with square corners so the platform's own mask shapes it;
- * the cart sits well inside the safe zone either way.
+ * The full logo's wordmark is unreadable below ~120px, so small icons
+ * (favicon, home-screen and install icons) come from the compact mark. Every
+ * icon size is rendered from the vector, so edges stay sharp. Where a platform
+ * rounds or masks the icon itself (iOS home screen, Android maskable icons)
+ * the same artwork is drawn with square corners so the platform's own mask
+ * shapes it; the cart sits inside the safe zone either way.
  *
- * Run with `npx tsx scripts/build-brand-assets.ts` after changing the SVG.
- * `sharp` is the image library Next.js already installs.
+ * Run with `npx tsx scripts/build-brand-assets.ts` after changing either
+ * source. `sharp` is the image library Next.js already installs.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -21,6 +23,7 @@ const root = path.resolve(__dirname, '..');
 const brand = path.join(root, 'public', 'brand');
 const appDir = path.join(root, 'src', 'app');
 
+const LOGO = path.join(brand, 'tindahanpromax-logo.png');
 const ICON_SVG = path.join(brand, 'tindahanpromax-icon.svg');
 
 /** Packs PNG images into a .ico container (PNG payloads are valid since Vista). */
@@ -56,6 +59,16 @@ async function render(svg: string, size: number): Promise<Buffer> {
 }
 
 async function main() {
+  // The web copy of the full logo: transparent margin trimmed, scaled
+  // proportionally, never cropped or stretched. PNG on purpose: next/image
+  // serves WebP/AVIF where accepted and keeps the transparency otherwise.
+  const logo = await sharp(LOGO)
+    .trim()
+    .resize({ width: 960, withoutEnlargement: true, kernel: 'lanczos3' })
+    .png({ compressionLevel: 9, palette: true, quality: 90 })
+    .toFile(path.join(brand, 'tindahanpromax-logo-960.png'));
+  console.log(`tindahanpromax-logo-960.png  ${logo.width}x${logo.height}`);
+
   const svg = await readFile(ICON_SVG, 'utf8');
   if (!/rx="112"/.test(svg)) throw new Error('Expected the icon background rect with rx="112".');
   // Same artwork, square corners: for platforms that apply their own mask.
