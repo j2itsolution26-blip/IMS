@@ -17,7 +17,7 @@ const FEATURES: { icon: LucideIcon; title: string; text: string }[] = [
  * so it sits on a white tile rather than being cut out or recoloured.
  */
 function VendorLogo({ size, className }: { size: 'sm' | 'lg'; className?: string }) {
-  const px = size === 'lg' ? 72 : 40;
+  const px = size === 'lg' ? 64 : 40;
   return (
     <span
       className={cn(
@@ -46,21 +46,22 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   return (
     <div className="flex min-h-dvh">
       {/* ── Branding panel (desktop only) ── */}
-      <aside className="relative hidden w-[52%] overflow-hidden bg-gradient-to-br from-[#04251c] via-[#063b33] to-[#0a3d4a] text-white lg:flex">
-        {/* Soft emerald and teal light with a restrained touch of gold. */}
+      {/* Emerald Midnight: midnight navy into deep emerald. Static layers only, no animation. */}
+      <aside className="relative hidden w-[52%] overflow-hidden bg-gradient-to-br from-[#071B24] via-[#073a35] to-[#075E46] text-white lg:flex">
+        {/* Restrained green light: behind the logo, and low on the panel. */}
         <div
           className="pointer-events-none absolute inset-0"
           aria-hidden="true"
           style={{
             backgroundImage:
-              'radial-gradient(55% 45% at 10% 5%, rgba(16,185,129,0.28), transparent 70%),' +
-              'radial-gradient(45% 40% at 95% 95%, rgba(20,184,166,0.22), transparent 70%),' +
-              'radial-gradient(28% 22% at 85% 12%, rgba(234,179,8,0.12), transparent 70%)',
+              'radial-gradient(42% 32% at 24% 16%, rgba(34,197,94,0.22), transparent 72%),' +
+              'radial-gradient(50% 40% at 92% 100%, rgba(34,197,94,0.14), transparent 72%),' +
+              'radial-gradient(60% 50% at 100% 0%, rgba(7,27,36,0.55), transparent 70%)',
           }}
         />
-        {/* Shelf-like grid that fades out towards the edges. */}
+        {/* Technical grid that fades out towards the edges. */}
         <svg
-          className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.06] [mask-image:radial-gradient(ellipse_at_center,black_35%,transparent_80%)]"
+          className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.05] [mask-image:radial-gradient(ellipse_at_center,black_35%,transparent_80%)]"
           aria-hidden="true"
         >
           <defs>
@@ -71,22 +72,47 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </defs>
           <rect width="100%" height="100%" fill="url(#auth-grid)" />
         </svg>
+        {/* Faint flowing lines, like a checkout lane in motion; a few light points ride them. */}
+        <svg
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          viewBox="0 0 800 1000"
+          preserveAspectRatio="xMidYMid slice"
+          aria-hidden="true"
+        >
+          <defs>
+            <linearGradient id="auth-flow" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stopColor="#22C55E" stopOpacity="0" />
+              <stop offset="0.5" stopColor="#22C55E" stopOpacity="0.35" />
+              <stop offset="1" stopColor="#22C55E" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <g fill="none" stroke="url(#auth-flow)" strokeWidth="1.2" opacity="0.6">
+            <path d="M-40 640 C 180 560, 360 760, 560 660 S 860 560, 860 560" />
+            <path d="M-40 700 C 200 620, 380 820, 580 720 S 860 620, 860 620" />
+            <path d="M-40 760 C 220 690, 400 880, 600 790 S 860 690, 860 690" opacity="0.6" />
+          </g>
+          <g fill="#22C55E">
+            <circle cx="180" cy="590" r="2" opacity="0.5" />
+            <circle cx="560" cy="660" r="2.2" opacity="0.45" />
+            <circle cx="400" cy="776" r="1.6" opacity="0.4" />
+          </g>
+        </svg>
 
         <div className="relative z-10 mx-auto flex w-full max-w-2xl flex-col justify-between gap-10 p-10 xl:p-14">
           <div>
             <BrandLogo
               priority
               sizes="(min-width: 1280px) 320px, 270px"
-              className="w-[270px] drop-shadow-[0_14px_36px_rgba(0,0,0,0.4)] xl:w-[320px]"
+              className="w-[270px] drop-shadow-[0_14px_32px_rgba(0,0,0,0.35)] xl:w-[320px]"
             />
           </div>
 
           <div>
             <h2 className="text-4xl font-bold leading-tight tracking-tight xl:text-5xl">
-              Your Store. <span className="text-emerald-300">Smarter.</span>
+              Your Store. <span className="text-[#4ADE80]">Smarter.</span>
             </h2>
-            <span className="mt-4 block h-1 w-14 rounded-full bg-amber-400/80" aria-hidden="true" />
-            <p className="mt-4 max-w-md text-base leading-relaxed text-emerald-50/80">
+            <span className="mt-4 block h-1 w-14 rounded-full bg-[#F4B942]" aria-hidden="true" />
+            <p className="mt-4 max-w-md text-base leading-relaxed text-white/80">
               Sell faster, track every item, and manage your tindahan in one simple system.
             </p>
 
@@ -94,14 +120,14 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               {FEATURES.map(({ icon: Icon, title, text }) => (
                 <li
                   key={title}
-                  className="group flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.05] p-4 backdrop-blur-sm transition-colors duration-200 hover:border-amber-300/40 hover:bg-white/[0.09] xl:flex-col"
+                  className="group flex items-start gap-3 rounded-xl border border-emerald-300/15 bg-[#06352c]/55 p-4 backdrop-blur-sm transition-colors duration-200 hover:border-emerald-300/30 hover:bg-[#06352c]/75 xl:flex-col"
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400/15 text-emerald-300 transition-colors duration-200 group-hover:bg-amber-400/15 group-hover:text-amber-300">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#22C55E]/15 text-[#4ADE80]">
                     <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
                   </span>
                   <div>
                     <p className="text-sm font-semibold">{title}</p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-emerald-50/70">{text}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-white/75">{text}</p>
                   </div>
                 </li>
               ))}
@@ -127,16 +153,16 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       </aside>
 
       {/* ── Sign-in panel ── */}
-      <main className="relative flex min-w-0 flex-1 flex-col bg-slate-100 pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))] dark:bg-background">
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-x-hidden bg-[#F1F5F9] pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))] dark:bg-background">
         <div className="flex justify-end">
           <ThemeToggle />
         </div>
 
         <div className="flex flex-1 flex-col items-center justify-center py-4 sm:py-8">
           {/* The logo in place of the branding panel on small screens. */}
-          <BrandLogo priority sizes="200px" className="mb-6 w-[180px] sm:w-[200px] lg:hidden" />
+          <BrandLogo priority sizes="180px" className="mb-5 w-[150px] sm:mb-6 sm:w-[180px] lg:hidden" />
 
-          <div className="w-full max-w-[440px] rounded-2xl border border-slate-200/80 bg-card p-6 text-card-foreground shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_40px_-12px_rgba(15,23,42,0.18)] sm:p-8 dark:border-border dark:shadow-none">
+          <div className="w-full max-w-[440px] rounded-2xl border border-slate-200/70 bg-white p-6 text-card-foreground shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-14px_rgba(15,23,42,0.16)] sm:p-8 dark:border-border dark:bg-card dark:shadow-none">
             {children}
           </div>
         </div>
