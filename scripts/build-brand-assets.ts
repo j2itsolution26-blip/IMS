@@ -1,18 +1,19 @@
 /**
- * Regenerates every brand derivative from the two committed sources:
+ * Regenerates every app icon from the one official source:
  *
- *   public/brand/tindahanpromax-logo.png  the official logo, never modified
- *   public/brand/tindahanpromax-icon.svg  the square mark the sidebar uses
+ *   public/brand/tindahanpromax-icon.svg  the official app icon — a white
+ *                                         shopping cart in a green rounded square
  *
- * The full logo carries a wordmark that is unreadable below ~120px, so the
- * app icons (favicon, home-screen and install icons) use the logo's emblem —
- * the cart, barcode-scanning phone and swoosh — cut from the original pixels
- * and scaled proportionally, never redrawn or stretched.
+ * Every size is rendered from the vector, so edges stay sharp and the
+ * artwork is never redrawn, cropped or stretched. Where a platform rounds or
+ * masks the icon itself (iOS home screen, Android maskable icons) the same
+ * artwork is drawn with square corners so the platform's own mask shapes it;
+ * the cart sits well inside the safe zone either way.
  *
- * Run with `npx tsx scripts/build-brand-assets.ts` after changing either
- * source. `sharp` is the image library Next.js already installs.
+ * Run with `npx tsx scripts/build-brand-assets.ts` after changing the SVG.
+ * `sharp` is the image library Next.js already installs.
  */
-import { rm, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 
@@ -20,20 +21,7 @@ const root = path.resolve(__dirname, '..');
 const brand = path.join(root, 'public', 'brand');
 const appDir = path.join(root, 'src', 'app');
 
-const LOGO = path.join(brand, 'tindahanpromax-logo.png');
-
-/** The emblem inside the 1254px logo: everything above the wordmark. */
-const EMBLEM = { left: 110, top: 140, width: 1030, height: 690 } as const;
-/**
- * Wordmark pieces that reach into the emblem's box, in emblem coordinates:
- * the leaf on the "i" of "Tindahan" (left of the cart wheels), and the glow
- * behind the wordmark along the bottom edge. Both are faded out.
- */
-const LEAF = { left: 0, top: 630, width: 185, height: 60 } as const;
-const BOTTOM_FADE = 16;
-
-const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
-const WHITE = { r: 255, g: 255, b: 255, alpha: 1 };
+const ICON_SVG = path.join(brand, 'tindahanpromax-icon.svg');
 
 /** Packs PNG images into a .ico container (PNG payloads are valid since Vista). */
 function toIco(images: { size: number; data: Buffer }[]): Buffer {
@@ -57,79 +45,38 @@ function toIco(images: { size: number; data: Buffer }[]): Buffer {
   return Buffer.concat([header, ...images.map((image) => image.data)]);
 }
 
-/** The emblem with its transparency, trimmed to the artwork. */
-async function emblem(): Promise<Buffer> {
-  const { data, info } = await sharp(LOGO)
-    .extract(EMBLEM)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  // Feathered so no hard cut shows where wordmark pixels are removed.
-  const feather = 12;
-  for (let y = 0; y < info.height; y++) {
-    for (let x = 0; x < info.width; x++) {
-      let keep = 1;
-      const intoLeafX = LEAF.left + LEAF.width - x;
-      const intoLeafY = y - LEAF.top;
-      if (intoLeafX > 0 && intoLeafY > 0) keep = 1 - Math.min(1, Math.min(intoLeafX, intoLeafY) / feather);
-      const intoBottom = y - (info.height - BOTTOM_FADE);
-      if (intoBottom > 0) keep = Math.min(keep, 1 - intoBottom / BOTTOM_FADE);
-      const alpha = (y * info.width + x) * 4 + 3;
-      data[alpha] = Math.round(data[alpha] * keep);
-    }
-  }
-
-  return sharp(data, { raw: info }).png().trim({ threshold: 1 }).toBuffer();
-}
-
-/** A square icon: the emblem fitted proportionally inside `content` of the side. */
-async function icon(art: Buffer, size: number, content: number, background = TRANSPARENT): Promise<Buffer> {
-  const box = Math.round(size * content);
-  const fitted = await sharp(art)
-    .resize(box, box, { fit: 'inside', kernel: 'lanczos3' })
-    .toBuffer();
-  return sharp({ create: { width: size, height: size, channels: 4, background } })
-    .composite([{ input: fitted, gravity: 'center' }])
+/** The icon rendered as a square PNG of `size` pixels, straight from the vector. */
+async function render(svg: string, size: number): Promise<Buffer> {
+  // Rasterise at 4x and scale down, for clean anti-aliasing at small sizes.
+  const density = Math.max(72, Math.ceil((size * 4 * 72) / 512));
+  return sharp(Buffer.from(svg), { density })
+    .resize(size, size, { fit: 'contain', kernel: 'lanczos3', background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .png({ compressionLevel: 9 })
     .toBuffer();
 }
 
 async function main() {
-  // Login panel and mobile header. Trimming removes only the transparent
-  // margin; the artwork is scaled proportionally, never cropped or stretched.
-  // PNG rather than WebP on purpose: next/image re-encodes it to WebP/AVIF for
-  // browsers that accept them, and falls back to the source format otherwise
-  // — a WebP source would fall back to JPEG and lose the transparency.
-  const trimmed = await sharp(LOGO).trim().toBuffer();
-  const logoInfo = await sharp(trimmed)
-    .resize({ width: 960, withoutEnlargement: true })
-    .png({ compressionLevel: 9, palette: true, quality: 90 })
-    .toFile(path.join(brand, 'tindahanpromax-logo-960.png'));
-  console.log(`logo-960.png  ${logoInfo.width}x${logoInfo.height}`);
+  const svg = await readFile(ICON_SVG, 'utf8');
+  if (!/rx="112"/.test(svg)) throw new Error('Expected the icon background rect with rx="112".');
+  // Same artwork, square corners: for platforms that apply their own mask.
+  const fullBleed = svg.replace('rx="112"', 'rx="0"');
 
-  const art = await emblem();
-
-  // Favicon: transparent, nearly edge to edge so it reads at 16px. A PNG
-  // icon replaces the old SVG one, which browsers would otherwise prefer.
-  await rm(path.join(appDir, 'icon.svg'), { force: true });
-  await writeFile(path.join(appDir, 'icon.png'), await icon(art, 96, 0.96));
-  const ico = await Promise.all(
-    [16, 32, 48].map(async (size) => ({ size, data: await icon(art, size, 0.96) })),
-  );
+  // Browser tab: the rounded icon on transparency, as it appears in the app.
+  await writeFile(path.join(appDir, 'icon.png'), await render(svg, 96));
+  const ico = await Promise.all([16, 32, 48].map(async (size) => ({ size, data: await render(svg, size) })));
   await writeFile(path.join(appDir, 'favicon.ico'), toIco(ico));
 
-  // iOS fills transparency with black, so the touch icon is opaque white.
-  await writeFile(path.join(appDir, 'apple-icon.png'), await icon(art, 180, 0.84, WHITE));
+  // iOS rounds home-screen icons itself and fills transparency with black.
+  await writeFile(path.join(appDir, 'apple-icon.png'), await render(fullBleed, 180));
 
-  // Web app manifest icons. "any" keeps the logo's transparency; maskable is
-  // opaque and fits the emblem inside the central 80% circle launchers keep
-  // (a 1.5:1 emblem 65% wide has its corners at ~39% from the centre).
-  await writeFile(path.join(brand, 'icon-192.png'), await icon(art, 192, 0.88));
-  await writeFile(path.join(brand, 'icon-512.png'), await icon(art, 512, 0.88));
-  await writeFile(path.join(brand, 'icon-maskable-512.png'), await icon(art, 512, 0.65, WHITE));
+  // Install icons. "any" keeps the rounded square; maskable is full-bleed so
+  // Android's circle or squircle mask keeps the cart (all within the 80% zone).
+  await writeFile(path.join(brand, 'icon-192.png'), await render(svg, 192));
+  await writeFile(path.join(brand, 'icon-512.png'), await render(svg, 512));
+  await writeFile(path.join(brand, 'icon-maskable-192.png'), await render(fullBleed, 192));
+  await writeFile(path.join(brand, 'icon-maskable-512.png'), await render(fullBleed, 512));
 
-  console.log('Brand assets written.');
+  console.log('Brand icons written.');
 }
 
 main().catch((error) => {

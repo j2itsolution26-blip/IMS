@@ -1,5 +1,7 @@
 import type { MetadataRoute } from 'next';
-import { APP_DESCRIPTION, APP_NAME, APP_SHORT_NAME, BRAND_NAVY } from '@/lib/brand';
+import { APP_DESCRIPTION, APP_NAME, APP_SHORT_NAME, BRAND_ICON_VERSION, BRAND_NAVY } from '@/lib/brand';
+
+const icon = (name: string) => `/brand/${name}.png?v=${BRAND_ICON_VERSION}`;
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -17,18 +19,20 @@ export default function manifest(): MetadataRoute.Manifest {
     prefer_related_applications: false,
     background_color: BRAND_NAVY,
     theme_color: BRAND_NAVY,
-    // Bump ?v= when the icon artwork changes, so browsers and Android's
-    // installed-app updater fetch the new files instead of cached ones.
+    // The official app icon, rendered from public/brand/tindahanpromax-icon.svg.
+    // BRAND_ICON_VERSION changes the URLs when the artwork changes, so browsers
+    // and Android's installed-app updater fetch the new files.
     icons: [
-      { src: '/brand/icon-192.png?v=2', sizes: '192x192', type: 'image/png', purpose: 'any' },
-      { src: '/brand/icon-512.png?v=2', sizes: '512x512', type: 'image/png', purpose: 'any' },
-      { src: '/brand/icon-maskable-512.png?v=2', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: icon('icon-192'), sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: icon('icon-512'), sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: icon('icon-maskable-192'), sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+      { src: icon('icon-maskable-512'), sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
     // Long-press / right-click on the installed icon. Pages still enforce
     // permissions, so a shortcut never grants access a user lacks.
     shortcuts: [
-      { name: 'Point of Sale', short_name: 'POS', url: '/pos', icons: [{ src: '/brand/icon-192.png?v=2', sizes: '192x192', type: 'image/png' }] },
-      { name: 'Dashboard', url: '/dashboard', icons: [{ src: '/brand/icon-192.png?v=2', sizes: '192x192', type: 'image/png' }] },
+      { name: 'Point of Sale', short_name: 'POS', url: '/pos', icons: [{ src: icon('icon-192'), sizes: '192x192', type: 'image/png' }] },
+      { name: 'Dashboard', url: '/dashboard', icons: [{ src: icon('icon-192'), sizes: '192x192', type: 'image/png' }] },
     ],
   };
 }

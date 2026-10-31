@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import { Boxes, ScanBarcode, ShieldCheck, TrendingUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { BrandLogo } from '@/components/brand';
+import { BrandLockup } from '@/components/brand';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { APP_NAME, VENDOR_LOGO, VENDOR_NAME } from '@/lib/brand';
 import { cn } from '@/lib/utils';
@@ -74,12 +74,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
         <div className="relative z-10 mx-auto flex w-full max-w-2xl flex-col justify-between gap-10 p-10 xl:p-14">
           <div>
-            {/* The logo carries its own "POS & INVENTORY SYSTEM" line. */}
-            <BrandLogo
-              priority
-              sizes="(min-width: 1280px) 320px, 270px"
-              className="w-[270px] drop-shadow-[0_14px_36px_rgba(0,0,0,0.4)] xl:w-[320px]"
-            />
+            <BrandLockup size="lg" tone="light" />
           </div>
 
           <div>
@@ -134,8 +129,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         </div>
 
         <div className="flex flex-1 flex-col items-center justify-center py-4 sm:py-8">
-          {/* Compact logo in place of the branding panel on small screens. */}
-          <BrandLogo priority sizes="200px" className="mb-6 w-[180px] sm:w-[200px] lg:hidden" />
+          {/* The app icon and name in place of the branding panel on small screens. */}
+          <BrandLockup className="mb-6 lg:hidden" />
 
           <div className="w-full max-w-[440px] rounded-2xl border border-slate-200/80 bg-card p-6 text-card-foreground shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_40px_-12px_rgba(15,23,42,0.18)] sm:p-8 dark:border-border dark:shadow-none">
             {children}

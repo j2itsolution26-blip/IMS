@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { KeyRound, LogOut } from 'lucide-react';
+import { BrandLockup } from '@/components/brand';
 import { toast } from 'sonner';
 import { passwordChangeProblems, type PasswordChangeProblems } from '@/lib/password-change';
 import { changeTemporaryPassword } from '@/features/auth/password-change-actions';
@@ -67,7 +68,8 @@ export function ChangePasswordView({ name, username }: { name: string; username:
 
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-background p-4">
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-background p-4">
+      <BrandLockup />
       <div className="w-full max-w-md space-y-6 rounded-card border bg-card p-6 shadow-card sm:p-8">
         <div className="space-y-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">

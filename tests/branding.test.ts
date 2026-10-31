@@ -27,3 +27,31 @@ test('no screen spells out the old product name by hand', () => {
     assert.doesNotMatch(source(path), /TindahanProMax POS/, path);
   }
 });
+
+test('one official app icon: the green cart mark everywhere the product brand appears', async () => {
+  const { BRAND_MARK_SRC } = await import('../src/lib/brand');
+  assert.equal(BRAND_MARK_SRC, '/brand/tindahanpromax-icon.svg');
+  const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+
+  // Entry screens and the app shell show the mark through the shared component.
+  for (const path of [
+    'src/app/(auth)/layout.tsx',
+    'src/app/not-found.tsx',
+    'src/features/auth/locked-view.tsx',
+    'src/features/auth/change-password-view.tsx',
+  ]) {
+    assert.match(read(path), /<BrandLockup\b/, path);
+  }
+  assert.match(read('src/components/layout/sidebar.tsx'), /<BrandMark\b/);
+  assert.match(read('src/components/layout/app-shell.tsx'), /<BrandMark\b/);
+  assert.doesNotMatch(read('src/components/brand.tsx'), /tindahanpromax-logo/, 'the promotional logo is not the app icon');
+
+  // Favicon, home-screen and install icons are all generated from the SVG.
+  for (const file of ['src/app/favicon.ico', 'src/app/icon.png', 'src/app/apple-icon.png', 'public/brand/icon-192.png', 'public/brand/icon-512.png', 'public/brand/icon-maskable-192.png', 'public/brand/icon-maskable-512.png']) {
+    assert.ok(existsSync(new URL(`../${file}`, import.meta.url)), file);
+  }
+  assert.match(read('scripts/build-brand-assets.ts'), /tindahanpromax-icon\.svg/);
+  const manifest = read('src/app/manifest.ts');
+  assert.match(manifest, /icon\('icon-maskable-192'\), sizes: '192x192', type: 'image\/png', purpose: 'maskable'/);
+  assert.match(manifest, /icon\('icon-maskable-512'\), sizes: '512x512', type: 'image\/png', purpose: 'maskable'/);
+});

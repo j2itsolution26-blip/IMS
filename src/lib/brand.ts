@@ -19,8 +19,12 @@ export const VENDOR_LOGO = { src: '/brand/j2securetech-logo.jpg', width: 360, he
 /** Deep navy of the branding panel, sidebar and installed-app chrome. */
 export const BRAND_NAVY = '#0B1A2E';
 
-/** Full logo with wordmark, trimmed of transparent margin. */
-export const BRAND_LOGO = { src: '/brand/tindahanpromax-logo-960.png', width: 960, height: 771 } as const;
-
-/** Square cart-and-barcode mark for small contexts. */
+/**
+ * The official app icon: a white shopping cart in a green rounded square.
+ * The one source for every logo in the app; the favicon and install icons
+ * are rendered from it by scripts/build-brand-assets.ts.
+ */
 export const BRAND_MARK_SRC = '/brand/tindahanpromax-icon.svg';
+
+/** Bump when the icon artwork changes, so browsers and installed apps refetch it. */
+export const BRAND_ICON_VERSION = 3;
