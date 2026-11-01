@@ -21,6 +21,7 @@ import {
 } from '@/features/dashboard/inventory/inventory-dashboard-view';
 import { CashierDashboardView } from '@/features/dashboard/cashier-dashboard-view';
 import { AccessDenied } from '@/features/dashboard/access-denied';
+import { staffAllowanceFor } from '@/server/services/plan-ui';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
@@ -115,7 +116,7 @@ async function renderOwnerSales(user: CurrentUser, params: SearchParams, currenc
 
   const now = new Date();
   const canViewDrawers = userCan(user, FINANCIAL_PERMISSION);
-  const [data, drawers] = await Promise.all([
+  const [data, drawers, staffAllowance] = await Promise.all([
     getDashboardOverview({
       range,
       topLimit: query.top,
@@ -125,6 +126,8 @@ async function renderOwnerSales(user: CurrentUser, params: SearchParams, currenc
     // Every cashier's drawer cash is owner-only — the same key Shift
     // Management checks — so it is not even queried without it.
     canViewDrawers ? getShiftKpis(now) : Promise.resolve(null),
+    // The plan's staff allowance, for whoever manages staff accounts.
+    userCan(user, 'users.create') ? staffAllowanceFor() : Promise.resolve(null),
   ]);
 
   return (
@@ -138,6 +141,7 @@ async function renderOwnerSales(user: CurrentUser, params: SearchParams, currenc
       generatedAt={now.toISOString()}
       data={data}
       drawers={drawers}
+      staffAllowance={staffAllowance && staffAllowance.total.limit !== null ? staffAllowance : null}
     />
   );
 }

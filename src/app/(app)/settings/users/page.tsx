@@ -6,8 +6,10 @@ import { OWNER_ROLE_SLUG } from '@/lib/permissions';
 import { STORE_ACCOUNT_WHERE, canAssignRole, canManageAccount } from '@/server/services/account-policy';
 import { PageHeader } from '@/components/page-header';
 import { StaffAccountsManager, type StaffRow } from '@/features/admin/staff-accounts-manager';
-import { CapacityNotice } from '@/features/subscription/capacity-notice';
-import { capacityFor } from '@/server/services/plan-ui';
+import { StaffAllowanceCard } from '@/features/subscription/staff-allowance';
+import { staffAllowanceFor } from '@/server/services/plan-ui';
+import { staffRoleSlots } from '@/server/services/entitlements';
+import { CUSTOM_ROLE_ON_SLOTS_MESSAGE, isStaffSlotRole } from '@/lib/plans';
 import { shiftReference } from '@/lib/shift-review';
 
 export const metadata: Metadata = { title: 'Staff Accounts' };
@@ -114,9 +116,24 @@ export default async function StaffAccountsPage() {
 
   // Owner and administrator roles are never assignable here, and delegated
   // staff only see roles no broader than their own.
+  //
+  // On a plan with role slots (Basic) each role also says who holds its slot
+  // and whether it can be chosen at all, so the form can disable a full role
+  // and say why. The actions check the same rules again.
+  const perRole = ctx.access.plan.staffPerRole;
+  const slots = perRole === null ? [] : await staffRoleSlots(ctx);
   const assignableRoles = roles
     .filter((role) => canAssignRole(actor, toPolicyRole(role)).allowed)
-    .map((role) => ({ id: role.id, name: role.name }));
+    .map((role) => {
+      const slot = slots.find((item) => item.slug === role.slug);
+      return {
+        id: role.id,
+        name: role.name,
+        slot: slot && perRole !== null ? { limit: perRole, holders: slot.holders.map((h) => ({ id: h.id, label: `${h.name} (@${h.username})` })) } : null,
+        blockedReason: perRole !== null && !isStaffSlotRole(role.slug) ? CUSTOM_ROLE_ON_SLOTS_MESSAGE : null,
+      };
+    });
+  const allowance = userCan(currentUser, 'users.create') ? await staffAllowanceFor() : null;
 
   return (
     <>
@@ -125,7 +142,7 @@ export default async function StaffAccountsPage() {
         description="Manage the people who use your store system."
         breadcrumbs={[{ label: 'Settings', href: '/settings' }, { label: 'Staff Accounts' }]}
       />
-      {userCan(currentUser, 'users.create') && <CapacityNotice capacity={await capacityFor('staff')} noun="active staff accounts" />}
+      {allowance && <StaffAllowanceCard allowance={allowance} />}
       <StaffAccountsManager
         rows={rows}
         roles={assignableRoles}

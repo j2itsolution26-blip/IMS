@@ -36,21 +36,31 @@ if (!URL_ENV) {
   let seq = 0;
 
   /** A store with an owner and the given quotas. */
-  async function makeStore(limits: { productLimit?: number | null; staffLimit?: number | null }) {
+  async function makeStore(limits: { productLimit?: number | null; staffLimit?: number | null; staffRoleLimit?: number | null }) {
     const tag = `${run}_${++seq}`;
     const storeId = `pl_${tag}`;
     await platform.store.create({
       data: { id: storeId, name: `Plan ${tag}`, slug: storeId.replace(/_/g, '-'), status: 'ACTIVE', plan: 'BASIC', ...limits },
     });
     const roleId = `role_${tag}`;
-    await platform.role.create({ data: { id: roleId, storeId, name: 'Cashier', slug: 'cashier' } });
+    const inventoryRoleId = `inv_${tag}`;
+    const customRoleId = `custom_${tag}`;
+    const ownerRoleId = `ownerrole_${tag}`;
+    await platform.role.createMany({
+      data: [
+        { id: ownerRoleId, storeId, name: 'Owner', slug: 'owner', isSystem: true },
+        { id: roleId, storeId, name: 'Cashier', slug: 'cashier', isSystem: true },
+        { id: inventoryRoleId, storeId, name: 'Inventory Staff', slug: 'inventory-staff', isSystem: true },
+        { id: customRoleId, storeId, name: 'Supervisor', slug: 'supervisor' },
+      ],
+    });
     const ownerId = `owner_${tag}`;
     await platform.user.create({
-      data: { id: ownerId, storeId, name: 'Owner', email: `${ownerId}@pl.test`, username: ownerId, roleId },
+      data: { id: ownerId, storeId, name: 'Owner', email: `${ownerId}@pl.test`, username: ownerId, roleId: ownerRoleId },
     });
     await platform.store.update({ where: { id: storeId }, data: { ownerId } });
     await platform.category.create({ data: { id: `cat_${tag}`, storeId, name: 'General', slug: 'general' } });
-    return { storeId, roleId, ownerId, categoryId: `cat_${tag}`, tag };
+    return { storeId, roleId, inventoryRoleId, customRoleId, ownerRoleId, ownerId, categoryId: `cat_${tag}`, tag };
   }
 
   const product = (s: { storeId: string; categoryId: string; tag: string }, n: number, status: 'ACTIVE' | 'ARCHIVED' = 'ACTIVE') => ({
@@ -63,13 +73,13 @@ if (!URL_ENV) {
     status,
   });
 
-  const staff = (s: { storeId: string; roleId: string; tag: string }, n: number, isActive = true) => ({
+  const staff = (s: { storeId: string; roleId: string; tag: string }, n: number, isActive = true, roleId = s.roleId) => ({
     id: `staff_${s.tag}_${n}`,
     storeId: s.storeId,
     name: `Staff ${n}`,
     email: `staff_${s.tag}_${n}@pl.test`,
     username: `staff_${s.tag}_${n}`,
-    roleId: s.roleId,
+    roleId,
     isActive,
   });
 
@@ -176,13 +186,17 @@ if (!URL_ENV) {
 
   describe('staff accounts per plan (quotas copied by syncLimits)', () => {
     /** Puts the store on a plan the way every platform action does, then tries 15 staff at once. */
+    // Alternates Cashier and Inventory Staff, so on Basic it is the total, not
+    // a role slot, that stops it.
     async function concurrentStaffOn(plan: 'BASIC' | 'BUSINESS' | 'ENTERPRISE', status: 'ACTIVE' | 'TRIAL' = 'ACTIVE') {
       const { syncLimits } = await import('@/server/platform/store-setup');
       const s = await makeStore({});
       await platform.store.update({ where: { id: s.storeId }, data: { plan, status } });
       await syncLimits(platform, s.storeId);
       const db = storeClient(s.storeId);
-      const results = await Promise.allSettled(Array.from({ length: 15 }, (_, i) => db.user.create({ data: staff(s, i) })));
+      const results = await Promise.allSettled(
+        Array.from({ length: 15 }, (_, i) => db.user.create({ data: staff(s, i, true, i % 2 ? s.inventoryRoleId : s.roleId) })),
+      );
       for (const r of results) if (r.status === 'rejected') assert.ok(isQuota(r.reason), String(r.reason));
       return { s, db, created: results.filter((r) => r.status === 'fulfilled').length };
     }
@@ -217,6 +231,143 @@ if (!URL_ENV) {
       const { s, db } = await concurrentStaffOn('BASIC');
       await db.user.create({ data: staff(s, 200, false) });
       assert.equal(await db.user.count({ where: { isActive: false } }), 1);
+    });
+  });
+
+  describe('Basic role slots: one Cashier, one Inventory Staff (migration 20261111090000)', () => {
+    async function basicStore() {
+      const { storedLimits } = await import('@/lib/store-access');
+      const s = await makeStore(storedLimits({ plan: 'BASIC', status: 'ACTIVE' }));
+      return { s, db: storeClient(s.storeId) };
+    }
+    const isRoleSlot = (slug: string) => (error: unknown) => new RegExp(`PLAN_LIMIT: role ${slug} 1`).test(String(error));
+    const isCustomRole = (error: unknown) => /PLAN_LIMIT: custom-role/.test(String(error));
+
+    test('the first Cashier and Inventory Staff are accepted; a second Cashier is refused below the total', async () => {
+      const { s, db } = await basicStore();
+      await db.user.create({ data: staff(s, 1) });
+      // Only 1 of 2 places is used, yet a second Cashier is refused by its slot.
+      await assert.rejects(db.user.create({ data: staff(s, 2) }), isRoleSlot('cashier'));
+      await db.user.create({ data: staff(s, 3, true, s.inventoryRoleId) });
+      await assert.rejects(db.user.create({ data: staff(s, 4, true, s.inventoryRoleId) }), isQuota);
+      assert.equal(await db.user.count({ where: { isActive: true, id: { not: s.ownerId } } }), 2);
+    });
+
+    test('a second Inventory Staff is refused by its slot even with a place left', async () => {
+      const { s, db } = await basicStore();
+      await db.user.create({ data: staff(s, 1, true, s.inventoryRoleId) });
+      await assert.rejects(db.user.create({ data: staff(s, 2, true, s.inventoryRoleId) }), isRoleSlot('inventory-staff'));
+    });
+
+    test('20 concurrent Cashier creates end with exactly one Cashier', async () => {
+      const { s, db } = await basicStore();
+      const results = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => db.user.create({ data: staff(s, i) })));
+      assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+      for (const r of results) if (r.status === 'rejected') assert.ok(isQuota(r.reason), String(r.reason));
+      assert.equal(await platform.user.count({ where: { storeId: s.storeId, roleId: s.roleId, isActive: true } }), 1);
+    });
+
+    test('a bulk insert is checked row by row', async () => {
+      const { s, db } = await basicStore();
+      await assert.rejects(db.user.createMany({ data: [staff(s, 1), staff(s, 2)] }), isRoleSlot('cashier'));
+      assert.equal(await platform.user.count({ where: { storeId: s.storeId, id: { not: s.ownerId } } }), 0, 'a refused batch adds nothing');
+    });
+
+    test('reactivating a second Cashier is refused; it works once the slot is free', async () => {
+      const { s, db } = await basicStore();
+      await db.user.create({ data: staff(s, 1) });
+      const parked = await db.user.create({ data: staff(s, 2, false) }); // inactive: takes no slot
+      await assert.rejects(db.user.update({ where: { id: parked.id }, data: { isActive: true } }), isRoleSlot('cashier'));
+      await db.user.update({ where: { id: staff(s, 1).id }, data: { isActive: false } });
+      await db.user.update({ where: { id: parked.id }, data: { isActive: true } });
+    });
+
+    test('concurrent reactivations of two parked Cashiers enable exactly one', async () => {
+      const { s, db } = await basicStore();
+      await db.user.create({ data: staff(s, 1, false) });
+      await db.user.create({ data: staff(s, 2, false) });
+      const results = await Promise.allSettled([1, 2].map((n) => db.user.update({ where: { id: staff(s, n).id }, data: { isActive: true } })));
+      assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+    });
+
+    test('a role change cannot fill a taken slot; a change into a free slot is allowed', async () => {
+      const { s, db } = await basicStore();
+      await db.user.create({ data: staff(s, 1) });
+      const inv = await db.user.create({ data: staff(s, 2, true, s.inventoryRoleId) });
+      await assert.rejects(db.user.update({ where: { id: inv.id }, data: { roleId: s.roleId } }), isRoleSlot('cashier'));
+      // Free the Cashier slot first, then the change goes through.
+      await db.user.update({ where: { id: staff(s, 1).id }, data: { isActive: false } });
+      await db.user.update({ where: { id: inv.id }, data: { roleId: s.roleId } });
+      // An inactive account may change role: it takes no slot.
+      await db.user.update({ where: { id: staff(s, 1).id }, data: { roleId: s.inventoryRoleId } });
+    });
+
+    test('custom roles cannot be held by an active account on Basic', async () => {
+      const { s, db } = await basicStore();
+      await assert.rejects(db.user.create({ data: staff(s, 1, true, s.customRoleId) }), isCustomRole);
+      const cashier = await db.user.create({ data: staff(s, 2) });
+      await assert.rejects(db.user.update({ where: { id: cashier.id }, data: { roleId: s.customRoleId } }), isCustomRole);
+    });
+
+    test('a store already over its slots keeps every account and can still edit them', async () => {
+      const { syncLimits } = await import('@/server/platform/store-setup');
+      const s = await makeStore({});
+      await platform.store.update({ where: { id: s.storeId }, data: { plan: 'BUSINESS' } });
+      await syncLimits(platform, s.storeId);
+      const db = storeClient(s.storeId);
+      await db.user.create({ data: staff(s, 1) });
+      await db.user.create({ data: staff(s, 2) });
+      await db.user.create({ data: staff(s, 3, true, s.customRoleId) });
+
+      await platform.store.update({ where: { id: s.storeId }, data: { plan: 'BASIC' } });
+      await syncLimits(platform, s.storeId);
+      assert.equal(await db.user.count({ where: { isActive: true, id: { not: s.ownerId } } }), 3, 'nothing switched off');
+      // The same write updateUser sends: new name and phone, unchanged role and status.
+      for (const n of [2, 3]) {
+        const roleId = n === 3 ? s.customRoleId : s.roleId;
+        await db.user.update({ where: { id: staff(s, n).id }, data: { name: `Renamed ${n}`, phone: '0917', roleId, isActive: true } });
+      }
+      // Nothing new comes in, and a parked account stays parked.
+      await db.user.update({ where: { id: staff(s, 2).id }, data: { isActive: false } });
+      await assert.rejects(db.user.update({ where: { id: staff(s, 2).id }, data: { isActive: true } }), isQuota);
+    });
+
+    test('the owner never takes a slot', async () => {
+      const { s, db } = await basicStore();
+      await db.user.create({ data: staff(s, 1) });
+      await db.user.create({ data: staff(s, 2, true, s.inventoryRoleId) });
+      await db.user.update({ where: { id: s.ownerId }, data: { isActive: false } });
+      await db.user.update({ where: { id: s.ownerId }, data: { isActive: true } });
+    });
+
+    test('Business takes any mix of roles up to 10, including several Cashiers', async () => {
+      const { syncLimits } = await import('@/server/platform/store-setup');
+      const s = await makeStore({});
+      await platform.store.update({ where: { id: s.storeId }, data: { plan: 'BUSINESS' } });
+      await syncLimits(platform, s.storeId);
+      const db = storeClient(s.storeId);
+      const roles = [...Array(6).fill(s.roleId), s.inventoryRoleId, s.inventoryRoleId, s.customRoleId, s.customRoleId, s.roleId, s.inventoryRoleId];
+      const results = await Promise.allSettled(roles.map((roleId, i) => db.user.create({ data: staff(s, i, true, roleId) })));
+      assert.equal(results.filter((r) => r.status === 'fulfilled').length, 10);
+      for (const r of results) if (r.status === 'rejected') assert.ok(/PLAN_LIMIT: staff 10/.test(String(r.reason)), String(r.reason));
+    });
+
+    test('one store cannot create, change or reassign another store’s accounts', async () => {
+      const a = await basicStore();
+      const b = await basicStore();
+      const bCashier = await b.db.user.create({ data: staff(b.s, 1) });
+      assert.equal(await a.db.user.findUnique({ where: { id: bCashier.id } }), null);
+      await assert.rejects(a.db.user.update({ where: { id: bCashier.id }, data: { isActive: false } }));
+      await assert.rejects(a.db.user.update({ where: { id: bCashier.id }, data: { roleId: a.s.roleId } }));
+      await assert.rejects(a.db.user.create({ data: { ...staff(b.s, 9), storeId: b.s.storeId } }));
+      const aInv = await a.db.user.create({ data: staff(a.s, 2, true, a.s.inventoryRoleId) });
+      await assert.rejects(a.db.user.update({ where: { id: aInv.id }, data: { roleId: b.s.roleId } }));
+      // Even raw SQL cannot point an account at another store's role (tenant guard).
+      await assert.rejects(platform.$executeRaw`UPDATE users SET "roleId" = ${b.s.roleId} WHERE id = ${aInv.id}`);
+      const untouched = await platform.user.findUniqueOrThrow({ where: { id: bCashier.id } });
+      assert.equal(untouched.storeId, b.s.storeId);
+      assert.equal(untouched.isActive, true);
+      assert.equal(untouched.roleId, b.s.roleId);
     });
   });
 

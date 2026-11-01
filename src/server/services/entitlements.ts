@@ -2,7 +2,19 @@ import 'server-only';
 
 import { platformPrisma } from '@/lib/prisma';
 import { AppError, FeatureLockedError, PlanLimitError, StoreReadOnlyError } from '@/lib/errors';
-import { FEATURE_LABEL, limitMessage, lowestPlanWith, type Feature, type LimitKey } from '@/lib/plans';
+import {
+  CUSTOM_ROLE_ON_SLOTS_MESSAGE,
+  FEATURE_LABEL,
+  STAFF_SLOT_ROLES,
+  isStaffSlotRole,
+  limitMessage,
+  lowestPlanWith,
+  roleSlotMessage,
+  type Feature,
+  type LimitKey,
+  type StaffSlotSlug,
+} from '@/lib/plans';
+import { OWNER_ROLE_SLUG } from '@/lib/permissions';
 import { storeParts } from '@/lib/store-time';
 import { auditWindowStart } from '@/lib/audit-log';
 import { getStoreContext, type StoreContext } from '@/lib/tenant/context';
@@ -170,4 +182,67 @@ export async function usageSummary(ctx: StoreContext): Promise<UsageMeter[]> {
   const keys: LimitKey[] = ['products', 'staff', 'branches', 'backgroundRemovalsPerMonth'];
   const used = await Promise.all(keys.map((key) => countUsage(ctx, key)));
   return keys.map((key, i) => ({ key, used: used[i], limit: ctx.access.plan.limits[key] }));
+}
+
+export interface StaffRoleSlot {
+  slug: StaffSlotSlug;
+  name: string;
+  used: number;
+  /** null = no per-role cap on this plan */
+  limit: number | null;
+  /** The active accounts in this role, for "used by Maria (@maria)". */
+  holders: { id: string; name: string; username: string }[];
+}
+
+/**
+ * Active accounts per built-in staff role, owner excluded — the counts the
+ * per-role trigger (migration 20261111090000) enforces. Limits are null on
+ * plans without role slots, so the same data can still be shown.
+ */
+export async function staffRoleSlots(ctx: StoreContext): Promise<StaffRoleSlot[]> {
+  const store = await ctx.db.store.findUnique({ where: { id: ctx.storeId }, select: { ownerId: true } });
+  const holders = await ctx.db.user.findMany({
+    where: {
+      isActive: true,
+      role: { slug: { in: STAFF_SLOT_ROLES.map((role) => role.slug) } },
+      ...(store?.ownerId ? { id: { not: store.ownerId } } : {}),
+    },
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, username: true, role: { select: { slug: true } } },
+  });
+  const limit = ctx.access.plan.staffPerRole;
+  return STAFF_SLOT_ROLES.map((role) => {
+    const inRole = holders.filter((user) => user.role.slug === role.slug).map(({ id, name, username }) => ({ id, name, username }));
+    return { slug: role.slug, name: role.name, used: inRole.length, limit, holders: inRole };
+  });
+}
+
+/**
+ * Throws unless an active account may hold `roleSlug` on this store's plan:
+ * on a plan with role slots, only the built-in staff roles, and only while
+ * that role has a free slot. `exceptUserId` is the account being changed, so
+ * it never counts against itself; `active: false` is an account that takes no
+ * slot (created inactive), for which only the role itself is checked. The
+ * owner never takes a slot.
+ *
+ * A clear message before trying; the database trigger is what holds the
+ * limit when requests race.
+ */
+export async function requireStaffRoleSlot(
+  ctx: StoreContext,
+  roleSlug: string,
+  { exceptUserId, active = true }: { exceptUserId?: string; active?: boolean } = {},
+): Promise<void> {
+  const limit = ctx.access.plan.staffPerRole;
+  if (limit === null || roleSlug === OWNER_ROLE_SLUG) return;
+  // A custom role is not handed out on a plan with slots, active or not: an
+  // inactive one could never be switched on there anyway.
+  if (!isStaffSlotRole(roleSlug)) throw new PlanLimitError(CUSTOM_ROLE_ON_SLOTS_MESSAGE);
+  if (!active) return;
+  const slot = (await staffRoleSlots(ctx)).find((item) => item.slug === roleSlug);
+  const others = (slot?.holders ?? []).filter((user) => user.id !== exceptUserId);
+  if (others.length >= limit) {
+    const holder = others[0];
+    throw new PlanLimitError(roleSlotMessage(roleSlug, limit, holder ? `${holder.name} (@${holder.username})` : null));
+  }
 }

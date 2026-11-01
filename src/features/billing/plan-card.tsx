@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, Crown, Gem, Minus, Package, Users, type LucideIcon } from 'lucide-react';
-import { COMING_SOON, CORE_FEATURES, FEATURE_LABEL, PLANS, previousPlan, type Feature, type LimitKey, type PlanId } from '@/lib/plans';
+import { COMING_SOON, CORE_FEATURES, FEATURE_LABEL, PLANS, STAFF_SLOT_ROLES, previousPlan, type Feature, type LimitKey, type PlanId } from '@/lib/plans';
 import { annualSavingsPercent, type BillingInterval, type PlanPricing } from '@/lib/billing';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -73,6 +73,11 @@ function limitLine(value: number | null, row: { one: string; many: string }): { 
   return { text: `Up to ${formatNumber(value, 0)} ${row.many}`, included: true };
 }
 
+/** "1 Cashier, 1 Inventory Staff" */
+export function staffSplit(perRole: number): string {
+  return STAFF_SLOT_ROLES.map((role) => `${perRole} ${role.name}`).join(', ');
+}
+
 /**
  * What a plan includes, from the plan configuration: included lines first,
  * then what it lacks, then what is announced but not built yet.
@@ -80,7 +85,13 @@ function limitLine(value: number | null, row: { one: string; many: string }): { 
 export function featureLines(id: PlanId): { text: string; included: boolean }[] {
   const plan = PLANS[id];
   const lines = [
-    ...LIMIT_ROWS.map((row) => limitLine(plan.limits[row.key], row)),
+    ...LIMIT_ROWS.map((row) => {
+      const line = limitLine(plan.limits[row.key], row);
+      // Basic's staff places are one per role.
+      return row.key === 'staff' && plan.staffPerRole !== null && line.included
+        ? { ...line, text: `${line.text} (${staffSplit(plan.staffPerRole)})` }
+        : line;
+    }),
     ...FEATURE_ROWS.map((feature) => ({ text: FEATURE_LABEL[feature], included: plan.features[feature] })),
     { text: plan.auditHistoryDays === null ? 'Full audit history' : `${plan.auditHistoryDays}-day audit history`, included: true },
   ];

@@ -1,5 +1,5 @@
 import { Check, Minus } from 'lucide-react';
-import { COMING_SOON, CORE_FEATURES, PLANS, PLAN_ORDER, SUPPORT_LABEL, type PlanDefinition, type PlanId } from '@/lib/plans';
+import { COMING_SOON, CORE_FEATURES, PLANS, PLAN_ORDER, STAFF_SLOT_ROLES, SUPPORT_LABEL, type PlanDefinition, type PlanId } from '@/lib/plans';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -19,6 +19,10 @@ export function comparisonRows(): { group: string; rows: { label: string; value:
       rows: [
         { label: 'Locations', value: (p) => limit(p.limits.branches) },
         { label: 'Staff accounts', value: (p) => limit(p.limits.staff) },
+        {
+          label: 'Staff roles',
+          value: (p) => (p.staffPerRole === null ? 'Any mix' : STAFF_SLOT_ROLES.map((role) => `${p.staffPerRole} ${role.name}`).join(', ')),
+        },
         { label: 'Products', value: (p) => limit(p.limits.products) },
       ],
     },

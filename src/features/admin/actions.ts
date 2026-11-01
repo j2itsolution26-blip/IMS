@@ -10,7 +10,7 @@ import { APIError } from 'better-auth/api';
 import { authenticate, authorize, type CurrentUser } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ConflictError, ForbiddenError, NotFoundError, PlanLimitError, ValidationError } from '@/lib/errors';
-import { planLimitFromDatabase } from '@/lib/plans';
+import { STAFF_CREATIONS_PER_HOUR, planLimitFromDatabase } from '@/lib/plans';
 import { shiftReference } from '@/lib/shift-review';
 import { runAsProvisioning } from '@/lib/provisioning-context';
 import { recordAudit, recordAuditFor } from '@/server/services/audit-service';
@@ -31,7 +31,12 @@ import {
   type SettingDefinition,
 } from '@/lib/settings-definitions';
 import { normalizeUsername, usernameProblem } from '@/lib/username';
-import { requireFeature, requireWithinLimit, requireWritable } from '@/server/services/entitlements';
+import {
+  requireFeature,
+  requireStaffRoleSlot,
+  requireWithinLimit,
+  requireWritable,
+} from '@/server/services/entitlements';
 import { deleteStoredImage, uploadStoreLogo } from '@/server/services/storage-service';
 import { checkRateLimit } from '@/lib/rate-limit';
 
@@ -315,7 +320,14 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     // creation runs through Better Auth on the platform client, so this is
     // also where a read-only store is refused. The database trigger holds the
     // quota if two requests race.
-    const { db, storeId } = await requireWithinLimit('staff', values.isActive ? 1 : 0);
+    const ctx = await requireWithinLimit('staff', values.isActive ? 1 : 0);
+    const { db, storeId } = ctx;
+    // On Basic: one active Cashier and one active Inventory Staff, built-in
+    // roles only. The same trigger holds this when requests race.
+    await requireStaffRoleSlot(ctx, role.slug, { active: values.isActive });
+    // Not a plan quota (Enterprise stays unlimited): a cap on how fast one
+    // store can mint accounts, against scripts and runaway clients.
+    checkRateLimit(`staff-create:${storeId}`, { limit: STAFF_CREATIONS_PER_HOUR, windowMs: 3_600_000 });
 
     // Checked up front so a duplicate reports against the email field rather
     // than surfacing as a generic failure from inside Better Auth. Emails are
@@ -397,6 +409,7 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
       // The insert can also have been refused by the staff quota trigger
       // when another request took the last seat first; report that instead.
       await requireWithinLimit('staff', values.isActive ? 1 : 0);
+      await requireStaffRoleSlot(ctx, role.slug, { active: values.isActive });
       throw new ValidationError('That email address already has an account.', {
         email: ['This email is already registered.'],
       });
@@ -478,6 +491,13 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
     const newRole =
       values.roleId === target.roleId ? target.role : await loadAssignableRole(admin, values.roleId);
 
+    // A role change moves the account to another role's slot (Basic: one
+    // Cashier, one Inventory Staff), so it is checked like a new account —
+    // otherwise a second Cashier could be made by editing an Inventory Staff.
+    if (values.roleId !== target.roleId) {
+      await requireStaffRoleSlot(await requireWritable(), newRole.slug, { exceptUserId: id, active: target.isActive });
+    }
+
     // Promotion to Owner is not an edit — the owner is created by the platform
     // administrator. `loadAssignableRole` already refuses it; this keeps the
     // rule explicit for a re-save that names a privileged role.
@@ -511,7 +531,12 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
           isActive: values.isActive,
         },
       })
-      .catch(rethrowUsernameConflict);
+      .catch((error: unknown) => {
+        // A slot taken by a concurrent request, refused by the trigger.
+        const quota = planLimitFromDatabase(errorText(error));
+        if (quota) throw new PlanLimitError(quota);
+        rethrowUsernameConflict(error);
+      });
 
     await recordAudit({
       action: 'UPDATE',
@@ -560,7 +585,10 @@ export async function setUserStatus(id: string, input: unknown): Promise<ActionR
     if (values.isActive === target.isActive) return { id, isActive: target.isActive };
 
     if (values.isActive) {
-      await requireWithinLimit('staff');
+      const ctx = await requireWithinLimit('staff');
+      // Reactivating takes the role's slot again (Basic: one Cashier, one
+      // Inventory Staff), so it cannot bring back a second one.
+      await requireStaffRoleSlot(ctx, target.role.slug, { exceptUserId: id });
     }
 
     const openShift = values.isActive
@@ -572,7 +600,11 @@ export async function setUserStatus(id: string, input: unknown): Promise<ActionR
       );
     }
 
-    await db.user.update({ where: { id }, data: { isActive: values.isActive } });
+    await db.user.update({ where: { id }, data: { isActive: values.isActive } }).catch((error: unknown) => {
+      // A seat or slot taken by a concurrent request, refused by the trigger.
+      const quota = planLimitFromDatabase(errorText(error));
+      throw quota ? new PlanLimitError(quota) : error;
+    });
     // Access ends now, not when the cookie expires.
     if (!values.isActive) await db.session.deleteMany({ where: { userId: id } });
 

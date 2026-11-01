@@ -1,10 +1,11 @@
 import 'server-only';
 
 import { getCurrentUser } from '@/lib/session';
-import { FEATURE_LABEL, LIMIT_LABEL, lowestPlanWith, type Feature, type LimitKey } from '@/lib/plans';
+import { FEATURE_LABEL, LIMIT_LABEL, PLAN_ORDER, lowestPlanWith, type Feature, type LimitKey } from '@/lib/plans';
 import { getStoreContext } from '@/lib/tenant/context';
-import { can, withinLimit } from '@/server/services/entitlements';
+import { can, staffRoleSlots, withinLimit } from '@/server/services/entitlements';
 import type { UpgradeInfo } from '@/features/subscription/upgrade-dialog';
+import type { StaffAllowance } from '@/features/subscription/staff-allowance';
 
 /**
  * What the pages need to show a plan restriction: computed on the server from
@@ -61,5 +62,33 @@ export async function capacityFor(key: LimitKey): Promise<CapacityInfo | null> {
             canManageBilling: await canManageBilling(),
           }
         : null,
+  };
+}
+
+/**
+ * The staff allowance for the owner's screens: the total and, on a plan with
+ * role slots, each role's slot and who holds it. Same counts the actions and
+ * the database trigger enforce. null without a store.
+ */
+export async function staffAllowanceFor(): Promise<StaffAllowance | null> {
+  const user = await getCurrentUser();
+  if (!user?.store) return null;
+  const ctx = await getStoreContext();
+  const [total, slots] = await Promise.all([withinLimit(ctx, 'staff', 0), staffRoleSlots(ctx)]);
+  const plan = ctx.access.plan;
+  return {
+    planName: plan.name,
+    total: { used: total.used, limit: total.limit },
+    roles:
+      plan.staffPerRole === null
+        ? []
+        : slots.map((slot) => ({
+            slug: slot.slug,
+            name: slot.name,
+            used: slot.used,
+            limit: slot.limit,
+            holders: slot.holders.map((holder) => `${holder.name} (@${holder.username})`),
+          })),
+    canUpgrade: PLAN_ORDER[PLAN_ORDER.length - 1] !== plan.id && (await canManageBilling()),
   };
 }

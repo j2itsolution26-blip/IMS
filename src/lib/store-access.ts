@@ -74,7 +74,11 @@ export function storeAccess(subscription: StoreSubscription, now: Date = new Dat
 }
 
 /** The quotas to copy onto the store row for the database trigger. */
-export function storedLimits(subscription: Pick<StoreSubscription, 'plan' | 'status'>): { productLimit: number | null; staffLimit: number | null } {
+export function storedLimits(subscription: Pick<StoreSubscription, 'plan' | 'status'>): {
+  productLimit: number | null;
+  staffLimit: number | null;
+  staffRoleLimit: number | null;
+} {
   const plan = PLANS[effectivePlanId(subscription)];
-  return { productLimit: plan.limits.products, staffLimit: plan.limits.staff };
+  return { productLimit: plan.limits.products, staffLimit: plan.limits.staff, staffRoleLimit: plan.staffPerRole };
 }

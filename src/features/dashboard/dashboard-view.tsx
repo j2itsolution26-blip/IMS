@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { StaffAllowanceCard, type StaffAllowance } from '@/features/subscription/staff-allowance';
 import {
   CalendarDays,
   CalendarRange,
@@ -79,6 +80,7 @@ export function DashboardView({
   data,
   drawers,
   tabs,
+  staffAllowance = null,
 }: {
   /** The owner's Sales / Inventory switch, rendered above the header. */
   tabs?: ReactNode;
@@ -92,6 +94,8 @@ export function DashboardView({
   data: DashboardOverview;
   /** Today's cash drawers across every cashier; null when the role may not see them. */
   drawers: ShiftKpis | null;
+  /** The plan's staff allowance; null when it is unlimited or not the viewer's to manage. */
+  staffAllowance?: StaffAllowance | null;
 }) {
   const { headline, summary, canViewProfit } = data;
   const { current, change } = summary;
@@ -133,6 +137,8 @@ export function DashboardView({
           <RefreshButton generatedAt={generatedAt} />
         </div>
       </div>
+
+      {staffAllowance && <StaffAllowanceCard allowance={staffAllowance} />}
 
       {rangeNotice && (
         <p role="status" className="mb-4 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">

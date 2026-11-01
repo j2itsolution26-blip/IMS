@@ -58,6 +58,10 @@ model Store {
   // means unlimited.
   productLimit Int?
   staffLimit   Int?
+  // Most active accounts per built-in staff role (Basic: 1 Cashier, 1
+  // Inventory Staff); null = no per-role cap. Set with the others; the same
+  // trigger enforces it (migration 20261111090000).
+  staffRoleLimit Int?
 
   // A demonstration store: sample data, kept out of billing, reminders and
   // platform figures, and resettable by the platform administrator. Set only

@@ -89,15 +89,61 @@ interface ResetValues {
 
 const PASSWORD_HINT = 'At least 10 characters, with an uppercase letter, a lowercase letter, a number, and a symbol.';
 
-const emptyCreate = (roles: { id: string }[]): CreateValues => ({
+/**
+ * A role the form may offer. On a plan with role slots (Basic) `slot` says
+ * how many active accounts it may have and who holds them, and
+ * `blockedReason` is set for a role that plan does not allow at all.
+ */
+export interface AssignableRole {
+  id: string;
+  name: string;
+  slot: { limit: number; holders: { id: string; label: string }[] } | null;
+  blockedReason: string | null;
+}
+
+/**
+ * Why `role` cannot be given to an account right now, or null. `accountId`
+ * is the account being edited (it never blocks itself); an inactive account
+ * takes no slot. Display only — the server refuses the same cases.
+ */
+export function roleUnavailable(
+  role: AssignableRole,
+  { active, accountId }: { active: boolean; accountId?: string },
+): string | null {
+  if (role.blockedReason) return role.blockedReason;
+  if (!role.slot || !active) return null;
+  const others = role.slot.holders.filter((holder) => holder.id !== accountId);
+  if (others.length < role.slot.limit) return null;
+  return `Your plan allows ${role.slot.limit} active ${role.name} account${role.slot.limit === 1 ? '' : 's'}, and the slot is used by ${others
+    .map((holder) => holder.label)
+    .join(', ')}. Deactivate that account first, create this one as inactive, or upgrade your plan.`;
+}
+
+const emptyCreate = (roles: AssignableRole[]): CreateValues => ({
   name: '',
   username: '',
   email: '',
   password: '',
   confirmPassword: '',
-  roleId: roles[0]?.id ?? '',
+  roleId: (roles.find((role) => !roleUnavailable(role, { active: true })) ?? roles[0])?.id ?? '',
   status: 'active',
 });
+
+function RoleOptions({ roles, active, accountId }: { roles: AssignableRole[]; active: boolean; accountId?: string }) {
+  return (
+    <>
+      {roles.map((role) => {
+        const blocked = roleUnavailable(role, { active, accountId });
+        return (
+          <SelectItem key={role.id} value={role.id} disabled={blocked !== null}>
+            {role.name}
+            {blocked ? (role.blockedReason ? ' — not on your plan' : ' — slot filled') : ''}
+          </SelectItem>
+        );
+      })}
+    </>
+  );
+}
 
 /**
  * Staff account management, reached from Settings.
@@ -114,7 +160,7 @@ export function StaffAccountsManager({
   permissions,
 }: {
   rows: StaffRow[];
-  roles: { id: string; name: string }[];
+  roles: AssignableRole[];
   currentUserId: string;
   permissions: { canCreate: boolean; canUpdate: boolean; canDelete: boolean };
 }) {
@@ -135,6 +181,16 @@ export function StaffAccountsManager({
   });
   const editForm = useForm<EditValues>({ defaultValues: { name: '', username: '', phone: '', roleId: '' } });
   const resetForm = useForm<ResetValues>({ defaultValues: { password: '', confirmPassword: '' } });
+
+  // A full role slot (Basic) is explained under the field; the role stays
+  // pickable only when it would be accepted.
+  const createActive = createForm.watch('status') === 'active';
+  const createRoleId = createForm.watch('roleId');
+  const createRole = roles.find((role) => role.id === createRoleId);
+  const createRoleProblem = createRole ? roleUnavailable(createRole, { active: createActive }) : null;
+  // Enabling an account takes its role's slot again.
+  const statusRole = statusTarget && !statusTarget.isActive ? roles.find((role) => role.id === statusTarget.roleId) : undefined;
+  const reactivateProblem = statusRole && statusTarget ? roleUnavailable(statusRole, { active: true, accountId: statusTarget.id }) : null;
 
   const openCreate = () => {
     setFormError(null);
@@ -533,15 +589,16 @@ export function StaffAccountsManager({
                       <SelectValue placeholder="Choose a role" />
                     </SelectTrigger>
                     <SelectContent>
-                      {roles.map((role) => (
-                        <SelectItem key={role.id} value={role.id}>
-                          {role.name}
-                        </SelectItem>
-                      ))}
+                      <RoleOptions roles={roles} active={createActive} />
                     </SelectContent>
                   </Select>
                 )}
               />
+              {createRoleProblem && (
+                <p role="status" className="mt-1.5 text-xs text-warning-text">
+                  {createRoleProblem}
+                </p>
+              )}
             </FormField>
 
             <FormField
@@ -571,7 +628,7 @@ export function StaffAccountsManager({
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" loading={createForm.formState.isSubmitting}>
+              <Button type="submit" loading={createForm.formState.isSubmitting} disabled={createRoleProblem !== null}>
                 Create Staff Account
               </Button>
             </DialogFooter>
@@ -638,11 +695,7 @@ export function StaffAccountsManager({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {roles.map((role) => (
-                          <SelectItem key={role.id} value={role.id}>
-                            {role.name}
-                          </SelectItem>
-                        ))}
+                        <RoleOptions roles={roles} active={editing?.isActive ?? false} accountId={editing?.id} />
                       </SelectContent>
                     </Select>
                   )}
@@ -734,6 +787,12 @@ export function StaffAccountsManager({
             </DialogDescription>
           </DialogHeader>
 
+          {reactivateProblem && (
+            <p role="alert" className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning-text">
+              {reactivateProblem}
+            </p>
+          )}
+
           {statusTarget?.isActive && statusTarget.openShift && (
             <div role="alert" className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
               <p className="font-medium text-warning-text">
@@ -787,7 +846,7 @@ export function StaffAccountsManager({
               variant={statusTarget?.isActive ? 'destructive' : 'default'}
               onClick={onToggleStatus}
               loading={busy}
-              disabled={Boolean(statusTarget?.isActive && statusTarget.openShift && !leaveShiftOpen)}
+              disabled={Boolean((statusTarget?.isActive && statusTarget.openShift && !leaveShiftOpen) || reactivateProblem)}
             >
               {statusTarget?.isActive ? 'Disable account' : 'Enable account'}
             </Button>

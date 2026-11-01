@@ -24,6 +24,13 @@ export interface PlanDefinition {
   features: Record<Feature, boolean>;
   /** How far back a store can see its audit trail, in days; null = all of it. */
   auditHistoryDays: number | null;
+  /**
+   * Most active accounts per staff role (see STAFF_SLOT_ROLES), within the
+   * `staff` total; null = no per-role cap. When set, only the built-in staff
+   * roles can be held by an active account — a custom role would sidestep
+   * the slots. The owner never takes a slot.
+   */
+  staffPerRole: number | null;
 }
 
 export const PLANS: Record<PlanId, PlanDefinition> = {
@@ -34,6 +41,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     limits: { branches: 1, staff: 2, products: 1500, backgroundRemovalsPerMonth: 0 },
     features: { reportExports: false, customRoles: false, backgroundRemoval: false },
     auditHistoryDays: 90,
+    staffPerRole: 1,
   },
   BUSINESS: {
     id: 'BUSINESS',
@@ -42,6 +50,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     limits: { branches: 1, staff: 10, products: 5000, backgroundRemovalsPerMonth: 100 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: 365,
+    staffPerRole: null,
   },
   ENTERPRISE: {
     id: 'ENTERPRISE',
@@ -50,8 +59,46 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     limits: { branches: 1, staff: null, products: null, backgroundRemovalsPerMonth: 1000 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: null,
+    staffPerRole: null,
   },
 };
+
+/**
+ * The built-in staff roles that each take one slot on a plan with
+ * `staffPerRole` (Basic: one Cashier and one Inventory Staff). Slots follow
+ * the role, never its permissions, so they cannot be shuffled by editing a
+ * role — and Basic cannot edit role permissions anyway.
+ */
+export const STAFF_SLOT_ROLES = [
+  { slug: 'cashier', name: 'Cashier' },
+  { slug: 'inventory-staff', name: 'Inventory Staff' },
+] as const;
+
+export type StaffSlotSlug = (typeof STAFF_SLOT_ROLES)[number]['slug'];
+
+export function isStaffSlotRole(slug: string): slug is StaffSlotSlug {
+  return STAFF_SLOT_ROLES.some((role) => role.slug === slug);
+}
+
+export function staffSlotName(slug: string): string {
+  return STAFF_SLOT_ROLES.find((role) => role.slug === slug)?.name ?? slug;
+}
+
+/** "Your plan allows 1 active Cashier account. …" */
+export function roleSlotMessage(slug: string, limit: number, holder?: string | null): string {
+  const name = staffSlotName(slug);
+  const filled = holder ? ` The ${name} slot is already used by ${holder}.` : '';
+  return `Your plan allows ${limit} active ${name} account${limit === 1 ? '' : 's'}.${filled} Deactivate that account, or upgrade to Business for up to 10 staff in any mix of roles.`;
+}
+
+export const CUSTOM_ROLE_ON_SLOTS_MESSAGE =
+  'On the Basic plan an active staff account must be a Cashier or Inventory Staff. Choose one of those roles, or upgrade to use custom roles.';
+
+/**
+ * Account creations allowed per store per hour, on every plan. A guard against
+ * scripted abuse, not a plan quota: Enterprise stays unlimited in total.
+ */
+export const STAFF_CREATIONS_PER_HOUR = 30;
 
 /**
  * The plan a new store's free trial starts on. A trial always follows the
@@ -128,6 +175,9 @@ export function limitMessage(key: LimitKey, limit: number): string {
  * 500"), or null if the error is something else.
  */
 export function planLimitFromDatabase(message: string): string | null {
+  const role = /PLAN_LIMIT: role ([a-z0-9-]+) (\d+)/.exec(message);
+  if (role) return roleSlotMessage(role[1], Number(role[2]));
+  if (/PLAN_LIMIT: custom-role/.test(message)) return CUSTOM_ROLE_ON_SLOTS_MESSAGE;
   const match = /PLAN_LIMIT: (products|staff) (\d+)/.exec(message);
   if (!match) return null;
   return limitMessage(match[1] as 'products' | 'staff', Number(match[2]));

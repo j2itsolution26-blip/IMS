@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { GRACE_DAYS, PLANS, PLAN_ORDER, lowestPlanWith, planLimitFromDatabase } from '@/lib/plans';
+import { GRACE_DAYS, PLANS, PLAN_ORDER, STAFF_SLOT_ROLES, isStaffSlotRole, lowestPlanWith, planLimitFromDatabase, roleSlotMessage } from '@/lib/plans';
 import { effectivePlanId, storeAccess, storedLimits, type StoreSubscription } from '@/lib/store-access';
 import { isRawWrite, isReadOnlyRefused } from '@/lib/tenant/scope';
 
@@ -106,11 +106,11 @@ test('a suspended store is never writable', () => {
 });
 
 test('the quotas copied onto the store row follow the effective plan', () => {
-  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'ACTIVE' }), { productLimit: 1500, staffLimit: 2 });
-  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'TRIAL' }), { productLimit: 1500, staffLimit: 2 });
-  assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'TRIAL' }), { productLimit: 5000, staffLimit: 10 });
-  assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'PAST_DUE' }), { productLimit: 5000, staffLimit: 10 });
-  assert.deepEqual(storedLimits({ plan: 'ENTERPRISE', status: 'ACTIVE' }), { productLimit: null, staffLimit: null });
+  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'ACTIVE' }), { productLimit: 1500, staffLimit: 2, staffRoleLimit: 1 });
+  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'TRIAL' }), { productLimit: 1500, staffLimit: 2, staffRoleLimit: 1 });
+  assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'TRIAL' }), { productLimit: 5000, staffLimit: 10, staffRoleLimit: null });
+  assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'PAST_DUE' }), { productLimit: 5000, staffLimit: 10, staffRoleLimit: null });
+  assert.deepEqual(storedLimits({ plan: 'ENTERPRISE', status: 'ACTIVE' }), { productLimit: null, staffLimit: null, staffRoleLimit: null });
 });
 
 test('the latest migration backfill uses the same numbers as the plan configuration', () => {
@@ -131,6 +131,9 @@ test('the latest migration backfill uses the same numbers as the plan configurat
 test('a quota the database refused becomes a plan message', () => {
   assert.match(planLimitFromDatabase('ERROR: PLAN_LIMIT: products 500') ?? '', /allows 500 products/);
   assert.match(planLimitFromDatabase('PLAN_LIMIT: staff 2') ?? '', /allows 2 active staff accounts/);
+  assert.match(planLimitFromDatabase('PLAN_LIMIT: role cashier 1') ?? '', /allows 1 active Cashier account\./);
+  assert.match(planLimitFromDatabase('PLAN_LIMIT: role inventory-staff 1') ?? '', /1 active Inventory Staff account/);
+  assert.match(planLimitFromDatabase('PLAN_LIMIT: custom-role') ?? '', /must be a Cashier or Inventory Staff/);
   assert.equal(planLimitFromDatabase('duplicate key value'), null);
 });
 
@@ -195,4 +198,38 @@ test('printing the shift list is on every plan; only the file export is gated', 
   assert.doesNotMatch(gate, /print/i);
   assert.match(page, /<PrintButton \/>/);
   assert.doesNotMatch(readFileSync('src/features/shifts/shift-export-menu.tsx', 'utf8'), /window\.print/);
+});
+
+test('role slots: Basic has one Cashier and one Inventory Staff; Business and Enterprise any mix', () => {
+  assert.equal(PLANS.BASIC.staffPerRole, 1);
+  assert.equal(PLANS.BUSINESS.staffPerRole, null);
+  assert.equal(PLANS.ENTERPRISE.staffPerRole, null);
+  // The slots fit inside the total, so the total never lets a third role in.
+  assert.equal(STAFF_SLOT_ROLES.length * (PLANS.BASIC.staffPerRole ?? 0), PLANS.BASIC.limits.staff);
+  assert.deepEqual(STAFF_SLOT_ROLES.map((role) => role.slug), ['cashier', 'inventory-staff']);
+  assert.equal(isStaffSlotRole('cashier'), true);
+  assert.equal(isStaffSlotRole('owner'), false);
+  assert.equal(isStaffSlotRole('supervisor'), false);
+  assert.match(roleSlotMessage('cashier', 1, 'Maria (@maria)'), /Cashier slot is already used by Maria \(@maria\)/);
+});
+
+test('the role-slot migration backfills the plan configuration and guards role changes', () => {
+  const sql = readFileSync('prisma/migrations/20261111090000_staff_role_slots/migration.sql', 'utf8');
+  const backfill = sql.slice(sql.indexOf('UPDATE "stores"'), sql.indexOf('-- End backfill.'));
+  assert.match(backfill, new RegExp(`WHEN "plan" = 'BASIC' THEN ${PLANS.BASIC.staffPerRole}\\b`));
+  assert.match(backfill, /ELSE NULL END/);
+  // The trigger re-runs on a role change, and the slot roles in SQL match the app's.
+  assert.match(sql, /BEFORE INSERT OR UPDATE OF "isActive", "storeId", "roleId" ON "users"/);
+  assert.match(sql, new RegExp(`NOT IN \\(${STAFF_SLOT_ROLES.map((role) => `'${role.slug}'`).join(', ')}\\)`));
+  // Nothing is deleted or switched off by the migration itself.
+  assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /DELETE FROM|UPDATE "users"|"isActive" = false/i);
+});
+
+test('staff actions check role slots on create, role change and reactivation', () => {
+  const source = readFileSync('src/features/admin/actions.ts', 'utf8');
+  const slice = (from: string, to: string) => source.slice(source.indexOf(from), source.indexOf(to));
+  assert.match(slice('export async function createUser', 'function errorText'), /requireStaffRoleSlot\(ctx, role\.slug/);
+  assert.match(slice('export async function createUser', 'function errorText'), /checkRateLimit\(`staff-create:/);
+  assert.match(slice('export async function updateUser', 'const statusSchema'), /requireStaffRoleSlot\(.*newRole\.slug, \{ exceptUserId: id/);
+  assert.match(slice('export async function setUserStatus', 'const resetPasswordSchema'), /requireStaffRoleSlot\(ctx, target\.role\.slug, \{ exceptUserId: id \}\)/);
 });

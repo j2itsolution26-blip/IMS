@@ -10,7 +10,7 @@ import { runAsProvisioning } from '@/lib/provisioning-context';
 import { getRequestContext } from '@/lib/session';
 import { AppError, ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { OWNER_ROLE_SLUG } from '@/lib/permissions';
-import { LIMIT_LABEL, PLANS, type LimitKey } from '@/lib/plans';
+import { LIMIT_LABEL, PLANS, isStaffSlotRole, type LimitKey } from '@/lib/plans';
 import { effectivePlanId, type StoreSubscription } from '@/lib/store-access';
 import { MAX_TRIAL_EXTENSION_DAYS, PAYMENT_METHOD_LABEL, STATUS_LABEL, newTrial, normalizeReference, paymentPeriod } from '@/lib/subscription';
 import { formatDate } from '@/lib/format';
@@ -106,6 +106,24 @@ async function overLimits(tx: Tx, storeId: string, subscription: Pick<StoreSubsc
   for (const key of ['products', 'staff', 'branches'] as const satisfies readonly LimitKey[]) {
     const limit = limits[key];
     if (limit !== null && counts[key] > limit) over.push(`${counts[key]} ${LIMIT_LABEL[key]} (plan allows ${limit})`);
+  }
+
+  // Role slots (Basic: one active Cashier, one active Inventory Staff, built-in
+  // roles only). Reported, never fixed: no account is changed or switched off.
+  const perRole = PLANS[effectivePlanId(subscription)].staffPerRole;
+  if (perRole !== null) {
+    const roles = await tx.$queryRaw<{ slug: string; name: string; active: number }[]>`
+      SELECT r.slug, r.name, count(*)::int AS active
+      FROM users u JOIN roles r ON r.id = u."roleId" JOIN stores s ON s.id = u."storeId"
+      WHERE u."storeId" = ${storeId} AND u."isActive" AND u.id IS DISTINCT FROM s."ownerId" AND r.slug <> 'owner'
+      GROUP BY r.slug, r.name ORDER BY r.name`;
+    for (const role of roles) {
+      if (!isStaffSlotRole(role.slug)) {
+        over.push(`${role.active} active ${role.name} account(s) (custom roles are not available on this plan)`);
+      } else if (role.active > perRole) {
+        over.push(`${role.active} active ${role.name} accounts (plan allows ${perRole})`);
+      }
+    }
   }
   return over;
 }
