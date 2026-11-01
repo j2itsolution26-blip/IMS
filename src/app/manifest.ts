@@ -20,7 +20,8 @@ export default function manifest(): MetadataRoute.Manifest {
     // Brand dark green behind the launch screen and in the installed app's title bar.
     background_color: BRAND_COLORS.darkGreen,
     theme_color: BRAND_COLORS.darkGreen,
-    // The official app icon, rendered from public/brand/tindahanpromax-icon.svg.
+    // The official app icon: the approved logo's emblem, generated from the
+    // master by scripts/build-brand-assets.ts.
     // BRAND_ICON_VERSION changes the URLs when the artwork changes, so browsers
     // and Android's installed-app updater fetch the new files.
     icons: [

@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn, initials } from '@/lib/utils';
-import { APP_NAME } from '@/lib/brand';
+import { APP_NAME, APP_SHORT_NAME } from '@/lib/brand';
 import { BrandMark } from '@/components/brand';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -138,7 +138,8 @@ export function Sidebar({
             onClick={onClose}
             title={companyName}
           >
-            <BrandMark className="h-10 w-10 rounded-lg shadow-sm transition-transform hover:scale-105" />
+            {/* Labelled: when the rail is collapsed the store name is hidden and the mark is the link's only content. */}
+            <BrandMark label={APP_SHORT_NAME} className="h-10 w-10 rounded-lg shadow-sm transition-transform hover:scale-105" />
             <div
               className={cn(
                 'flex min-w-0 flex-col justify-center transition-opacity duration-200',

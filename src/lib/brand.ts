@@ -33,12 +33,13 @@ export const BRAND_COLORS = {
 export const BRAND_LOGO = { src: '/brand/tindahanpromax-logo-960.png', width: 960, height: 771 } as const;
 
 /**
- * The compact app icon: the logo's cart and barcode simplified into a white
- * mark on a green rounded square, readable down to 16px. Used in the sidebar
- * and header; the favicon and install icons are rendered from it by
- * scripts/build-brand-assets.ts.
+ * The compact app icon: the approved logo's own emblem (cart, products,
+ * scanning phone and swoosh, cut from above the wordmark) on a white rounded
+ * tile. Used in the sidebar and header for every role. The favicon and
+ * install icons come from the same emblem; all are generated from the master
+ * by scripts/build-brand-assets.ts.
  */
-export const BRAND_MARK_SRC = '/brand/tindahanpromax-icon.svg';
+export const BRAND_MARK_SRC = '/brand/tindahanpromax-mark-256.png';
 
 /** Bump when the icon artwork changes, so browsers and installed apps refetch it. */
-export const BRAND_ICON_VERSION = 3;
+export const BRAND_ICON_VERSION = 4;

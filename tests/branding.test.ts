@@ -28,7 +28,7 @@ test('no screen spells out the old product name by hand', () => {
   }
 });
 
-test('one approved logo: the full logo where there is room, its compact cart icon everywhere small', async () => {
+test('one approved logo: the full logo where there is room, its own emblem everywhere small', async () => {
   const { BRAND_COLORS, BRAND_LOGO, BRAND_MARK_SRC } = await import('../src/lib/brand');
   const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
   const exists = (path: string) => existsSync(new URL(`../${path}`, import.meta.url));
@@ -38,7 +38,11 @@ test('one approved logo: the full logo where there is room, its compact cart ico
   assert.equal(BRAND_LOGO.src, '/brand/tindahanpromax-logo-960.png');
   assert.ok(exists(`public${BRAND_LOGO.src}`));
   assert.match(read('scripts/build-brand-assets.ts'), /tindahanpromax-logo\.png/);
-  assert.equal(BRAND_MARK_SRC, '/brand/tindahanpromax-icon.svg');
+  // The small mark is generated from the master, not drawn separately.
+  assert.equal(BRAND_MARK_SRC, '/brand/tindahanpromax-mark-256.png');
+  assert.ok(exists(`public${BRAND_MARK_SRC}`));
+  assert.ok(!exists('public/brand/tindahanpromax-icon.svg'), 'the old hand-drawn cart icon is gone');
+  assert.doesNotMatch(read('scripts/build-brand-assets.ts'), /tindahanpromax-icon\.svg/);
 
   // Entry screens show the full logo; the app shell shows the compact icon.
   for (const path of [
@@ -66,4 +70,20 @@ test('one approved logo: the full logo where there is room, its compact cart ico
   assert.match(manifest, /icon\('icon-maskable-512'\), sizes: '512x512', type: 'image\/png', purpose: 'maskable'/);
   assert.match(manifest, /theme_color: BRAND_COLORS\.darkGreen/);
   assert.equal(BRAND_COLORS.darkGreen, '#064E3B');
+});
+
+test('no screen still draws the old hand-made cart icon, and caches refresh for the new one', async () => {
+  const { BRAND_ICON_VERSION } = await import('../src/lib/brand');
+  const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+  // The old icon's cart outline path; it must not be inlined anywhere.
+  const oldCart = 'M92 148H136L172 316H368L402 184H146';
+  for (const path of ['public/offline.html', 'src/components/brand.tsx', 'src/components/layout/sidebar.tsx', 'src/components/layout/app-shell.tsx', 'src/app/(auth)/layout.tsx']) {
+    assert.ok(!read(path).includes(oldCart), path);
+  }
+  // The offline page shows the precached install icon.
+  assert.match(read('public/offline.html'), /<img src="\/brand\/icon-192\.png"/);
+  assert.match(read('public/sw.js'), /PRECACHE_URLS = \[OFFLINE_URL, '\/brand\/icon-192\.png'\]/);
+  // New artwork means new manifest URLs and a new worker cache.
+  assert.ok(BRAND_ICON_VERSION >= 4);
+  assert.match(read('public/sw.js'), /const VERSION = 'v4';/);
 });

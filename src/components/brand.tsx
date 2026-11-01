@@ -23,12 +23,12 @@ export function BrandLogo({ className, sizes, priority }: { className?: string; 
 }
 
 /**
- * The compact app icon (white cart and barcode on a green rounded square),
+ * The compact app icon (the approved logo's emblem on a white rounded tile),
  * for the sidebar and header. Size it with height and width classes.
  */
 export function BrandMark({ className, label }: { className?: string; label?: string }) {
   return (
-    // A small static SVG gains nothing from the image optimizer.
+    // A small, already-optimised PNG gains nothing from the image optimizer.
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={BRAND_MARK_SRC}
