@@ -3,6 +3,7 @@ import 'server-only';
 import { storeDb } from '@/lib/tenant/context';
 import { readBranchIds, whereBranch } from '@/server/analytics/branch-filter';
 import { toNum } from '@/lib/decimal';
+import { UNITS } from '@/lib/quantity';
 import type { PermissionKey } from '@/lib/permissions';
 import type { DateRange } from '@/server/analytics/date-range';
 import { getSalesSummary, getProductPerformance } from '@/server/analytics/dashboard';
@@ -117,7 +118,7 @@ export const REPORTS: ReportDefinition[] = [
           money('revenue', 'Revenue'),
           money('profit', 'Gross profit'),
           count('orders', 'Orders'),
-          qty('units', 'Pieces sold'),
+          qty('units', 'Quantity sold'),
         ],
         rows: points.map((point) => ({
           label: point.label,
@@ -207,7 +208,7 @@ export const REPORTS: ReportDefinition[] = [
           text('label', 'Category'),
           money('revenue', 'Revenue'),
           money('profit', 'Profit'),
-          qty('units', 'Pieces sold'),
+          qty('units', 'Quantity sold'),
           count('orders', 'Orders'),
           { key: 'share', label: 'Share', format: 'percent', numeric: true },
         ],
@@ -219,7 +220,7 @@ export const REPORTS: ReportDefinition[] = [
     id: 'best-selling',
     financial: true,
     name: 'Best selling products',
-    description: 'Top products by pieces sold in the period.',
+    description: 'Top products by quantity sold in the period.',
     permission: 'reports.view',
     group: 'Sales',
     usesDateRange: true,
@@ -230,12 +231,13 @@ export const REPORTS: ReportDefinition[] = [
           text('sku', 'SKU'),
           text('name', 'Product'),
           text('categoryName', 'Category'),
-          qty('unitsSold', 'Pieces sold'),
+          qty('unitsSold', 'Quantity sold'),
+          text('unitLabel', 'Unit'),
           money('revenue', 'Revenue'),
           money('profit', 'Profit'),
           { key: 'marginPercent', label: 'Margin', format: 'percent', numeric: true },
         ],
-        rows: rows.map((row) => ({ ...row })),
+        rows: rows.map((row) => ({ ...row, unitLabel: UNITS[row.unit].plural })),
       };
     },
   },
@@ -424,7 +426,7 @@ export const REPORTS: ReportDefinition[] = [
     id: 'fast-moving',
     costColumns: ['stockValue'],
     name: 'Fast moving',
-    description: 'Your quickest sellers by pieces sold in the forecast window.',
+    description: 'Your quickest sellers by quantity sold in the forecast window.',
     permission: 'reports.view',
     group: 'Inventory',
     usesDateRange: false,
@@ -434,12 +436,13 @@ export const REPORTS: ReportDefinition[] = [
         columns: [
           text('sku', 'SKU'),
           text('name', 'Product'),
-          qty('unitsSold', 'Pieces sold'),
-          { key: 'dailyVelocity', label: 'Pieces per day', format: 'quantity', numeric: true },
+          qty('unitsSold', 'Quantity sold'),
+          text('unitLabel', 'Unit'),
+          { key: 'dailyVelocity', label: 'Sold per day', format: 'quantity', numeric: true },
           qty('onHand', 'On hand'),
           money('stockValue', 'Stock value'),
         ],
-        rows: rows.map((row) => ({ ...row })),
+        rows: rows.map((row) => ({ ...row, unitLabel: UNITS[row.unit].plural })),
       };
     },
   },

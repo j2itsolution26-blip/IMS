@@ -85,3 +85,42 @@ test('the migration keeps existing products whole and enforces the rule per prod
   assert.doesNotMatch(sql, /^\s*UPDATE /m, 'no existing row is rewritten');
   assert.doesNotMatch(sql, /^\s*DELETE /m);
 });
+
+test('a product unit is fixed once it has stock, a movement, a sale or a return', () => {
+  const queries = readFileSync('src/features/products/queries.ts', 'utf8');
+  const moved = queries.slice(queries.indexOf('export async function productHasMoved'));
+  for (const model of ['inventoryTransaction', 'inventory', 'saleItem', 'returnItem']) {
+    assert.match(moved, new RegExp(`db\.${model}\.findFirst`), model);
+  }
+  const actions = readFileSync('src/features/products/actions.ts', 'utf8');
+  const update = actions.slice(actions.indexOf('export async function updateProduct'));
+  assert.ok(
+    update.indexOf('before.unit !== values.unit && (await productHasMoved(id))') < update.indexOf('db.product.update('),
+    'the server refuses the change before writing',
+  );
+  const edit = readFileSync('src/app/(app)/products/[id]/edit/page.tsx', 'utf8');
+  assert.match(edit, /unitLocked=\{unitLocked\}/, 'the edit form shows the unit as fixed');
+});
+
+test('the unit-lock migration extends the existing guard and changes no rows', () => {
+  const sql = readFileSync('prisma/migrations/20261116090000_product_unit_lock/migration.sql', 'utf8');
+  assert.match(sql, /NEW\."unit" IS DISTINCT FROM OLD\."unit"/);
+  for (const table of ['inventory_transactions', 'inventory', 'sale_items', 'return_items']) {
+    assert.match(sql, new RegExp(`FROM "${table}" WHERE "productId" = NEW\."id"`), table);
+  }
+  assert.match(sql, /moved in fractions, so it must keep allowing decimals/, 'the decimals rule is kept');
+  assert.match(sql, /BEFORE UPDATE OF "allowsDecimal", "unit" ON "products"/);
+  assert.doesNotMatch(sql, /^\s*(UPDATE|DELETE|TRUNCATE|ALTER TABLE)/m, 'no existing row or column is touched');
+});
+
+test('dashboards and reports label quantities with the product unit, not pieces', () => {
+  assert.equal(`${formatUnits(2.5, 'KILOGRAM')} sold`, '2.5 kg sold');
+  assert.equal(formatUnits(1.5, 'METER'), '1.5 m');
+  assert.equal(formatUnits(1, 'BAG'), '1 bag');
+  for (const file of ['src/features/dashboard/overview-panels.tsx', 'src/server/reports/registry.ts']) {
+    const source = readFileSync(file, 'utf8');
+    assert.doesNotMatch(source, /pcs sold|pcs on hand|Pieces sold|Pieces per day/, file);
+  }
+  const dashboard = readFileSync('src/server/analytics/dashboard.ts', 'utf8');
+  assert.match(dashboard, /p\.unit::text\s+AS "unit"/, 'best sellers carry their unit');
+});

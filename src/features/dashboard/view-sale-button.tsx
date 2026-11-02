@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/misc';
 import { formatCurrency, formatDateTime, formatQuantity, humanizeEnum } from '@/lib/format';
+import { UNITS, formatUnits } from '@/lib/quantity';
 
 /**
  * Opens one past sale in place, so the owner can check what was in it without
@@ -93,7 +94,9 @@ export function SaleDetail({ data, saleId }: { data: ReceiptData; saleId: string
               <div className="min-w-0">
                 <p className="truncate font-medium">{line.name}</p>
                 <p className="tabular text-xs text-muted-foreground">
-                  {formatQuantity(line.quantity)} × {formatCurrency(line.unitPrice, data.currency)}
+                  {line.unit && line.unit !== 'PIECE' ? formatUnits(line.quantity, line.unit) : formatQuantity(line.quantity)} ×{' '}
+                  {formatCurrency(line.unitPrice, data.currency)}
+                  {line.unit && line.unit !== 'PIECE' ? `/${UNITS[line.unit].singular}` : ''}
                   {line.discount > 0 && ` · −${formatCurrency(line.discount, data.currency)}`}
                 </p>
               </div>

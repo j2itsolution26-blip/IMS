@@ -30,7 +30,8 @@ const checkoutSchema = z.object({
     .array(
       z.object({
         productId: z.string().min(1),
-        // Pieces sold: a whole number, at least 1.
+        // Above zero, up to 3 decimals. Whether this product may take a
+        // fraction is checked against the product in the sale service.
         quantity: lineQuantity,
         // Deliberately no `unitPrice`: the till has no price-override
         // permission, so the database price is the only price. Zod strips

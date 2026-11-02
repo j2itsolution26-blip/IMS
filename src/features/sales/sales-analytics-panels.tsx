@@ -10,6 +10,7 @@ import { ProductImage } from '@/components/product-image';
 import { Button } from '@/components/ui/button';
 import { formatCurrency, formatNumber, formatQuantity, formatSignedPercent, humanizeEnum } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { formatUnits } from '@/lib/quantity';
 
 function ViewAll({ href, children = 'View all' }: { href: string; children?: React.ReactNode }) {
   return (
@@ -427,7 +428,7 @@ export function TopProductsPanel({
                       </Link>
                     </span>
                   </td>
-                  <td className="tabular px-4 py-2.5 text-right">{formatQuantity(product.unitsSold)}</td>
+                  <td className="tabular px-4 py-2.5 text-right">{formatUnits(product.unitsSold, product.unit)}</td>
                   <td className="tabular px-4 py-2.5 text-right font-semibold">
                     {formatCurrency(product.revenue, currency)}
                   </td>
@@ -447,7 +448,7 @@ export function TopProductsPanel({
                             : 'bg-success/10 text-success-text',
                       )}
                     >
-                      {formatQuantity(product.currentStock)}
+                      {formatUnits(product.currentStock, product.unit)}
                     </span>
                   </td>
                 </tr>

@@ -12,7 +12,7 @@ import { removeProductBackground } from '@/server/services/background-removal-se
 import { checkRateLimit } from '@/lib/rate-limit';
 import { consumeMetered, requireFeature, requireWithinLimit, requireWritable } from '@/server/services/entitlements';
 import { productSchema } from '@/features/products/schema';
-import { findProductByBarcode, type BarcodeMatch } from '@/features/products/queries';
+import { findProductByBarcode, productHasMoved, type BarcodeMatch } from '@/features/products/queries';
 
 const PATHS = ['/products', '/inventory', '/dashboard', '/pos'];
 
@@ -135,6 +135,16 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
       throw new ValidationError(
         'This product has already been stocked or sold in fractions, so it must keep allowing decimals. Create a new product for whole-unit sales.',
         { allowsDecimal: ['Already moved in fractions.'] },
+      );
+    }
+
+    // Stock and past receipts are numbers of the product's unit, so once it
+    // has moved, a new unit would relabel them. The database refuses it too
+    // (migration 20261116090000).
+    if (before.unit !== values.unit && (await productHasMoved(id))) {
+      throw new ValidationError(
+        'This product already has stock or sales, so its unit cannot change. Create a new product to sell it in another unit.',
+        { unit: ['Already stocked or sold in this unit.'] },
       );
     }
 

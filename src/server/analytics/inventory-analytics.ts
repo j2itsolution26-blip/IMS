@@ -409,6 +409,8 @@ export interface MovementRow {
   productId: string;
   name: string;
   sku: string;
+  /** What onHand and unitsSold count. */
+  unit: ProductUnit;
   onHand: number;
   stockValue: number;
   unitsSold: number;
@@ -440,6 +442,7 @@ export async function getMovementAnalysis(kind: MovementClass, limit = 20): Prom
       productId: string;
       name: string;
       sku: string;
+      unit: string;
       onHand: string;
       stockValue: string;
       unitsSold: string;
@@ -448,7 +451,7 @@ export async function getMovementAnalysis(kind: MovementClass, limit = 20): Prom
   >`
     WITH stock AS (
       SELECT
-        p.id, p.name, p.sku, p."costPrice",
+        p.id, p.name, p.sku, p."costPrice", p.unit,
         SUM(i.quantity) AS on_hand
       FROM products p
       JOIN inventory i ON i."productId" = p.id${sqlBranch('i."warehouseId"', branches)}
@@ -472,6 +475,7 @@ export async function getMovementAnalysis(kind: MovementClass, limit = 20): Prom
       stock.id                                              AS "productId",
       stock.name                                            AS "name",
       stock.sku                                             AS "sku",
+      stock.unit::text                                      AS "unit",
       stock.on_hand::text                                   AS "onHand",
       (stock.on_hand * stock."costPrice")::text             AS "stockValue",
       COALESCE(sold.units_in_window, 0)::text               AS "unitsSold",
@@ -504,6 +508,7 @@ export async function getMovementAnalysis(kind: MovementClass, limit = 20): Prom
       productId: r.productId,
       name: r.name,
       sku: r.sku,
+      unit: isProductUnit(r.unit) ? r.unit : 'PIECE',
       onHand: Number(r.onHand),
       stockValue: Number(Number(r.stockValue).toFixed(2)),
       unitsSold,

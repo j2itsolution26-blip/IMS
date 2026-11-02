@@ -11,9 +11,10 @@ import { ViewSaleButton } from '@/features/dashboard/view-sale-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Panel, PanelEmpty } from '@/components/panel';
-import { formatCurrency, formatDateTime, formatNumber, formatQuantity, humanizeEnum } from '@/lib/format';
+import { formatCurrency, formatDateTime, formatNumber, humanizeEnum } from '@/lib/format';
 import { SALE_STATUS_BADGE, SALE_STATUS_LABEL } from '@/lib/sale-status';
 import { cn } from '@/lib/utils';
+import { formatUnits } from '@/lib/quantity';
 
 /* -------------------------------------------------------------------------- */
 /* Shared chrome                                                              */
@@ -239,7 +240,7 @@ export function TopProductsPanel({
                   {product.name}
                 </Link>
                 <p className="tabular text-xs text-muted-foreground">
-                  {formatQuantity(product.unitsSold)} pcs sold
+                  {formatUnits(product.unitsSold, product.unit)} sold
                   {showProfit && <> · {formatCurrency(product.profit, currency)} profit</>}
                 </p>
               </div>
@@ -311,8 +312,8 @@ export function LowStockPanel({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{row.name}</p>
                     <p className="tabular text-xs text-muted-foreground">
-                      {formatQuantity(row.available)} pcs on hand · low at{' '}
-                      {formatQuantity(threshold)}
+                      {formatUnits(row.available, row.unit)} on hand · low at{' '}
+                      {formatUnits(threshold, row.unit)}
                     </p>
                   </div>
                   <Badge variant={badge.variant} className="shrink-0">

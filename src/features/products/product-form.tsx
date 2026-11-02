@@ -39,6 +39,8 @@ export interface ProductFormProps {
   canViewProfit?: boolean;
   /** Present when editing. */
   productId?: string;
+  /** The product already has stock or sales, so its unit cannot change. */
+  unitLocked?: boolean;
   defaultValues?: Partial<ProductInput>;
 }
 
@@ -129,6 +131,7 @@ export function ProductForm({
   backgroundRemovalLock = null,
   canViewProfit = false,
   productId,
+  unitLocked = false,
   defaultValues,
 }: ProductFormProps) {
   const router = useRouter();
@@ -323,13 +326,18 @@ export function ProductForm({
                   id="unit"
                   label="Sold by"
                   error={errors.unit}
-                  description="The unit stock is counted and priced in. Nothing is converted between units."
+                  description={
+                    unitLocked
+                      ? 'Fixed: this product already has stock or sales in this unit. Create a new product to sell it in another unit.'
+                      : 'The unit stock is counted and priced in. Nothing is converted between units.'
+                  }
                 >
                   <Controller
                     name="unit"
                     control={control}
                     render={({ field }) => (
                       <Select
+                        disabled={unitLocked}
                         value={field.value ?? 'PIECE'}
                         onValueChange={(value) => {
                           field.onChange(value);

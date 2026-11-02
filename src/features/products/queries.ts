@@ -168,6 +168,22 @@ export async function getProduct(id: string) {
 }
 
 /**
+ * Whether the product has stock, a stock movement, a sale or a return in any
+ * branch. Its unit is then fixed: stock and past receipts are numbers of that
+ * unit, so changing it would relabel them (50 kg would become 50 pcs).
+ */
+export async function productHasMoved(id: string): Promise<boolean> {
+  const db = await storeDb();
+  const [movement, stock, sold, returned] = await Promise.all([
+    db.inventoryTransaction.findFirst({ where: { productId: id }, select: { id: true } }),
+    db.inventory.findFirst({ where: { productId: id, NOT: { quantity: 0 } }, select: { id: true } }),
+    db.saleItem.findFirst({ where: { productId: id }, select: { id: true } }),
+    db.returnItem.findFirst({ where: { productId: id }, select: { id: true } }),
+  ]);
+  return Boolean(movement ?? stock ?? sold ?? returned);
+}
+
+/**
  * Trading history for one product: recent movements, sales performance, and
  * price changes. Everything an owner needs to decide whether to keep stocking it.
  */

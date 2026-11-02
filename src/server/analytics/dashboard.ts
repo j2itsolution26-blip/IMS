@@ -11,6 +11,7 @@ import {
 } from '@/server/analytics/sales-math';
 import { getSettings, readNumber } from '@/server/services/settings-service';
 import { readBranchIds, sqlBranch, whereBranch } from '@/server/analytics/branch-filter';
+import { isProductUnit, type ProductUnit } from '@/lib/quantity';
 
 export type { SalesSummary };
 
@@ -315,6 +316,8 @@ export interface ProductPerformance {
   sku: string;
   imageUrl: string | null;
   categoryName: string;
+  /** What unitsSold and currentStock count. */
+  unit: ProductUnit;
   unitsSold: number;
   revenue: number;
   profit: number;
@@ -328,6 +331,7 @@ interface PerformanceRow {
   sku: string;
   imageUrl: string | null;
   categoryName: string;
+  unit: string;
   unitsSold: string;
   revenue: string;
   profit: string;
@@ -344,6 +348,7 @@ function mapPerformance(rows: PerformanceRow[]): ProductPerformance[] {
       sku: r.sku,
       imageUrl: r.imageUrl,
       categoryName: r.categoryName,
+      unit: isProductUnit(r.unit) ? r.unit : 'PIECE',
       unitsSold: Number(r.unitsSold),
       revenue,
       profit,
@@ -414,6 +419,7 @@ export async function getProductPerformance(options: {
       p.sku                                   AS "sku",
       p."imageUrl"                            AS "imageUrl",
       c.name                                  AS "categoryName",
+      p.unit::text                            AS "unit",
       COALESCE(sold.units_sold, 0)::text      AS "unitsSold",
       COALESCE(sold.revenue, 0)::text         AS "revenue",
       COALESCE(sold.profit, 0)::text          AS "profit",

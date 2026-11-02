@@ -75,7 +75,9 @@ export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T
       return fail(
         /moved in fractions/.test(error.message)
           ? 'This product has already been stocked or sold in fractions, so it must keep allowing decimals.'
-          : 'This product is sold in whole units only. Enter a whole number, or allow decimals on the product first.',
+          : /unit cannot change/.test(error.message)
+            ? 'This product already has stock or sales, so its unit cannot change. Create a new product to sell it in another unit.'
+            : 'This product is sold in whole units only. Enter a whole number, or allow decimals on the product first.',
         'VALIDATION_ERROR',
       );
     }

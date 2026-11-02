@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { requirePermission, userCan } from '@/lib/session';
 import { upgradeInfoFor } from '@/server/services/plan-ui';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
-import { getProduct, getProductFormOptions } from '@/features/products/queries';
+import { getProduct, getProductFormOptions, productHasMoved } from '@/features/products/queries';
 import { getCurrency } from '@/server/services/settings-service';
 import { isBackgroundRemovalConfigured, isStorageConfigured } from '@/lib/env';
 import { toNum } from '@/lib/decimal';
@@ -18,10 +18,11 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
   const backgroundRemovalLock = await upgradeInfoFor('backgroundRemoval');
   const { id } = await params;
 
-  const [product, options, currency] = await Promise.all([
+  const [product, options, currency, unitLocked] = await Promise.all([
     getProduct(id),
     getProductFormOptions(),
     getCurrency(),
+    productHasMoved(id),
   ]);
 
   if (!product) notFound();
@@ -45,6 +46,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
         backgroundRemovalEnabled={isBackgroundRemovalConfigured() && !backgroundRemovalLock}
         backgroundRemovalLock={isBackgroundRemovalConfigured() ? backgroundRemovalLock : null}
         canViewProfit={userCan(user, FINANCIAL_PERMISSION)}
+        unitLocked={unitLocked}
         defaultValues={{
           name: product.name,
           sku: product.sku,
