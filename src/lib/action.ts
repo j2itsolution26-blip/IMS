@@ -63,6 +63,12 @@ export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T
     if (quota) {
       return fail(quota, 'PLAN_LIMIT');
     }
+    // A branch rule the database refused (migration 20261112090000).
+    const branchRule = error instanceof Error ? /BRANCH_RULE: ([^\n]+)/.exec(error.message) : null;
+    if (branchRule) {
+      const text = branchRule[1].trim();
+      return fail(text.charAt(0).toUpperCase() + text.slice(1) + '.', 'CONFLICT');
+    }
     // A fraction the database refused for a product sold in whole units
     // (migration 20261106090000); the services normally catch it first.
     if (error instanceof Error && error.message.includes('UNIT_PRECISION')) {

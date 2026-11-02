@@ -55,9 +55,9 @@ test('cards lead with the core features on Basic and "Everything in …" above i
 test('the comparison table reads from the plan configuration, including the 1,500-product Basic limit', () => {
   const rows = comparisonRows().flatMap((group) => group.rows);
   const row = (label: string) => PLAN_ORDER.map((id) => rows.find((r) => r.label === label)!.value(PLANS[id]));
-  // One location on every plan until multi-branch is built; it is announced, never sold as capacity.
-  assert.deepEqual(row('Locations'), ['1', '1 (3 coming soon)', '1 (5 coming soon)']);
-  assert.deepEqual(row('Multi-branch (more than one location per store)'), ['Coming soon', 'Coming soon', 'Coming soon']);
+  assert.deepEqual(row('Locations (physical stores)'), ['1', '3', '5']);
+  assert.deepEqual(row('All-branches dashboard'), [false, true, true]);
+  assert.deepEqual(row('Stock transfers between branches'), ['Coming soon', 'Coming soon', 'Coming soon']);
   assert.deepEqual(row('Staff accounts'), ['2', '10', 'Unlimited']);
   assert.deepEqual(row('Staff roles'), ['1 Cashier, 1 Inventory Staff', 'Any mix', 'Any mix']);
   assert.deepEqual(row('Products'), ['1,500', '5,000', 'Unlimited']);
@@ -79,32 +79,32 @@ test('the pricing page promises nothing that is not built', () => {
     .map((path) => readFileSync(path, 'utf8'))
     .join('\n');
   assert.doesNotMatch(sources, /priority support|branch analytics|branch monitoring|access management|low-stock alerts|stock-transfer/i);
-  // No plan sells more than one location while multi-branch is not built.
-  for (const id of PLAN_ORDER) assert.equal(PLANS[id].limits.branches, 1, `${id} must not advertise extra branches`);
-  // The planned locations are display-only and never below what is enforced.
-  assert.deepEqual(PLAN_ORDER.map((id) => PLANS[id].plannedBranches), [1, 3, 5]);
+  // Locations are the enforced limits: Basic 1, Business 3, Enterprise 5.
+  assert.deepEqual(PLAN_ORDER.map((id) => PLANS[id].limits.branches), [1, 3, 5]);
   // Prices are never written into the page: they come from the published price list.
   assert.doesNotMatch(readFileSync('src/features/billing/plan-cards.tsx', 'utf8'), /₱\s?\d|\b(499|999|1499|4990|9990|14990)\b/);
 });
 
-test('every card shows its locations: 1 included on Basic, 3 and 5 marked coming soon', () => {
-  assert.deepEqual(locationLine('BASIC'), { headline: '1 Location Included', today: null, soon: false });
-  assert.deepEqual(locationLine('BUSINESS'), { headline: 'Up to 3 Locations', today: '1 location included today', soon: true });
-  assert.deepEqual(locationLine('ENTERPRISE'), { headline: 'Up to 5 Locations', today: '1 location included today', soon: true });
+test('every card shows its locations as physical stores: 1, up to 3, up to 5', () => {
+  assert.deepEqual(locationLine('BASIC'), { headline: '1 Location Included', detail: 'One physical store' });
+  assert.deepEqual(locationLine('BUSINESS'), { headline: 'Up to 3 Locations Included', detail: 'Physical store branches, with an all-branches view' });
+  assert.deepEqual(locationLine('ENTERPRISE'), { headline: 'Up to 5 Locations Included', detail: 'Physical store branches, with an all-branches view' });
 });
 
-test('each plan has its own "Why choose this plan?" explanation, with unbuilt items marked coming soon', () => {
+test('each plan has its own "Why choose this plan?" explanation, read from the plan configuration', () => {
   const card = readFileSync('src/features/billing/plan-card.tsx', 'utf8');
   assert.match(card, /<PlanWhyButton plan=\{id\} \/>/, 'the shared card renders the button for its own plan');
 
   const basic = planReason('BASIC');
   assert.match(basic.headline, /small stores/);
   assert.match(basic.summary, /one store location, up to two staff accounts and up to 1,500 products/);
-  assert.deepEqual(basic.benefits.filter((b) => b.soon), []);
+  assert.ok(!basic.benefits.some((b) => /all branches/i.test(b.text)), 'Basic has one location, so no all-branches view');
 
   const business = planReason('BUSINESS');
+  assert.match(business.headline, /multiple store locations/);
   assert.deepEqual(business.benefits.map((b) => b.text), [
-    'Up to three locations',
+    'Up to three store locations',
+    'Owner dashboard for each branch and for all branches together',
     'Up to ten staff accounts',
     'Up to 5,000 products',
     'Up to 100 photo background removals per month',
@@ -112,12 +112,11 @@ test('each plan has its own "Why choose this plan?" explanation, with unbuilt it
     'Custom roles and permissions',
     '365-day audit history',
   ]);
-  assert.deepEqual(business.benefits.filter((b) => b.soon).map((b) => b.text), ['Up to three locations']);
-  assert.match(business.summary, /coming soon/);
 
   const enterprise = planReason('ENTERPRISE');
-  assert.deepEqual(enterprise.benefits.filter((b) => b.soon).map((b) => b.text), ['Up to five locations', 'Centralized multi-branch management']);
-  assert.ok(enterprise.benefits.some((b) => b.text === 'Unlimited staff accounts' && !b.soon));
-  assert.ok(enterprise.benefits.some((b) => b.text === 'Up to 1,000 photo background removals per month' && !b.soon));
+  assert.equal(enterprise.benefits[0].text, 'Up to five store locations');
+  assert.ok(enterprise.benefits.some((b) => b.text === 'Unlimited staff accounts'));
+  assert.ok(enterprise.benefits.some((b) => b.text === 'Up to 1,000 photo background removals per month'));
   assert.ok(enterprise.benefits.some((b) => b.text === 'Full audit history'));
+  for (const id of PLAN_ORDER) assert.deepEqual(planReason(id).benefits.filter((b) => b.soon), [], `${id} lists only what ships`);
 });

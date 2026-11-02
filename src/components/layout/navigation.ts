@@ -159,6 +159,7 @@ export const NAVIGATION: NavSection[] = [
         icon: Settings,
         children: [
           { label: 'Store Settings', href: '/settings', icon: SlidersHorizontal, permission: 'settings.view', exact: true },
+          { label: 'Branches', href: '/settings/branches', icon: Store, permission: 'branches.view' },
           { label: 'Staff Accounts', href: '/settings/users', icon: Users, permission: 'users.view' },
           { label: 'Roles & Permissions', href: '/settings/roles', icon: KeyRound, permission: 'roles.view' },
           { label: 'Activity Log', href: '/settings/audit', icon: ScrollText, permission: 'audit.view' },

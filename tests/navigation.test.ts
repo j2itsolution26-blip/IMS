@@ -129,7 +129,7 @@ test('the owner sees every settings page; staff see only what they may open', ()
     .flatMap((section) => section.items)
     .find((item) => item.label === 'Settings');
   assert.ok(ownerSettings && isNavGroup(ownerSettings));
-  assert.deepEqual(labels(ownerSettings.children), ['Store Settings', 'Staff Accounts', 'Roles & Permissions', 'Activity Log', 'Subscription & Billing']);
+  assert.deepEqual(labels(ownerSettings.children), ['Store Settings', 'Branches', 'Staff Accounts', 'Roles & Permissions', 'Activity Log', 'Subscription & Billing']);
 
   for (const slug of ['cashier', 'inventory-staff']) {
     const items = visibleNavigation(NAVIGATION, grantedFor(slug)).flatMap((section) => section.items);

@@ -100,7 +100,7 @@ async function overLimits(tx: Tx, storeId: string, subscription: Pick<StoreSubsc
     SELECT
       (SELECT count(*)::int FROM products WHERE "storeId" = s.id AND status <> 'ARCHIVED') AS products,
       (SELECT count(*)::int FROM users WHERE "storeId" = s.id AND "isActive" AND id IS DISTINCT FROM s."ownerId") AS staff,
-      (SELECT count(*)::int FROM warehouses WHERE "storeId" = s.id) AS branches
+      (SELECT count(*)::int FROM warehouses WHERE "storeId" = s.id AND "isActive") AS branches
     FROM stores s WHERE s.id = ${storeId}`;
   const over: string[] = [];
   for (const key of ['products', 'staff', 'branches'] as const satisfies readonly LimitKey[]) {

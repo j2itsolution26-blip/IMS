@@ -203,7 +203,7 @@ export async function listStores(search?: string): Promise<PlatformStoreRow[]> {
       o.name AS "ownerName", o.username AS "ownerUsername",
       (SELECT count(*)::int FROM products p WHERE p."storeId" = s.id AND p.status <> 'ARCHIVED') AS products,
       (SELECT count(*)::int FROM users u WHERE u."storeId" = s.id AND u."isActive" AND u.id IS DISTINCT FROM s."ownerId") AS staff,
-      (SELECT count(*)::int FROM warehouses w WHERE w."storeId" = s.id) AS branches
+      (SELECT count(*)::int FROM warehouses w WHERE w."storeId" = s.id AND w."isActive") AS branches
     FROM stores s
     LEFT JOIN users o ON o.id = s."ownerId"
     WHERE ${term}::text IS NULL OR s.name ILIKE ${term} OR o.name ILIKE ${term} OR o.username ILIKE ${term} OR o.email ILIKE ${term}
@@ -277,7 +277,7 @@ export async function getStoreDetail(storeId: string, period: string): Promise<P
   const [products, staff, branches, removals, payments, history, invoices] = await Promise.all([
     platformPrisma.product.count({ where: { storeId, status: { not: 'ARCHIVED' } } }),
     platformPrisma.user.count({ where: { storeId, isActive: true, ...(store.ownerId ? { id: { not: store.ownerId } } : {}) } }),
-    platformPrisma.warehouse.count({ where: { storeId } }),
+    platformPrisma.warehouse.count({ where: { storeId, isActive: true } }),
     platformPrisma.storeUsage.findUnique({
       where: { storeId_metric_period: { storeId, metric: 'backgroundRemovals', period } },
       select: { count: true },

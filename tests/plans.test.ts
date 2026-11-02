@@ -106,11 +106,25 @@ test('a suspended store is never writable', () => {
 });
 
 test('the quotas copied onto the store row follow the effective plan', () => {
-  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'ACTIVE' }), { productLimit: 1500, staffLimit: 2, staffRoleLimit: 1 });
-  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'TRIAL' }), { productLimit: 1500, staffLimit: 2, staffRoleLimit: 1 });
-  assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'TRIAL' }), { productLimit: 5000, staffLimit: 10, staffRoleLimit: null });
-  assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'PAST_DUE' }), { productLimit: 5000, staffLimit: 10, staffRoleLimit: null });
-  assert.deepEqual(storedLimits({ plan: 'ENTERPRISE', status: 'ACTIVE' }), { productLimit: null, staffLimit: null, staffRoleLimit: null });
+  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'ACTIVE' }), { productLimit: 1500, staffLimit: 2, staffRoleLimit: 1, branchLimit: 1 });
+  assert.deepEqual(storedLimits({ plan: 'BASIC', status: 'TRIAL' }), { productLimit: 1500, staffLimit: 2, staffRoleLimit: 1, branchLimit: 1 });
+  assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'TRIAL' }), { productLimit: 5000, staffLimit: 10, staffRoleLimit: null, branchLimit: 3 });
+  assert.deepEqual(storedLimits({ plan: 'BUSINESS', status: 'PAST_DUE' }), { productLimit: 5000, staffLimit: 10, staffRoleLimit: null, branchLimit: 3 });
+  assert.deepEqual(storedLimits({ plan: 'ENTERPRISE', status: 'ACTIVE' }), { productLimit: null, staffLimit: null, staffRoleLimit: null, branchLimit: 5 });
+});
+
+test('locations: Basic 1, Business 3, Enterprise 5, and the branch migration backfills the same', () => {
+  assert.deepEqual(['BASIC', 'BUSINESS', 'ENTERPRISE'].map((id) => PLANS[id as keyof typeof PLANS].limits.branches), [1, 3, 5]);
+  const sql = readFileSync('prisma/migrations/20261112090000_branch_limits/migration.sql', 'utf8');
+  const backfill = sql.slice(sql.indexOf('-- Backfill.'), sql.indexOf('-- End backfill.'));
+  assert.match(backfill, /'BASIC' THEN 1\s/);
+  assert.match(backfill, /'BUSINESS' THEN 3\s/);
+  assert.match(backfill, /ELSE 5 END/);
+  // The trigger locks the store row, so concurrent creates take turns.
+  assert.match(sql, /FROM "stores" WHERE "id" = NEW\."storeId" FOR UPDATE/);
+  // Branches are archived, never deleted while they have history.
+  assert.match(sql, /BEFORE DELETE ON "warehouses"/);
+  assert.doesNotMatch(sql, /DELETE FROM "(warehouses|sales|inventory|inventory_transactions)"/);
 });
 
 test('the latest migration backfill uses the same numbers as the plan configuration', () => {
@@ -174,7 +188,7 @@ test('every plan includes the core store operations, and nothing announced is so
   ]) {
     assert.ok((CORE_FEATURES as readonly string[]).includes(feature), `missing core feature: ${feature}`);
   }
-  assert.ok(COMING_SOON.some((item) => /multi-branch/i.test(item)));
+  assert.ok(COMING_SOON.some((item) => /stock transfers/i.test(item)));
 });
 
 test('changing any role\'s permissions is a paid feature, checked on the server', () => {

@@ -79,19 +79,12 @@ export function staffSplit(perRole: number): string {
   return STAFF_SLOT_ROLES.map((role) => `${perRole} ${role.name}`).join(', ');
 }
 
-/**
- * A plan's locations, from the plan configuration. While multi-branch is not
- * built, a plan meant for more locations shows that number as coming soon,
- * next to the one location it includes today.
- */
-export function locationLine(id: PlanId): { headline: string; today: string | null; soon: boolean } {
-  const plan = PLANS[id];
-  const included = plan.limits.branches ?? plan.plannedBranches;
-  const label = (value: number) => (value === 1 ? '1 Location' : `Up to ${formatNumber(value, 0)} Locations`);
-  if (plan.plannedBranches > included) {
-    return { headline: label(plan.plannedBranches), today: `${formatNumber(included, 0)} location included today`, soon: true };
-  }
-  return { headline: included === 1 ? '1 Location Included' : label(included), today: null, soon: false };
+/** A plan's locations (physical store branches), from the plan configuration. */
+export function locationLine(id: PlanId): { headline: string; detail: string } {
+  const branches = PLANS[id].limits.branches;
+  if (branches === null) return { headline: 'Unlimited Locations', detail: 'Physical store branches' };
+  if (branches === 1) return { headline: '1 Location Included', detail: 'One physical store' };
+  return { headline: `Up to ${formatNumber(branches, 0)} Locations Included`, detail: 'Physical store branches, with an all-branches view' };
 }
 
 /**
@@ -233,11 +226,8 @@ export function PlanCard({
         <div className="mt-4 flex items-start gap-3 rounded-xl border border-border/70 bg-muted/30 px-3.5 py-2.5">
           <Store className={cn('mt-0.5 h-5 w-5 shrink-0', theme.check)} aria-hidden="true" />
           <div className="min-w-0">
-            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
-              {location.headline}
-              {location.soon && <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Coming soon</span>}
-            </p>
-            {location.today && <p className="mt-0.5 text-xs text-muted-foreground">{location.today}</p>}
+            <p className="text-sm font-semibold">{location.headline}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{location.detail}</p>
           </div>
         </div>
       </div>

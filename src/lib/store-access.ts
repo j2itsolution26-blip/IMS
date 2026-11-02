@@ -78,7 +78,13 @@ export function storedLimits(subscription: Pick<StoreSubscription, 'plan' | 'sta
   productLimit: number | null;
   staffLimit: number | null;
   staffRoleLimit: number | null;
+  branchLimit: number | null;
 } {
   const plan = PLANS[effectivePlanId(subscription)];
-  return { productLimit: plan.limits.products, staffLimit: plan.limits.staff, staffRoleLimit: plan.staffPerRole };
+  return {
+    productLimit: plan.limits.products,
+    staffLimit: plan.limits.staff,
+    staffRoleLimit: plan.staffPerRole,
+    branchLimit: plan.limits.branches,
+  };
 }

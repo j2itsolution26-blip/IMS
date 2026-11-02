@@ -17,11 +17,8 @@ export function comparisonRows(): { group: string; rows: { label: string; value:
     {
       group: 'Capacity',
       rows: [
-        {
-          label: 'Locations',
-          // Planned locations above the enforced limit are announced, never sold.
-          value: (p) => (p.limits.branches !== null && p.plannedBranches > p.limits.branches ? `${limit(p.limits.branches)} (${limit(p.plannedBranches)} coming soon)` : limit(p.limits.branches)),
-        },
+        { label: 'Locations (physical stores)', value: (p) => limit(p.limits.branches) },
+        { label: 'All-branches dashboard', value: (p) => (p.limits.branches ?? 2) > 1 },
         { label: 'Staff accounts', value: (p) => limit(p.limits.staff) },
         {
           label: 'Staff roles',

@@ -31,12 +31,6 @@ export interface PlanDefinition {
    * the slots. The owner never takes a slot.
    */
   staffPerRole: number | null;
-  /**
-   * Locations the plan is meant to include once multi-branch ships. Shown on
-   * the pricing page as "coming soon" while it is above `limits.branches`;
-   * never enforced and never sold as capacity. `limits.branches` is the rule.
-   */
-  plannedBranches: number;
 }
 
 export const PLANS: Record<PlanId, PlanDefinition> = {
@@ -48,27 +42,24 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     features: { reportExports: false, customRoles: false, backgroundRemoval: false },
     auditHistoryDays: 90,
     staffPerRole: 1,
-    plannedBranches: 1,
   },
   BUSINESS: {
     id: 'BUSINESS',
     name: 'Business',
     description: 'For growing stores with a team.',
-    limits: { branches: 1, staff: 10, products: 5000, backgroundRemovalsPerMonth: 100 },
+    limits: { branches: 3, staff: 10, products: 5000, backgroundRemovalsPerMonth: 100 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: 365,
     staffPerRole: null,
-    plannedBranches: 3,
   },
   ENTERPRISE: {
     id: 'ENTERPRISE',
     name: 'Enterprise',
     description: 'For busy stores with large catalogs and big teams.',
-    limits: { branches: 1, staff: null, products: null, backgroundRemovalsPerMonth: 1000 },
+    limits: { branches: 5, staff: null, products: null, backgroundRemovalsPerMonth: 1000 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: null,
     staffPerRole: null,
-    plannedBranches: 5,
   },
 };
 
@@ -141,12 +132,10 @@ export const CORE_FEATURES = [
 
 /**
  * Announced but not built. Shown as "Coming soon" and never as capacity.
- * Every store is one location today: `branches` is 1 on every plan until
- * multi-branch (branch creation, switching, per-branch stock and staff,
- * transfers) ships as its own project. Until then the pricing page shows
- * each plan's `plannedBranches` as "coming soon".
+ * Each branch manages its own stock-in and adjustments; moving stock between
+ * branches is a later project.
  */
-export const COMING_SOON = ['Multi-branch (more than one location per store)'] as const;
+export const COMING_SOON = ['Stock transfers between branches'] as const;
 
 /** Support is the same help desk on every plan. */
 export const SUPPORT_LABEL = 'Help desk tickets';
@@ -188,7 +177,7 @@ export function planLimitFromDatabase(message: string): string | null {
   const role = /PLAN_LIMIT: role ([a-z0-9-]+) (\d+)/.exec(message);
   if (role) return roleSlotMessage(role[1], Number(role[2]));
   if (/PLAN_LIMIT: custom-role/.test(message)) return CUSTOM_ROLE_ON_SLOTS_MESSAGE;
-  const match = /PLAN_LIMIT: (products|staff) (\d+)/.exec(message);
+  const match = /PLAN_LIMIT: (products|staff|branches) (\d+)/.exec(message);
   if (!match) return null;
-  return limitMessage(match[1] as 'products' | 'staff', Number(match[2]));
+  return limitMessage(match[1] as 'products' | 'staff' | 'branches', Number(match[2]));
 }

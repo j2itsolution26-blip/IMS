@@ -62,6 +62,9 @@ model Store {
   // Inventory Staff); null = no per-role cap. Set with the others; the same
   // trigger enforces it (migration 20261111090000).
   staffRoleLimit Int?
+  // Most active locations (warehouses); null = no cap. Set with the others;
+  // enforced by its own trigger on warehouses (migration 20261112090000).
+  branchLimit    Int?
 
   // A demonstration store: sample data, kept out of billing, reminders and
   // platform figures, and resettable by the platform administrator. Set only

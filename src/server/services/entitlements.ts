@@ -92,7 +92,8 @@ async function countUsage(ctx: StoreContext, key: LimitKey): Promise<number> {
       return ctx.db.user.count({ where: { isActive: true, ...(store?.ownerId ? { id: { not: store.ownerId } } : {}) } });
     }
     case 'branches':
-      return ctx.db.warehouse.count();
+      // Only active branches count; archived ones keep their history for free.
+      return ctx.db.warehouse.count({ where: { isActive: true } });
     case 'backgroundRemovalsPerMonth': {
       const row = await ctx.db.storeUsage.findUnique({
         where: { storeId_metric_period: { storeId: ctx.storeId, metric: 'backgroundRemovals', period: usagePeriod() } },
