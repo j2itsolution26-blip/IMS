@@ -213,26 +213,28 @@ export async function getSalesBreakdown(
 export async function getPaymentMethodBreakdown(from: Date, to: Date) {
   const { db } = await getStoreContext();
   const branches = await readBranchIds();
-  const rows = await db.payment.groupBy({
-    by: ['method'],
-    where: {
-      direction: 'INBOUND',
-      createdAt: { gte: from, lte: to },
-      ...(branches === null ? {} : { OR: [{ sale: { warehouseId: { in: branches } } }, { shift: { warehouseId: { in: branches } } }] }),
-    },
-    _sum: { amount: true },
-    _count: true,
-  });
+  const branchWhere = branches === null ? {} : { warehouseId: { in: branches } };
+  // Payments on sales that still stand: a voided sale took no money.
+  const [rows, change] = await Promise.all([
+    db.payment.groupBy({
+      by: ['method'],
+      where: { direction: 'INBOUND', createdAt: { gte: from, lte: to }, sale: { status: { not: 'VOIDED' }, ...branchWhere } },
+      _sum: { amount: true },
+      _count: true,
+    }),
+    // Cash is stored as tendered; the change handed back was never taken.
+    db.sale.aggregate({ where: { status: { not: 'VOIDED' }, createdAt: { gte: from, lte: to }, ...branchWhere }, _sum: { changeAmount: true } }),
+  ]);
+  const changeGiven = toNum(change._sum.changeAmount ?? 0);
+  const kept = rows.map((r) => ({
+    method: r.method,
+    amount: Math.max(0, Math.round((toNum(r._sum.amount) - (r.method === 'CASH' ? changeGiven : 0)) * 100) / 100),
+    count: r._count,
+  }));
+  const total = kept.reduce((acc, r) => acc + r.amount, 0);
 
-  const total = rows.reduce((acc, r) => acc + toNum(r._sum.amount), 0);
-
-  return rows
-    .map((r) => ({
-      method: r.method,
-      amount: toNum(r._sum.amount),
-      count: r._count,
-      share: total > 0 ? Number(((toNum(r._sum.amount) / total) * 100).toFixed(2)) : 0,
-    }))
+  return kept
+    .map((r) => ({ ...r, share: total > 0 ? Number(((r.amount / total) * 100).toFixed(2)) : 0 }))
     .sort((a, b) => b.amount - a.amount);
 }
 
