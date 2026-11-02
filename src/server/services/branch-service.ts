@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { getStoreContext, type StoreContext } from '@/lib/tenant/context';
-import { ConflictError, NotFoundError, PlanLimitError, StoreReadOnlyError } from '@/lib/errors';
+import { ConflictError, NotFoundError, PlanLimitError, StoreReadOnlyError, ValidationError } from '@/lib/errors';
 import { limitMessage } from '@/lib/plans';
 import { withinLimit } from '@/server/services/entitlements';
 import { diff, recordAudit } from '@/server/services/audit-service';
@@ -56,7 +56,11 @@ async function nextCode(ctx: StoreContext): Promise<string> {
 
 async function assertCodeFree(ctx: StoreContext, code: string, exceptId?: string): Promise<void> {
   const clash = await ctx.db.warehouse.findFirst({ where: { code, ...(exceptId ? { id: { not: exceptId } } : {}) }, select: { id: true } });
-  if (clash) throw new ConflictError(`Another branch already uses the code ${code}.`);
+  if (clash) {
+    const message = `Another branch already uses the code ${code}.`;
+    // On the Code field, so the form shows it there.
+    throw new ValidationError(message, { code: [message] });
+  }
 }
 
 async function findBranch(ctx: StoreContext, id: string): Promise<BranchRow> {
