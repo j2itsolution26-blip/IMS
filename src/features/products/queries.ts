@@ -4,6 +4,7 @@ import type { Prisma, ProductStatus } from '@prisma/client';
 import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { toNum } from '@/lib/decimal';
 import { posBranchId } from '@/server/services/warehouse-service';
+import { readBranchIds, sqlBranch, visibleBranchIds, whereBranch } from '@/server/analytics/branch-filter';
 import { normalizeBarcode } from '@/lib/barcode';
 
 /**
@@ -71,6 +72,8 @@ export async function listProducts(query: ProductListQuery = {}) {
           ? { createdAt: direction }
           : { name: direction };
 
+  // Stock of the branches in the account's scope (one, or the whole store).
+  const branches = await readBranchIds();
   const [rows, total] = await Promise.all([
     db.product.findMany({
       where,
@@ -90,7 +93,7 @@ export async function listProducts(query: ProductListQuery = {}) {
         status: true,
         isTrackable: true,
         category: { select: { name: true } },
-        inventory: { select: { quantity: true } },
+        inventory: { where: whereBranch(branches), select: { quantity: true } },
       },
     }),
     db.product.count({ where }),
@@ -144,11 +147,14 @@ export async function getProductFormOptions() {
 
 export async function getProduct(id: string) {
   const db = await storeDb();
+  // Stock per branch: every branch for the owner, their own for staff.
+  const visible = await visibleBranchIds();
   return db.product.findUnique({
     where: { id },
     include: {
       category: { select: { id: true, name: true } },
       inventory: {
+        where: whereBranch(visible),
         select: {
           quantity: true,
           reserved: true,
@@ -168,10 +174,11 @@ export async function getProduct(id: string) {
 export async function getProductHistory(id: string, days = 90) {
   const since = new Date(Date.now() - days * 86_400_000);
   const { db, storeId } = await getStoreContext();
+  const branches = await readBranchIds();
 
   const [movements, performance, priceHistory] = await Promise.all([
     db.inventoryTransaction.findMany({
-      where: { productId: id },
+      where: { productId: id, ...whereBranch(branches) },
       orderBy: { createdAt: 'desc' },
       take: 25,
       select: {
@@ -194,7 +201,7 @@ export async function getProductHistory(id: string, days = 90) {
         COUNT(DISTINCT s.id)::int            AS "orders"
       FROM sale_items si
       JOIN sales s ON s.id = si."saleId"
-      WHERE s."storeId" = ${storeId} AND si."productId" = ${id} AND s.status <> 'VOIDED' AND s."createdAt" >= ${since}
+      WHERE s."storeId" = ${storeId}${sqlBranch('s."warehouseId"', branches)} AND si."productId" = ${id} AND s.status <> 'VOIDED' AND s."createdAt" >= ${since}
     `,
     db.priceHistory.findMany({
       where: { productId: id },

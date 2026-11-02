@@ -252,3 +252,79 @@ if (process.env.INTEGRATION_DATABASE_URL) {
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Consolidated figures (migration 20261113090000 + branch-filter.ts)
+// ---------------------------------------------------------------------------
+
+if (process.env.INTEGRATION_DATABASE_URL) {
+  let platform: PrismaClient;
+  let storeClient: (storeId: string, options?: { writable?: boolean }) => PrismaClient;
+  const run = randomBytes(4).toString('hex');
+
+  describe('consolidated figures', () => {
+    before(async () => {
+      ({ platformPrisma: platform } = await import('@/lib/prisma'));
+      ({ storeClient } = await import('@/lib/tenant/client'));
+    });
+    after(async () => {
+      await platform?.$disconnect();
+    });
+
+    test('per-branch totals add up to the all-branches total, with nothing from another store or counted twice', async () => {
+      const { sqlBranch } = await import('@/server/analytics/branch-filter');
+      const { buildDataExport } = await import('@/server/services/data-export-service');
+      const { storedLimits } = await import('@/lib/store-access');
+
+      const makeStore = async (tag: string) => {
+        const storeId = `cf_${run}_${tag}`;
+        await platform.store.create({
+          data: { id: storeId, name: storeId, slug: storeId.replace(/_/g, '-'), status: 'ACTIVE', plan: 'ENTERPRISE', ...storedLimits({ plan: 'ENTERPRISE', status: 'ACTIVE' }) },
+        });
+        const db = storeClient(storeId);
+        const role = await db.role.create({ data: { name: 'Owner', slug: 'owner', isSystem: true } });
+        const user = await db.user.create({ data: { name: 'Owner', email: `${storeId}@cf.test`, username: `own${run}${tag}`, roleId: role.id } });
+        const main = await db.warehouse.create({ data: { code: 'MAIN', name: 'Main', isDefault: true } });
+        const second = await db.warehouse.create({ data: { code: 'BR2', name: 'Second' } });
+        const sell = async (branchId: string, n: number, total: number) => {
+          const shift = await db.cashierShift.create({ data: { userId: user.id, warehouseId: branchId, openingCash: 0 } });
+          await db.sale.create({ data: { invoiceNumber: `INV-${tag}-${n}`, warehouseId: branchId, userId: user.id, shiftId: shift.id, total } });
+          await platform.cashierShift.update({ where: { id: shift.id }, data: { status: 'CLOSED', closedAt: new Date() } });
+        };
+        return { storeId, db, main, second, sell };
+      };
+
+      const a = await makeStore('a');
+      const b = await makeStore('b');
+      await a.sell(a.main.id, 1, 100);
+      await a.sell(a.main.id, 2, 50);
+      await a.sell(a.second.id, 3, 30);
+      await b.sell(b.main.id, 1, 999);
+
+      const total = async (ids: string[] | null) => {
+        const [row] = await a.db.$queryRaw<{ revenue: string; n: number }[]>`
+          SELECT COALESCE(SUM(s.total), 0)::text AS revenue, COUNT(*)::int AS n
+          FROM sales s WHERE s."storeId" = ${a.storeId}${sqlBranch('s."warehouseId"', ids)}`;
+        return { revenue: Number(row.revenue), n: row.n };
+      };
+      const all = await total(null);
+      const main = await total([a.main.id]);
+      const second = await total([a.second.id]);
+      assert.deepEqual(all, { revenue: 180, n: 3 });
+      assert.deepEqual(main, { revenue: 150, n: 2 });
+      assert.deepEqual(second, { revenue: 30, n: 1 });
+      assert.equal(main.revenue + second.revenue, all.revenue);
+      // Another store's branch id never brings its sales in.
+      assert.deepEqual(await total([b.main.id]), { revenue: 0, n: 0 });
+
+      // The CSV download follows the same scope.
+      const now = new Date(Date.now() + 60_000);
+      const invoices = async (branches: string[] | null) =>
+        (await buildDataExport(a.db, 'sales', { includeCost: false, now, branches })).result.rows.map((row) => row.invoice).sort();
+      assert.deepEqual(await invoices(null), ['INV-a-1', 'INV-a-2', 'INV-a-3']);
+      assert.deepEqual(await invoices([a.second.id]), ['INV-a-3']);
+      const rows = (await buildDataExport(a.db, 'sales', { includeCost: false, now, branches: null })).result.rows;
+      assert.ok(rows.every((row) => row.branch === 'Main' || row.branch === 'Second'));
+    });
+  });
+}

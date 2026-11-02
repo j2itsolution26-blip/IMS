@@ -10,6 +10,7 @@ import { nextDocumentNumber } from '@/server/services/numbering-service';
 import { recordAudit } from '@/server/services/audit-service';
 import { getSettings, readNumber } from '@/server/services/settings-service';
 import { lockShiftIfOpen, requireOpenShift } from '@/server/services/shift-service';
+import { assertRecordBranchVisible } from '@/server/analytics/branch-filter';
 import { GCASH_REFERENCE_HINT, normalizeGcashReference } from '@/lib/tender';
 
 /**
@@ -455,6 +456,7 @@ export async function voidSale(saleId: string, userId: string, reason: string): 
       include: { items: true, returns: { select: { id: true } } },
     });
     if (!sale) throw new NotFoundError('Sale');
+    await assertRecordBranchVisible(sale.warehouseId, 'Sale');
     if (sale.status === 'VOIDED') throw new ConflictError('This sale has already been voided.');
     if (sale.status !== 'COMPLETED' || sale.returns.length > 0) {
       throw new ConflictError('Part of this sale has already been refunded, so it cannot be voided. Refund the remaining items instead.');

@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { AlertTriangle, PackageCheck } from 'lucide-react';
 import { requirePermission } from '@/lib/session';
 import { storeDb } from '@/lib/tenant/context';
+import { visibleBranchIds, whereSaleBranch } from '@/server/analytics/branch-filter';
 import { toNum } from '@/lib/decimal';
 import { getCurrency } from '@/server/services/settings-service';
 import { formatCurrency, formatDateTime, humanizeEnum } from '@/lib/format';
@@ -33,8 +34,8 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
   const { id } = await params;
 
   const [record, currency] = await Promise.all([
-    db.return.findUnique({
-      where: { id },
+    db.return.findFirst({
+      where: { id, ...whereSaleBranch(await visibleBranchIds()) },
       include: {
         sale: { select: { id: true, invoiceNumber: true, createdAt: true } },
         user: { select: { name: true } },

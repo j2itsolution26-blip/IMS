@@ -10,6 +10,7 @@ import { shiftReference } from '@/lib/shift-review';
 import { recordAudit } from '@/server/services/audit-service';
 import { getSettings, readBoolean } from '@/server/services/settings-service';
 import { getOpenShift, lockShiftIfOpen } from '@/server/services/shift-service';
+import { readBranchIds, whereShiftBranch } from '@/server/analytics/branch-filter';
 
 /**
  * GCash cash-in / cash-out services (see src/lib/wallet.ts for the money).
@@ -205,6 +206,8 @@ export async function listWalletTransactions(query: {
           ],
         }
       : {}),
+    // Services on shifts of the branches in the account's scope.
+    ...whereShiftBranch(await readBranchIds()),
   };
 
   const [total, totals] = await Promise.all([

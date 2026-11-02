@@ -81,3 +81,40 @@ test('branch management is for the owner account; the branch cookie is checked b
   assert.match(select, /scope\.canSwitch && scope\.branches\.some/);
   assert.match(select, /httpOnly: true/);
 });
+
+test('every dashboard, report, list and export over sales, stock or shifts applies the branch scope', () => {
+  // Each of these reads branch-owned rows; each must take the account's branch scope.
+  const readers = [
+    'src/server/analytics/dashboard.ts',
+    'src/server/analytics/dashboard-overview.ts',
+    'src/server/analytics/sales-analytics.ts',
+    'src/server/analytics/inventory-analytics.ts',
+    'src/server/analytics/inventory-dashboard.ts',
+    'src/server/analytics/badges.ts',
+    'src/features/sales/queries.ts',
+    'src/features/inventory/queries.ts',
+    'src/features/products/queries.ts',
+    'src/server/services/shift-service.ts',
+    'src/server/services/cash-movement-queries.ts',
+    'src/server/services/wallet-service.ts',
+    'src/server/reports/registry.ts',
+    'src/app/(app)/returns/page.tsx',
+    'src/app/(app)/returns/[id]/page.tsx',
+    'src/app/api/data-export/[dataset]/route.ts',
+  ];
+  for (const file of readers) {
+    assert.match(read(file), /readBranchIds|visibleBranchIds|operatingBranchId|posBranchId/, `${file} applies the branch scope`);
+  }
+  // Single records are checked against the branches the account may open.
+  assert.match(read('src/features/sales/queries.ts'), /findFirst\(\{\s*where: \{ id, \.\.\.whereBranch\(await visibleBranchIds\(\)\) \}/);
+  assert.match(read('src/server/services/shift-service.ts'), /where: \{ id: shiftId, \.\.\.whereBranch\(await visibleBranchIds\(\)\) \}/);
+  for (const file of ['src/server/services/sale-service.ts', 'src/server/services/return-service.ts']) {
+    assert.match(read(file), /assertRecordBranchVisible\(sale\.warehouseId, 'Sale'\)/, `${file}: voids and refunds stay within the branch`);
+  }
+});
+
+test('"all branches" means the whole store for the owner; staff and a picked branch filter to one', () => {
+  const branch = read('src/lib/tenant/branch.ts');
+  assert.match(branch, /filterIds: selected === ALL_BRANCHES \? null : \[selected\]/);
+  assert.match(branch, /visibleIds: all \? null : visible\.map/);
+});

@@ -22,7 +22,11 @@ export interface DataExportResult {
   truncated: boolean;
 }
 
-async function productsExport(db: PrismaClient, includeCost: boolean): Promise<DataExportResult> {
+/** Branch filter for exports: null = the whole store. */
+type Branches = string[] | null;
+const inBranches = (branches: Branches) => (branches === null ? {} : { warehouseId: { in: branches } });
+
+async function productsExport(db: PrismaClient, includeCost: boolean, branches: Branches): Promise<DataExportResult> {
   const products = await db.product.findMany({
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
     take: DATA_EXPORT_ROW_LIMIT + 1,
@@ -36,7 +40,7 @@ async function productsExport(db: PrismaClient, includeCost: boolean): Promise<D
       costPrice: true,
       reorderLevel: true,
       category: { select: { name: true } },
-      inventory: { select: { quantity: true } },
+      inventory: { where: inBranches(branches), select: { quantity: true } },
     },
   });
   const truncated = products.length > DATA_EXPORT_ROW_LIMIT;
@@ -67,9 +71,9 @@ async function productsExport(db: PrismaClient, includeCost: boolean): Promise<D
   return { result: { columns, rows }, truncated };
 }
 
-async function salesExport(db: PrismaClient, includeCost: boolean, now: Date): Promise<DataExportResult> {
+async function salesExport(db: PrismaClient, includeCost: boolean, now: Date, branches: Branches): Promise<DataExportResult> {
   const sales = await db.sale.findMany({
-    where: { createdAt: { gte: salesExportStart(now), lte: now } },
+    where: { createdAt: { gte: salesExportStart(now), lte: now }, ...inBranches(branches) },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: DATA_EXPORT_ROW_LIMIT + 1,
     select: {
@@ -81,6 +85,7 @@ async function salesExport(db: PrismaClient, includeCost: boolean, now: Date): P
       total: true,
       costOfGoods: true,
       user: { select: { name: true } },
+      warehouse: { select: { name: true } },
       payments: { where: { direction: 'INBOUND' }, select: { method: true } },
       _count: { select: { items: true } },
     },
@@ -90,6 +95,7 @@ async function salesExport(db: PrismaClient, includeCost: boolean, now: Date): P
     text('invoice', 'Invoice'),
     { key: 'date', label: 'Date', format: 'datetime' },
     text('status', 'Status'),
+    text('branch', 'Branch'),
     text('cashier', 'Cashier'),
     text('methods', 'Payment methods'),
     qty('lines', 'Line items'),
@@ -102,6 +108,7 @@ async function salesExport(db: PrismaClient, includeCost: boolean, now: Date): P
     invoice: sale.invoiceNumber,
     date: sale.createdAt,
     status: sale.status,
+    branch: sale.warehouse.name,
     cashier: sale.user.name,
     methods: [...new Set(sale.payments.map((payment) => payment.method))].join(' + '),
     lines: sale._count.items,
@@ -116,7 +123,10 @@ async function salesExport(db: PrismaClient, includeCost: boolean, now: Date): P
 export function buildDataExport(
   db: PrismaClient,
   dataset: DataExportDataset,
-  options: { includeCost: boolean; now?: Date },
+  options: { includeCost: boolean; now?: Date; branches?: string[] | null },
 ): Promise<DataExportResult> {
-  return dataset === 'products' ? productsExport(db, options.includeCost) : salesExport(db, options.includeCost, options.now ?? new Date());
+  const branches = options.branches ?? null;
+  return dataset === 'products'
+    ? productsExport(db, options.includeCost, branches)
+    : salesExport(db, options.includeCost, options.now ?? new Date(), branches);
 }

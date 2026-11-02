@@ -7,6 +7,7 @@ import { RefundError, refundAmounts } from '@/lib/refund-math';
 import { applyStockMovement, quantityFor, validQuantity } from '@/server/services/inventory-service';
 import { refundShiftFor } from '@/server/services/shift-service';
 import { lockSale } from '@/server/services/sale-service';
+import { assertRecordBranchVisible } from '@/server/analytics/branch-filter';
 import { nextDocumentNumber } from '@/server/services/numbering-service';
 import { recordAudit } from '@/server/services/audit-service';
 
@@ -92,6 +93,7 @@ export async function createSaleReturn(input: CreateSaleReturnInput): Promise<Co
           },
         });
         if (!sale) throw new NotFoundError('Sale');
+        await assertRecordBranchVisible(sale.warehouseId, 'Sale');
         if (sale.status === 'VOIDED') throw new ConflictError('This sale was voided; there is nothing to return.');
         if (sale.status === 'RETURNED') throw new ConflictError('Everything on this sale has already been refunded.');
 

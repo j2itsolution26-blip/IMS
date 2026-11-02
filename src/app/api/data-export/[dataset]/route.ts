@@ -9,6 +9,7 @@ import { DATA_EXPORTS, DATA_EXPORT_ROW_LIMIT, dataExportFilename, parseDataExpor
 import { toCsv } from '@/server/reports/exporters';
 import { recordAudit } from '@/server/services/audit-service';
 import { buildDataExport } from '@/server/services/data-export-service';
+import { readBranchIds } from '@/server/analytics/branch-filter';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -42,7 +43,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dat
     const ctx = await getStoreContext();
     const now = new Date();
     const includeCost = user.permissions.has(FINANCIAL_PERMISSION);
-    const { result, truncated } = await buildDataExport(ctx.db, dataset, { includeCost, now });
+    // The branches in the account's scope: one, or the whole store for the owner's "all branches".
+    const { result, truncated } = await buildDataExport(ctx.db, dataset, { includeCost, now, branches: await readBranchIds() });
 
     await recordAudit({
       action: 'EXPORT',

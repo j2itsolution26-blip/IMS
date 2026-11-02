@@ -2,6 +2,7 @@ import { isProductUnit, type ProductUnit } from '@/lib/quantity';
 import 'server-only';
 
 import { getStoreContext } from '@/lib/tenant/context';
+import { readBranchIds, sqlBranch } from '@/server/analytics/branch-filter';
 import { getSettings, readNumber } from '@/server/services/settings-service';
 
 /**
@@ -133,6 +134,15 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
   const params: unknown[] = [storeId];
   const conditions: string[] = [`p."storeId" = $1`, `p.status = 'ACTIVE'`, `p."isTrackable" = true`];
 
+  // Stock of the branches in the account's scope, filtered in the join so a
+  // product with no stock row at the branch still shows, as out of stock.
+  const branches = await readBranchIds();
+  let branchJoin = '';
+  if (branches !== null) {
+    params.push(branches);
+    branchJoin = ` AND i."warehouseId" = ANY($${params.length}::text[])`;
+  }
+
   if (query.warehouseId) {
     params.push(query.warehouseId);
     conditions.push(`i."warehouseId" = $${params.length}`);
@@ -189,10 +199,10 @@ export async function getStockLevels(query: StockLevelQuery = {}): Promise<Pagin
         p."updatedAt"                                           AS updated_at,
         MAX(i."lastSoldAt")                                     AS last_sold_at,
         MAX(i."lastReceivedAt")                                 AS last_received_at,
-        (SELECT MAX(t."createdAt") FROM inventory_transactions t WHERE t."productId" = p.id) AS last_movement_at
+        (SELECT MAX(t."createdAt") FROM inventory_transactions t WHERE t."productId" = p.id${branchJoin.replace('i."warehouseId"', 't."warehouseId"')}) AS last_movement_at
       FROM products p
       JOIN categories c ON c.id = p."categoryId"
-      LEFT JOIN inventory i ON i."productId" = p.id
+      LEFT JOIN inventory i ON i."productId" = p.id${branchJoin}
       LEFT JOIN warehouses w ON w.id = i."warehouseId"
       WHERE ${conditions.join(' AND ')}
       GROUP BY p.id, c.name
@@ -294,22 +304,23 @@ export interface TurnoverResult {
  */
 export async function getInventoryTurnover(from: Date, to: Date): Promise<TurnoverResult> {
   const { db, storeId } = await getStoreContext();
+  const branches = await readBranchIds();
   const rows = await db.$queryRaw<{ cogs: string; opening: string; closing: string }[]>`
     WITH cogs AS (
       SELECT COALESCE(SUM(s."costOfGoods"), 0) AS value
       FROM sales s
-      WHERE s."storeId" = ${storeId} AND s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+      WHERE s."storeId" = ${storeId}${sqlBranch('s."warehouseId"', branches)} AND s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
     ),
     closing AS (
       SELECT COALESCE(SUM(i.quantity * p."costPrice"), 0) AS value
       FROM inventory i JOIN products p ON p.id = i."productId"
-      WHERE i."storeId" = ${storeId}
+      WHERE i."storeId" = ${storeId}${sqlBranch('i."warehouseId"', branches)}
     ),
     -- Rewind the ledger to reconstruct the position at the start of the window.
     movement_since AS (
       SELECT COALESCE(SUM(it.quantity * it."unitCost"), 0) AS value
       FROM inventory_transactions it
-      WHERE it."storeId" = ${storeId} AND it."createdAt" >= ${from}
+      WHERE it."storeId" = ${storeId}${sqlBranch('it."warehouseId"', branches)} AND it."createdAt" >= ${from}
     )
     SELECT
       cogs.value::text                                        AS "cogs",
@@ -347,6 +358,7 @@ export interface AgingBucket {
  */
 export async function getInventoryAging(): Promise<AgingBucket[]> {
   const { db, storeId } = await getStoreContext();
+  const branches = await readBranchIds();
   const rows = await db.$queryRaw<{ bucket: string; products: number; units: string; value: string }[]>`
     WITH aged AS (
       SELECT
@@ -358,7 +370,7 @@ export async function getInventoryAging(): Promise<AgingBucket[]> {
           EXTRACT(DAY FROM now() - MIN(p."createdAt"))
         ) AS age_days
       FROM products p
-      JOIN inventory i ON i."productId" = p.id
+      JOIN inventory i ON i."productId" = p.id${sqlBranch('i."warehouseId"', branches)}
       WHERE p."storeId" = ${storeId} AND p.status = 'ACTIVE' AND p."isTrackable" = true
       GROUP BY p.id
       HAVING SUM(i.quantity) > 0
@@ -421,6 +433,7 @@ export async function getMovementAnalysis(kind: MovementClass, limit = 20): Prom
 
   const thresholdDays = kind === 'DEAD' ? deadDays : slowDays;
   const { db, storeId } = await getStoreContext();
+  const branches = await readBranchIds();
 
   const rows = await db.$queryRaw<
     {
@@ -438,7 +451,7 @@ export async function getMovementAnalysis(kind: MovementClass, limit = 20): Prom
         p.id, p.name, p.sku, p."costPrice",
         SUM(i.quantity) AS on_hand
       FROM products p
-      JOIN inventory i ON i."productId" = p.id
+      JOIN inventory i ON i."productId" = p.id${sqlBranch('i."warehouseId"', branches)}
       WHERE p."storeId" = ${storeId} AND p.status = 'ACTIVE' AND p."isTrackable" = true
       GROUP BY p.id
       HAVING SUM(i.quantity) > 0
@@ -452,7 +465,7 @@ export async function getMovementAnalysis(kind: MovementClass, limit = 20): Prom
         MAX(s."createdAt") AS last_sale
       FROM sale_items si
       JOIN sales s ON s.id = si."saleId"
-      WHERE s."storeId" = ${storeId} AND s.status <> 'VOIDED'
+      WHERE s."storeId" = ${storeId}${sqlBranch('s."warehouseId"', branches)} AND s.status <> 'VOIDED'
       GROUP BY si."productId"
     )
     SELECT

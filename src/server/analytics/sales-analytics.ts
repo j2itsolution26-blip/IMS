@@ -2,6 +2,7 @@ import 'server-only';
 
 import { Prisma } from '@prisma/client';
 import { getStoreContext } from '@/lib/tenant/context';
+import { readBranchIds, sqlBranch } from '@/server/analytics/branch-filter';
 import { toNum } from '@/lib/decimal';
 import { STORE_TIME_ZONE } from '@/lib/store-time';
 
@@ -74,12 +75,14 @@ export async function getSalesTimeSeries(
       )), 0)::text                                           AS "units"
     FROM sales s
     WHERE s."storeId" = $3 AND s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
+      AND ($4::text[] IS NULL OR s."warehouseId" = ANY($4::text[]))
     GROUP BY 1
     ORDER BY 1 ASC
     `,
     from,
     to,
     storeId,
+    await readBranchIds(),
   );
 
   return rows.map((r) => ({
@@ -166,6 +169,7 @@ export async function getSalesBreakdown(
       JOIN products p ON p.id = si."productId"
       ${spec.join}
       WHERE s."storeId" = $4 AND s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
+        AND ($5::text[] IS NULL OR s."warehouseId" = ANY($5::text[]))
       GROUP BY 1, 2
       ORDER BY SUM(si.total) DESC
       LIMIT $3
@@ -181,13 +185,14 @@ export async function getSalesBreakdown(
       FROM sales s
       ${spec.join}
       WHERE s."storeId" = $4 AND s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
+        AND ($5::text[] IS NULL OR s."warehouseId" = ANY($5::text[]))
       GROUP BY 1, 2
       ORDER BY SUM(s.total) DESC
       LIMIT $3
       `;
 
   const { db, storeId } = await getStoreContext();
-  const rows = await db.$queryRawUnsafe<RawBreakdownRow[]>(sql, from, to, limit, storeId);
+  const rows = await db.$queryRawUnsafe<RawBreakdownRow[]>(sql, from, to, limit, storeId, await readBranchIds());
   const total = rows.reduce((acc, r) => acc + Number(r.revenue), 0);
 
   return rows.map((r) => {
@@ -207,9 +212,14 @@ export async function getSalesBreakdown(
 /** Takings split by payment rail — cash drawer vs GCash vs card. */
 export async function getPaymentMethodBreakdown(from: Date, to: Date) {
   const { db } = await getStoreContext();
+  const branches = await readBranchIds();
   const rows = await db.payment.groupBy({
     by: ['method'],
-    where: { direction: 'INBOUND', createdAt: { gte: from, lte: to } },
+    where: {
+      direction: 'INBOUND',
+      createdAt: { gte: from, lte: to },
+      ...(branches === null ? {} : { OR: [{ sale: { warehouseId: { in: branches } } }, { shift: { warehouseId: { in: branches } } }] }),
+    },
     _sum: { amount: true },
     _count: true,
   });
@@ -245,7 +255,7 @@ export async function getSalesByHour(from: Date, to: Date): Promise<HourlyPoint[
       COALESCE(SUM(s.total), 0)::text       AS "revenue",
       COUNT(*)::int                         AS "orders"
     FROM sales s
-    WHERE s."storeId" = ${storeId} AND s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+    WHERE s."storeId" = ${storeId}${sqlBranch('s."warehouseId"', await readBranchIds())} AND s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
     GROUP BY 1
     ORDER BY 1
   `;
@@ -277,6 +287,8 @@ export interface ReturnedProduct {
 /** Products coming back most often — a quality or mis-pricing signal. */
 export async function getMostReturnedProducts(from: Date, to: Date, limit = 10): Promise<ReturnedProduct[]> {
   const { db, storeId } = await getStoreContext();
+  const branches = await readBranchIds();
+  const refundBranch = branches === null ? sqlBranch('', null) : sqlBranch('(SELECT bs."warehouseId" FROM sales bs WHERE bs.id = r."saleId")', branches);
   const rows = await db.$queryRaw<
     { productId: string; name: string; sku: string; unitsReturned: string; unitsSold: string; refundValue: string }[]
   >`
@@ -284,7 +296,7 @@ export async function getMostReturnedProducts(from: Date, to: Date, limit = 10):
       SELECT ri."productId", SUM(ri.quantity) AS units, SUM(ri.total) AS value
       FROM return_items ri
       JOIN returns r ON r.id = ri."returnId"
-      WHERE r."storeId" = ${storeId} AND r.status = 'COMPLETED'
+      WHERE r."storeId" = ${storeId}${refundBranch} AND r.status = 'COMPLETED'
         AND r."createdAt" >= ${from} AND r."createdAt" <= ${to}
       GROUP BY ri."productId"
     ),
@@ -292,7 +304,7 @@ export async function getMostReturnedProducts(from: Date, to: Date, limit = 10):
       SELECT si."productId", SUM(si.quantity) AS units
       FROM sale_items si
       JOIN sales s ON s.id = si."saleId"
-      WHERE s."storeId" = ${storeId} AND s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+      WHERE s."storeId" = ${storeId}${sqlBranch('s."warehouseId"', branches)} AND s.status <> 'VOIDED' AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
       GROUP BY si."productId"
     )
     SELECT

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { RotateCcw } from 'lucide-react';
 import { requirePermission } from '@/lib/session';
 import { storeDb } from '@/lib/tenant/context';
+import { readBranchIds, whereSaleBranch } from '@/server/analytics/branch-filter';
 import { toNum } from '@/lib/decimal';
 import { getCurrency } from '@/server/services/settings-service';
 import { resolveRange, parsePeriod } from '@/server/analytics/date-range';
@@ -31,7 +32,8 @@ export default async function ReturnsPage({
   const currency = await getCurrency();
 
   const returns = await db.return.findMany({
-    where: { createdAt: { gte: range.from, lte: range.to } },
+    // Refunds of sales at the branches in the account's scope.
+    where: { createdAt: { gte: range.from, lte: range.to }, ...whereSaleBranch(await readBranchIds()) },
     orderBy: { createdAt: 'desc' },
     take: 200,
     select: {

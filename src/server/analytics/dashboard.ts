@@ -10,6 +10,7 @@ import {
   type SalesSummary,
 } from '@/server/analytics/sales-math';
 import { getSettings, readNumber } from '@/server/services/settings-service';
+import { readBranchIds, sqlBranch, whereBranch } from '@/server/analytics/branch-filter';
 
 export type { SalesSummary };
 
@@ -21,6 +22,9 @@ export type { SalesSummary };
  * documented on `SalesSummary` in `sales-math.ts`. Nothing is
  * cached, estimated, or seeded — an empty database correctly produces zeros.
  *
+ * Every figure covers the branches in the account's branch scope
+ * (branch-filter.ts): one branch, or the whole store for "all branches".
+ *
  * Voided sales are excluded everywhere. Returns are netted off separately
  * rather than by mutating the original sale, so the original invoice stays an
  * accurate historical record.
@@ -30,11 +34,12 @@ async function salesAggregate(from: Date, to: Date): Promise<SalesAggregateRow> 
   // Sale-level money and line-level figures are summed separately: joining
   // the lines in directly would multiply each sale total by its line count.
   const { db, storeId } = await getStoreContext();
+  const branches = await readBranchIds();
   const rows = await db.$queryRaw<SalesAggregateRow[]>`
     WITH qualifying AS (
       SELECT s.id, s.total, s."taxAmount", s.discount, s."costOfGoods"
       FROM sales s
-      WHERE s."storeId" = ${storeId}
+      WHERE s."storeId" = ${storeId}${sqlBranch('s."warehouseId"', branches)}
         AND s.status <> 'VOIDED'
         AND s."createdAt" >= ${from}
         AND s."createdAt" <= ${to}
@@ -79,6 +84,10 @@ async function salesAggregate(from: Date, to: Date): Promise<SalesAggregateRow> 
 /** Refunds given in the window, and the cost of the goods that went back on the shelf. */
 async function returnsAggregate(from: Date, to: Date): Promise<ReturnsAggregateRow> {
   const { db, storeId } = await getStoreContext();
+  // A refund belongs to the branch of the sale it refunds.
+  const branches = await readBranchIds();
+  const saleBranch = (alias: string) =>
+    branches === null ? sqlBranch('', null) : sqlBranch(`(SELECT bs."warehouseId" FROM sales bs WHERE bs.id = ${alias}."saleId")`, branches);
   const rows = await db.$queryRaw<ReturnsAggregateRow[]>`
     SELECT
       -- Ex-tax, after the order discount share: comparable with net revenue.
@@ -89,14 +98,14 @@ async function returnsAggregate(from: Date, to: Date): Promise<ReturnsAggregateR
         SELECT SUM(ri."unitCost" * ri.quantity)
         FROM return_items ri
         JOIN returns r2 ON r2.id = ri."returnId"
-        WHERE r2."storeId" = ${storeId}
+        WHERE r2."storeId" = ${storeId}${saleBranch('r2')}
           AND r2.status = 'COMPLETED'
           AND r2.restock = true
           AND r2."createdAt" >= ${from}
           AND r2."createdAt" <= ${to}
       ), 0)::text                     AS "restockedCost"
     FROM returns r
-    WHERE r."storeId" = ${storeId}
+    WHERE r."storeId" = ${storeId}${saleBranch('r')}
       AND r.status = 'COMPLETED'
       AND r."createdAt" >= ${from}
       AND r."createdAt" <= ${to}
@@ -106,11 +115,17 @@ async function returnsAggregate(from: Date, to: Date): Promise<ReturnsAggregateR
 
 export async function getSalesSummary(from: Date, to: Date): Promise<SalesSummary> {
   const { db } = await getStoreContext();
+  const branches = await readBranchIds();
   const [aggregate, returns, cash] = await Promise.all([
     salesAggregate(from, to),
     returnsAggregate(from, to),
     db.payment.aggregate({
-      where: { method: 'CASH', direction: 'INBOUND', createdAt: { gte: from, lte: to } },
+      where: {
+        method: 'CASH',
+        direction: 'INBOUND',
+        createdAt: { gte: from, lte: to },
+        ...(branches === null ? {} : { OR: [{ sale: { warehouseId: { in: branches } } }, { shift: { warehouseId: { in: branches } } }] }),
+      },
       _sum: { amount: true },
     }),
   ]);
@@ -193,6 +208,7 @@ export async function getInventorySnapshot(): Promise<InventorySnapshot> {
   const criticalRatio = readNumber(settings, 'inventory.criticalStockRatio') || 0.5;
   const deadStockDays = readNumber(settings, 'inventory.deadStockDays') || 30;
   const { db, storeId } = await getStoreContext();
+  const branches = await readBranchIds();
 
   const [valueRows, statusRows, deadStock] = await Promise.all([
     db.$queryRaw<StockValueRow[]>`
@@ -204,7 +220,7 @@ export async function getInventorySnapshot(): Promise<InventorySnapshot> {
         COUNT(DISTINCT p.id)::int                             AS "distinctProducts",
         COUNT(DISTINCT p.id) FILTER (WHERE i.quantity > 0)::int AS "stockedProducts"
       FROM products p
-      LEFT JOIN inventory i ON i."productId" = p.id
+      LEFT JOIN inventory i ON i."productId" = p.id${sqlBranch('i."warehouseId"', branches)}
       WHERE p."storeId" = ${storeId} AND p.status = 'ACTIVE' AND p."isTrackable" = true
     `,
     db.$queryRaw<StockStatusRow[]>`
@@ -216,7 +232,7 @@ export async function getInventorySnapshot(): Promise<InventorySnapshot> {
           COALESCE(NULLIF(p."reorderLevel", 0), p."minStock") AS threshold,
           p."maxStock" AS max_stock
         FROM products p
-        LEFT JOIN inventory i ON i."productId" = p.id
+        LEFT JOIN inventory i ON i."productId" = p.id${sqlBranch('i."warehouseId"', branches)}
         WHERE p."storeId" = ${storeId} AND p.status = 'ACTIVE' AND p."isTrackable" = true
         GROUP BY p.id, p."reorderLevel", p."minStock", p."maxStock"
       ),
@@ -239,7 +255,7 @@ export async function getInventorySnapshot(): Promise<InventorySnapshot> {
         COUNT(*) FILTER (WHERE max_stock > 0 AND available > max_stock)::int AS overstock
       FROM classified
     `,
-    countDeadStock(deadStockDays),
+    countDeadStock(deadStockDays, branches),
   ]);
 
   const value = valueRows[0];
@@ -265,14 +281,14 @@ export async function getInventorySnapshot(): Promise<InventorySnapshot> {
 }
 
 /** Products holding stock that have not sold a single unit in the threshold window. */
-async function countDeadStock(days: number): Promise<number> {
+async function countDeadStock(days: number, branches: string[] | null): Promise<number> {
   const { db, storeId } = await getStoreContext();
   const rows = await db.$queryRaw<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM (
       SELECT p.id
       FROM products p
-      JOIN inventory i ON i."productId" = p.id
+      JOIN inventory i ON i."productId" = p.id${sqlBranch('i."warehouseId"', branches)}
       WHERE p."storeId" = ${storeId} AND p.status = 'ACTIVE' AND p."isTrackable" = true
       GROUP BY p.id
       HAVING SUM(i.quantity) > 0
@@ -280,7 +296,7 @@ async function countDeadStock(days: number): Promise<number> {
            SELECT 1
            FROM sale_items si
            JOIN sales s ON s.id = si."saleId"
-           WHERE si."productId" = p.id
+           WHERE si."productId" = p.id${sqlBranch('s."warehouseId"', branches)}
              AND s.status <> 'VOIDED'
              AND s."createdAt" >= now() - (${days} || ' days')::interval
          )
@@ -371,6 +387,8 @@ export async function getProductPerformance(options: {
   // Raw SQL keeps the join, the aggregation, and the ordering in one pass —
   // doing this in JS would mean pulling every sale line into memory.
   const { db, storeId } = await getStoreContext();
+  // $5 is the branch list; NULL means the whole store.
+  const branches = await readBranchIds();
   const rows = await db.$queryRawUnsafe<PerformanceRow[]>(
     `
     WITH sold AS (
@@ -382,10 +400,13 @@ export async function getProductPerformance(options: {
       FROM sale_items si
       JOIN sales s ON s.id = si."saleId"
       WHERE s."storeId" = $4 AND s.status <> 'VOIDED' AND s."createdAt" >= $1 AND s."createdAt" <= $2
+        AND ($5::text[] IS NULL OR s."warehouseId" = ANY($5::text[]))
       GROUP BY si."productId"
     ),
     stock AS (
-      SELECT "productId", SUM(quantity) AS qty FROM inventory WHERE "storeId" = $4 GROUP BY "productId"
+      SELECT "productId", SUM(quantity) AS qty FROM inventory
+      WHERE "storeId" = $4 AND ($5::text[] IS NULL OR "warehouseId" = ANY($5::text[]))
+      GROUP BY "productId"
     )
     SELECT
       p.id                                    AS "productId",
@@ -409,6 +430,7 @@ export async function getProductPerformance(options: {
     to,
     limit,
     storeId,
+    branches,
   );
 
   return mapPerformance(rows);
@@ -421,7 +443,7 @@ export async function getProductPerformance(options: {
 export async function getRecentSales(limit = 6) {
   const db = await storeDb();
   const sales = await db.sale.findMany({
-    where: { status: { not: 'VOIDED' } },
+    where: { status: { not: 'VOIDED' }, ...whereBranch(await readBranchIds()) },
     orderBy: { createdAt: 'desc' },
     take: limit,
     select: {
@@ -449,6 +471,7 @@ export async function getRecentSales(limit = 6) {
 export async function getRecentInventoryActivity(limit = 8) {
   const db = await storeDb();
   const movements = await db.inventoryTransaction.findMany({
+    where: whereBranch(await readBranchIds()),
     orderBy: { createdAt: 'desc' },
     take: limit,
     select: {

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { storeDb } from '@/lib/tenant/context';
+import { readBranchIds, whereBranch } from '@/server/analytics/branch-filter';
 import { toNum } from '@/lib/decimal';
 import type { PermissionKey } from '@/lib/permissions';
 import type { DateRange } from '@/server/analytics/date-range';
@@ -145,7 +146,7 @@ export const REPORTS: ReportDefinition[] = [
     async load(range) {
       const db = await storeDb();
       const sales = await db.sale.findMany({
-        where: { createdAt: { gte: range.from, lte: range.to } },
+        where: { createdAt: { gte: range.from, lte: range.to }, ...whereBranch(await readBranchIds()) },
         orderBy: { createdAt: 'desc' },
         take: 5000,
         select: {
@@ -352,7 +353,7 @@ export const REPORTS: ReportDefinition[] = [
     async load(range) {
       const db = await storeDb();
       const movements = await db.inventoryTransaction.findMany({
-        where: { createdAt: { gte: range.from, lte: range.to } },
+        where: { createdAt: { gte: range.from, lte: range.to }, ...whereBranch(await readBranchIds()) },
         orderBy: { createdAt: 'desc' },
         take: 10000,
         select: {

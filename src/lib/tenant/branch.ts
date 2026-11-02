@@ -45,6 +45,17 @@ export interface BranchScope {
   selected: string;
   /** Branch ids to filter reads by. */
   branchIds: string[];
+  /**
+   * The read filter: null for the owner's "all branches" (the whole store,
+   * archived branches' history included), otherwise the one branch.
+   */
+  filterIds: string[] | null;
+  /**
+   * Which records the account may open one by one (a sale, a shift, a
+   * refund): null for the owner (any branch, archived ones included),
+   * otherwise its own branch.
+   */
+  visibleIds: string[] | null;
   /** Whether the account may choose between branches (owner with more than one). */
   canSwitch: boolean;
   /** The branch the account works at, if it is held to one. */
@@ -88,6 +99,8 @@ export const getBranchScope = cache(async (): Promise<BranchScope> => {
     branches: visible,
     selected,
     branchIds: selected === ALL_BRANCHES ? visible.map((b) => b.id) : [selected],
+    filterIds: selected === ALL_BRANCHES ? null : [selected],
+    visibleIds: all ? null : visible.map((b) => b.id),
     canSwitch,
     assignedId,
     storeBranches: ranked.length,

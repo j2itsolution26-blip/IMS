@@ -21,6 +21,7 @@ import {
 } from '@/server/analytics/sales-analytics';
 import { fillSeries } from '@/server/analytics/sales-overview';
 import { listSales, type SaleListRow } from '@/features/sales/queries';
+import { readBranchIds, sqlBranch } from '@/server/analytics/branch-filter';
 
 /**
  * Everything the Sales Dashboard draws, gathered in one pass.
@@ -94,6 +95,7 @@ async function getHeadline(now: Date): Promise<DashboardOverview['headline']> {
   const latest = new Date(Math.max(week.to.getTime(), month.to.getTime()));
 
   const { db, storeId } = await getStoreContext();
+  const branches = await readBranchIds();
   const rows = await db.$queryRaw<HeadlineRow[]>`
     SELECT
       COALESCE(SUM(s.total) FILTER (WHERE s."createdAt" BETWEEN ${today.from} AND ${today.to}), 0)::text AS "todayRevenue",
@@ -109,7 +111,7 @@ async function getHeadline(now: Date): Promise<DashboardOverview['headline']> {
       COALESCE(SUM(s.total) FILTER (WHERE s."createdAt" BETWEEN ${month.previous.from} AND ${month.previous.to}), 0)::text AS "lastMonthRevenue",
       (COUNT(*) FILTER (WHERE s."createdAt" BETWEEN ${month.previous.from} AND ${month.previous.to}))::int AS "lastMonthCount"
     FROM sales s
-    WHERE s."storeId" = ${storeId}
+    WHERE s."storeId" = ${storeId}${sqlBranch('s."warehouseId"', branches)}
       AND s.status <> 'VOIDED'
       AND s."createdAt" >= ${earliest}
       AND s."createdAt" <= ${latest}

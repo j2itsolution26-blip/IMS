@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { InventoryTransactionType } from '@prisma/client';
 import { getStoreContext, storeDb } from '@/lib/tenant/context';
+import { readBranchIds, sqlBranch, whereBranch } from '@/server/analytics/branch-filter';
 import { toNum } from '@/lib/decimal';
 import { STORE_TIME_ZONE, addStoreDays, eachStoreBucket, startOfStoreDay } from '@/lib/store-time';
 import { suggestedRestock } from '@/lib/stock-status';
@@ -23,7 +24,10 @@ import { formatBucketLabel } from '@/server/analytics/sales-analytics';
  * where threshold = reorder level, or the minimum stock when no level is set.
  */
 
-/** Per-product stock for one store. The store id is always bound as `$1`. */
+/**
+ * Per-product stock for one store. The store id is always bound as `$1` and
+ * the branch list as `$2` (NULL = every branch of the store).
+ */
 const STOCK_CTE = `
   WITH stock AS (
     SELECT
@@ -39,7 +43,7 @@ const STOCK_CTE = `
       COALESCE(SUM(i.quantity), 0)                          AS on_hand,
       COALESCE(SUM(i.quantity), 0) - COALESCE(SUM(i.reserved), 0) AS available
     FROM products p
-    LEFT JOIN inventory i ON i."productId" = p.id
+    LEFT JOIN inventory i ON i."productId" = p.id AND ($2::text[] IS NULL OR i."warehouseId" = ANY($2::text[]))
     WHERE p."storeId" = $1 AND p.status = 'ACTIVE' AND p."isTrackable" = true
     GROUP BY p.id
   )
@@ -134,6 +138,7 @@ export async function getInventoryKpis({ includeValue = false, now = new Date() 
 async function getKpis(now: Date, includeValue: boolean): Promise<InventoryKpis> {
   const todayStart = startOfStoreDay(now);
   const { db, storeId } = await getStoreContext();
+  const branches = await readBranchIds();
 
   const [bands, restockRows, untracked, categories, today] = await Promise.all([
     db.$queryRawUnsafe<KpiRow[]>(`
@@ -145,14 +150,14 @@ async function getKpis(now: Date, includeValue: boolean): Promise<InventoryKpis>
         COUNT(*) FILTER (WHERE available > 0 AND (threshold <= 0 OR available > threshold))::int AS instock,
         ${includeValue ? 'COALESCE(SUM(on_hand * cost_price), 0)::text' : `'0'`} AS value
       FROM stock
-    `, storeId),
+    `, storeId, branches),
     // Only the products that need restocking, and only what the suggestion needs.
     db.$queryRawUnsafe<{ available: string; reorder_qty: string; max_stock: string }[]>(`
       ${STOCK_CTE}
       SELECT available::text, reorder_qty::text, max_stock::text
       FROM stock
       WHERE available <= 0 OR (threshold > 0 AND available <= threshold)
-    `, storeId),
+    `, storeId, branches),
     db.product.count({ where: { status: 'ACTIVE', isTrackable: false } }),
     db.category.count({ where: { isActive: true } }),
     db.$queryRaw<{ movements: number; received: string }[]>`
@@ -160,7 +165,7 @@ async function getKpis(now: Date, includeValue: boolean): Promise<InventoryKpis>
         COUNT(DISTINCT COALESCE(t."referenceId", t.id))::int AS movements,
         COALESCE(SUM(t.quantity) FILTER (WHERE t.type = 'STOCK_IN'), 0)::text AS received
       FROM inventory_transactions t
-      WHERE t."storeId" = ${storeId}
+      WHERE t."storeId" = ${storeId}${sqlBranch('t."warehouseId"', branches)}
         AND t."createdAt" >= ${todayStart}
         AND t.type IN ('STOCK_IN', 'OPENING_BALANCE', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT')
     `,
@@ -229,6 +234,7 @@ async function getMovementTrend(now: Date): Promise<{ days: MovementDay[]; hasHi
       COALESCE(SUM(t.quantity) FILTER (WHERE t.type IN ('ADJUSTMENT_IN', 'ADJUSTMENT_OUT', 'OPENING_BALANCE')), 0)::text AS adjusted
     FROM inventory_transactions t
     WHERE t."storeId" = $3 AND t."createdAt" >= $1 AND t."createdAt" <= $2
+      AND ($4::text[] IS NULL OR t."warehouseId" = ANY($4::text[]))
       AND t.type IN ('STOCK_IN', 'OPENING_BALANCE', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT')
     GROUP BY 1
     ORDER BY 1 ASC
@@ -236,6 +242,7 @@ async function getMovementTrend(now: Date): Promise<{ days: MovementDay[]; hasHi
     from,
     to,
     storeId,
+    await readBranchIds(),
   );
 
   const byBucket = new Map(rows.map((row) => [row.bucket.getTime(), row]));
@@ -261,6 +268,7 @@ const REORDER_ROWS = 8;
  */
 async function getReorderCandidates(): Promise<ReorderCandidate[]> {
   const { db, storeId } = await getStoreContext();
+  const branches = await readBranchIds();
   const rows = await db.$queryRawUnsafe<
     {
       id: string;
@@ -279,7 +287,7 @@ async function getReorderCandidates(): Promise<ReorderCandidate[]> {
     WHERE threshold > 0 AND available <= threshold
     ORDER BY (available / threshold) ASC, name ASC
     LIMIT ${REORDER_ROWS}
-  `, storeId);
+  `, storeId, branches);
 
   return rows.map((row) => {
     const available = Number(row.available);
@@ -305,6 +313,7 @@ const ACTIVITY_ROWS = 10;
 export async function getRecentStockActivity(limit = ACTIVITY_ROWS): Promise<StockActivity[]> {
   const db = await storeDb();
   const rows = await db.inventoryTransaction.findMany({
+    where: whereBranch(await readBranchIds()),
     orderBy: { createdAt: 'desc' },
     take: limit,
     select: {

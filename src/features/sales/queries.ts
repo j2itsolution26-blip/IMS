@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { PaymentMethod, Prisma, SaleStatus } from '@prisma/client';
 import { storeDb } from '@/lib/tenant/context';
+import { readBranchIds, visibleBranchIds, whereBranch } from '@/server/analytics/branch-filter';
 import { toNum } from '@/lib/decimal';
 
 /** Sales reads. Listing pages in the database; detail loads the full document. */
@@ -50,6 +51,8 @@ export async function listSales(query: SaleListQuery = {}) {
     ...(query.search?.trim()
       ? { invoiceNumber: { contains: query.search.trim(), mode: 'insensitive' } }
       : {}),
+    // The branches in the account's scope (one, or the whole store).
+    ...whereBranch(await readBranchIds()),
   };
 
   const [rows, total, aggregate] = await Promise.all([
@@ -143,8 +146,9 @@ export type SaleListRow = Awaited<ReturnType<typeof listSales>>['rows'][number];
  */
 export async function getSale(id: string, { includeCost = false }: { includeCost?: boolean } = {}) {
   const db = await storeDb();
-  const sale = await db.sale.findUnique({
-    where: { id },
+  // A sale from a branch the account may not see is simply not found.
+  const sale = await db.sale.findFirst({
+    where: { id, ...whereBranch(await visibleBranchIds()) },
     include: {
       warehouse: { select: { id: true, name: true } },
       user: { select: { id: true, name: true } },

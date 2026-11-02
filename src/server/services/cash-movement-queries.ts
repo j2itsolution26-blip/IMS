@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { CashMovementCategory, CashMovementType, Prisma } from '@prisma/client';
 import { storeDb } from '@/lib/tenant/context';
+import { readBranchIds, whereShiftBranch } from '@/server/analytics/branch-filter';
 import { D, money, toNum } from '@/lib/decimal';
 import { movementReference, parseMovementReference } from '@/lib/cash-movements';
 import { parseShiftReference, shiftReference } from '@/lib/shift-review';
@@ -116,7 +117,8 @@ function whereFor(query: CashMovementQuery): Prisma.CashMovementWhereInput {
 export async function listCashMovements(query: CashMovementQuery): Promise<CashMovementPage> {
   const db = await storeDb();
   const pageSize = Math.min(100, Math.max(10, query.pageSize ?? 25));
-  const where = whereFor(query);
+  // Movements on shifts of the branches in the account's scope.
+  const where: Prisma.CashMovementWhereInput = { AND: [whereFor(query), whereShiftBranch(await readBranchIds())] };
 
   const [total, totals] = await Promise.all([
     db.cashMovement.count({ where }),

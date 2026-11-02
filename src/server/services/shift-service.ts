@@ -5,6 +5,7 @@ import { CATEGORY_LABEL, correctionTypeFor, isCategoryAllowed, movementReference
 import type { DbClient } from '@/lib/prisma';
 import { getStoreContext, storeDb, storeDbForShiftClose } from '@/lib/tenant/context';
 import { writableBranchId } from '@/lib/tenant/branch';
+import { readBranchIds, visibleBranchIds, whereBranch, whereSaleBranch } from '@/server/analytics/branch-filter';
 import { D, money, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { MAX_DRAWER_AMOUNT } from '@/lib/cash-amount';
@@ -369,7 +370,17 @@ export async function closeShift(input: { userId: string; actualCash: Numeric; n
 
 /** The owner closes a shift a cashier left open, with the cash they counted. Authorise before calling. */
 export async function closeShiftForCashier(input: { shiftId: string; actorId: string; actualCash: Numeric; notes?: string }): Promise<CloseShiftResult> {
+  await assertShiftVisible(input.shiftId);
   return closeShiftById(input);
+}
+
+/** Refuses a shift at a branch the signed-in account may not see (as not found). */
+async function assertShiftVisible(shiftId: string): Promise<void> {
+  const visible = await visibleBranchIds();
+  if (visible === null) return;
+  const db = await storeDb();
+  const found = await db.cashierShift.count({ where: { id: shiftId, warehouseId: { in: visible } } });
+  if (found === 0) throw new NotFoundError('Shift');
 }
 
 /* -------------------------------------------------------------------------- */
@@ -677,7 +688,9 @@ export async function listShifts(query: ShiftListQuery) {
   const db = await storeDb();
   const page = query.all ? 1 : Math.max(1, query.page ?? 1);
   const pageSize = query.all ? EXPORT_ROW_LIMIT : Math.min(50, Math.max(5, query.pageSize ?? 20));
-  const where = shiftWhere(query);
+  // Shifts of the branches in the account's scope (one, or the whole store).
+  const branches = await readBranchIds();
+  const where: Prisma.CashierShiftWhereInput = { AND: [shiftWhere(query), whereBranch(branches)] };
 
   const [rows, total, outsideShift] = await Promise.all([
     db.cashierShift.findMany({
@@ -695,7 +708,7 @@ export async function listShifts(query: ShiftListQuery) {
     db.cashierShift.count({ where }),
     // Cash refunds paid while no drawer was open to take them from.
     db.payment.aggregate({
-      where: { method: 'CASH', direction: 'OUTBOUND', shiftId: null, createdAt: { gte: query.from, lte: query.to } },
+      where: { method: 'CASH', direction: 'OUTBOUND', shiftId: null, createdAt: { gte: query.from, lte: query.to }, ...whereSaleBranch(branches) },
       _sum: { amount: true },
       _count: { _all: true },
     }),
@@ -771,17 +784,18 @@ export interface ShiftKpis {
 export async function getShiftKpis(now: Date = new Date()): Promise<ShiftKpis> {
   const db = await storeDb();
   const today = { gte: startOfStoreDay(now), lte: endOfStoreDay(now) };
+  const branch = whereBranch(await readBranchIds());
   const [open, tendered, change, closedToday, pendingReview] = await Promise.all([
-    db.cashierShift.findMany({ where: { status: 'OPEN' }, select: { id: true, openingCash: true } }),
+    db.cashierShift.findMany({ where: { status: 'OPEN', ...branch }, select: { id: true, openingCash: true } }),
     // Cash handed over on today's completed sales…
     db.payment.aggregate({
-      where: { method: 'CASH', direction: 'INBOUND', sale: { status: { not: 'VOIDED' }, createdAt: today } },
+      where: { method: 'CASH', direction: 'INBOUND', sale: { status: { not: 'VOIDED' }, createdAt: today, ...branch } },
       _sum: { amount: true },
     }),
     // …less the change given back (change only ever comes from cash).
-    db.sale.aggregate({ where: { status: { not: 'VOIDED' }, createdAt: today }, _sum: { changeAmount: true } }),
-    db.cashierShift.count({ where: { status: 'CLOSED', closedAt: today } }),
-    db.cashierShift.count({ where: { reviewStatus: 'PENDING' } }),
+    db.sale.aggregate({ where: { status: { not: 'VOIDED' }, createdAt: today, ...branch }, _sum: { changeAmount: true } }),
+    db.cashierShift.count({ where: { status: 'CLOSED', closedAt: today, ...branch } }),
+    db.cashierShift.count({ where: { reviewStatus: 'PENDING', ...branch } }),
   ]);
 
   const live = await Promise.all(open.map((shift) => computeShiftSummary(shift.id, shift.openingCash)));
@@ -847,8 +861,9 @@ const TRANSACTION_LIMIT = 500;
 
 export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | null> {
   const db = await storeDb();
-  const row = await db.cashierShift.findUnique({
-    where: { id: shiftId },
+  // A shift at a branch the account may not see is simply not found.
+  const row = await db.cashierShift.findFirst({
+    where: { id: shiftId, ...whereBranch(await visibleBranchIds()) },
     include: {
       user: { select: { name: true } },
       closedBy: { select: { name: true } },
@@ -1002,6 +1017,7 @@ export async function reviewShift(input: { shiftId: string; actorId: string; not
   const db = await storeDb();
   const note = input.note.trim();
   if (note.length < 3) throw new ValidationError('Say what you found.', { note: ['Give a short resolution note.'] });
+  await assertShiftVisible(input.shiftId);
 
   await db.$transaction(async (tx) => {
     const updated = await tx.cashierShift.updateMany({
@@ -1060,6 +1076,7 @@ export async function addShiftAdjustment(input: {
   }
   const reason = input.reason.trim();
   if (reason.length < 3) throw new ValidationError('Say why.', { reason: ['Give a reason for the adjustment.'] });
+  await assertShiftVisible(input.shiftId);
 
   return db.$transaction(async (tx) => {
     const shift = await tx.cashierShift.findUnique({ where: { id: input.shiftId }, select: { status: true, number: true } });

@@ -2,6 +2,8 @@ import 'server-only';
 
 import type { InventoryTransactionType, Prisma } from '@prisma/client';
 import { storeDb } from '@/lib/tenant/context';
+import { readBranchIds, whereBranch } from '@/server/analytics/branch-filter';
+import { operatingBranchId } from '@/lib/tenant/branch';
 import { toNum } from '@/lib/decimal';
 import { findProductRefByBarcode } from '@/features/products/queries';
 
@@ -41,6 +43,7 @@ export async function listMovements(query: MovementQuery = {}, { includeCost = f
           },
         }
       : {}),
+    ...whereBranch(await readBranchIds()),
   };
 
   const [rows, total] = await Promise.all([
@@ -112,6 +115,8 @@ export async function listMovementStaff(): Promise<{ id: string; name: string }[
  */
 export async function getStockPickerProducts({ includeCost = false }: { includeCost?: boolean } = {}) {
   const db = await storeDb();
+  // Stock-in and adjustments write to the operating branch, so show its stock.
+  const warehouseId = await operatingBranchId();
   const products = await db.product.findMany({
     where: { status: 'ACTIVE', isTrackable: true },
     orderBy: { name: 'asc' },
@@ -124,7 +129,7 @@ export async function getStockPickerProducts({ includeCost = false }: { includeC
       costPrice: true,
       unit: true,
       allowsDecimal: true,
-      inventory: { select: { quantity: true, reserved: true } },
+      inventory: { where: { warehouseId }, select: { quantity: true, reserved: true } },
     },
   });
 
@@ -174,6 +179,7 @@ export async function findInventoryProductByBarcode(
   const ref = await findProductRefByBarcode(barcode);
   if (!ref) return { status: 'not-found' };
 
+  const warehouseId = await operatingBranchId();
   const product = await db.product.findUnique({
     where: { id: ref.id },
     select: {
@@ -186,7 +192,7 @@ export async function findInventoryProductByBarcode(
       costPrice: true,
       unit: true,
       allowsDecimal: true,
-      inventory: { select: { quantity: true, reserved: true } },
+      inventory: { where: { warehouseId }, select: { quantity: true, reserved: true } },
     },
   });
   if (!product) return { status: 'not-found' };
