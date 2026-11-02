@@ -23,6 +23,8 @@ interface AppShellProps {
   /** Owner payments awaiting verification (administrators only). */
   paymentsCount: number;
   companyName: string;
+  /** The store's uploaded logo; null shows the TindahanProMax mark. */
+  companyLogoUrl?: string | null;
   user?: UserInfo;
   userSlot: React.ReactNode;
   /** Who the lock screen is for, and the optional idle auto-lock (0 = off). */
@@ -44,6 +46,7 @@ export function AppShell({
   supportCount,
   paymentsCount,
   companyName,
+  companyLogoUrl = null,
   user,
   userSlot,
   screenLock,
@@ -95,6 +98,7 @@ export function AppShell({
         supportCount={supportCount}
         paymentsCount={paymentsCount}
         companyName={companyName}
+        companyLogoUrl={companyLogoUrl}
         user={user}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}

@@ -51,6 +51,7 @@ interface SidebarProps {
   /** Owner payments awaiting verification (administrators only). */
   paymentsCount: number;
   companyName: string;
+  companyLogoUrl?: string | null;
   user?: UserInfo;
   open: boolean;
   onClose: () => void;
@@ -64,6 +65,7 @@ export function Sidebar({
   supportCount,
   paymentsCount,
   companyName,
+  companyLogoUrl = null,
   user,
   open,
   onClose,
@@ -139,7 +141,17 @@ export function Sidebar({
             title={companyName}
           >
             {/* Labelled: when the rail is collapsed the store name is hidden and the mark is the link's only content. */}
-            <BrandMark label={APP_SHORT_NAME} className="h-10 w-10 rounded-lg shadow-sm transition-transform hover:scale-105" />
+            {companyLogoUrl ? (
+              // The store's own logo heads its workspace; the TindahanProMax name stays beneath the store name.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={companyLogoUrl}
+                alt={`${companyName} logo`}
+                className="h-10 w-10 shrink-0 rounded-lg bg-white object-contain p-0.5 shadow-sm transition-transform hover:scale-105"
+              />
+            ) : (
+              <BrandMark label={APP_SHORT_NAME} className="h-10 w-10 rounded-lg shadow-sm transition-transform hover:scale-105" />
+            )}
             <div
               className={cn(
                 'flex min-w-0 flex-col justify-center transition-opacity duration-200',

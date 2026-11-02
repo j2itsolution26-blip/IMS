@@ -61,6 +61,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                     address: company.address,
                     phone: company.phone,
                     receiptFooter: company.receiptFooter,
+          logoUrl: company.logoUrl,
                   },
                   currency,
                 }}

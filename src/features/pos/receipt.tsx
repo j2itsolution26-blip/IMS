@@ -40,6 +40,8 @@ export interface ReceiptData {
     address: string;
     phone: string;
     receiptFooter: string;
+    /** The store's uploaded logo, printed above its name; empty when none. */
+    logoUrl?: string;
   };
   currency: string;
 }
@@ -50,6 +52,11 @@ export function Receipt({ data }: { data: ReceiptData }) {
   return (
     <div className="mx-auto w-full max-w-[302px] rounded-md border bg-white p-4 font-mono text-[11px] leading-relaxed text-black">
       <header className="text-center">
+        {company.logoUrl && (
+          // A plain img: the receipt is printed and must not depend on the image optimiser.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={company.logoUrl} alt={`${company.name} logo`} className="mx-auto mb-1.5 h-14 w-14 object-contain" />
+        )}
         <p className="text-sm font-bold uppercase">{company.name}</p>
         {company.address && <p className="whitespace-pre-line">{company.address}</p>}
         {company.phone && <p>{company.phone}</p>}

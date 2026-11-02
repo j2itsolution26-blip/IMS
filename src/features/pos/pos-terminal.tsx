@@ -87,6 +87,7 @@ export interface PosTerminalProps {
     address: string;
     phone: string;
     receiptFooter: string;
+    logoUrl?: string;
   };
   cashierName: string;
   /** Read-only at the till — only an Owner can change these, from Settings. */

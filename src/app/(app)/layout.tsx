@@ -50,6 +50,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       supportCount={supportCount}
       paymentsCount={paymentsCount}
       companyName={readString(settings, 'company.name') || 'Store'}
+      companyLogoUrl={readString(settings, 'company.logoUrl') || null}
       user={{
         name: user.name,
         email: user.email,

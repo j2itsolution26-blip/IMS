@@ -48,6 +48,7 @@ export default async function PosPage({ searchParams }: { searchParams: Promise<
           address: company.address,
           phone: company.phone,
           receiptFooter: company.receiptFooter,
+          logoUrl: company.logoUrl,
         }}
         gcash={{ number: company.gcashNumber, accountName: company.gcashName }}
         canEditStoreSettings={userCan(user, 'settings.update')}

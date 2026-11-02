@@ -36,6 +36,7 @@ export async function getSaleReceiptAction(saleId: string): Promise<ActionResult
         address: company.address,
         phone: company.phone,
         receiptFooter: company.receiptFooter,
+          logoUrl: company.logoUrl,
       },
       currency: company.currency,
     };
