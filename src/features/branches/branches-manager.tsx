@@ -26,6 +26,11 @@ export interface BranchListItem {
   createdAt: string;
   /** Active staff assigned to the branch; null where not tracked. */
   staff: number | null;
+  /**
+   * Active but past the plan's limit after a downgrade: viewable, takes no
+   * new shifts, sales or stock until enough branches are archived.
+   */
+  restricted: boolean;
 }
 
 interface FormValues {
@@ -124,8 +129,8 @@ export function BranchesManager({
         </Badge>
         {over && (
           <p className="basis-full text-xs text-warning-text">
-            Your plan allows {limit} active {limit === 1 ? 'location' : 'locations'}. Archive {active - (limit ?? 0)} to stay within it; until then you cannot add or reactivate branches, and only
-            branches within the limit take new sales and stock. Nothing is deleted.
+            Your plan allows {limit} active {limit === 1 ? 'location' : 'locations'}. Archive {active - (limit ?? 0)} to stay within it, choosing which ones to keep. Until then you cannot add or
+            reactivate branches, and the branches marked “Over plan limit” (the newest ones) take no new sales, shifts or stock. The main branch always keeps working. Nothing is deleted.
           </p>
         )}
         {full && !over && (
@@ -157,7 +162,11 @@ export function BranchesManager({
               </div>
               <div className="flex shrink-0 flex-wrap justify-end gap-1">
                 {branch.isDefault && <Badge variant="info">Main</Badge>}
-                <Badge variant={branch.isActive ? 'success' : 'secondary'}>{branch.isActive ? 'Active' : 'Archived'}</Badge>
+                {branch.restricted ? (
+                  <Badge variant="warning">Over plan limit</Badge>
+                ) : (
+                  <Badge variant={branch.isActive ? 'success' : 'secondary'}>{branch.isActive ? 'Active' : 'Archived'}</Badge>
+                )}
               </div>
             </div>
             <p className="flex items-start gap-1.5 text-sm text-muted-foreground">

@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/page-header';
 import { isStoreOwner } from '@/server/platform/billing-service';
 import { listBranches, staffPerBranch } from '@/server/services/branch-service';
 import { BranchesManager } from '@/features/branches/branches-manager';
+import { rankBranches } from '@/lib/branch-choice';
 
 export const metadata: Metadata = { title: 'Branches' };
 export const dynamic = 'force-dynamic';
@@ -21,6 +22,13 @@ export default async function BranchesPage() {
   const [branches, staff] = await Promise.all([listBranches(ctx), staffPerBranch(ctx)]);
   const canManage = userCan(user, 'branches.manage') && (await isStoreOwner(user.id, ctx.storeId));
   const plan = ctx.access.plan;
+  // After a downgrade, active branches past the limit are restricted: the
+  // main branch and the oldest stay usable (src/lib/branch-choice.ts).
+  const restricted = new Set(
+    rankBranches(branches.filter((branch) => branch.isActive), plan.limits.branches)
+      .filter((branch) => branch.restricted)
+      .map((branch) => branch.id),
+  );
 
   return (
     <div>
@@ -30,7 +38,7 @@ export default async function BranchesPage() {
         breadcrumbs={[{ label: 'Settings', href: '/settings' }, { label: 'Branches' }]}
       />
       <BranchesManager
-        branches={branches.map((branch) => ({ ...branch, createdAt: branch.createdAt.toISOString(), staff: staff.get(branch.id) ?? 0 }))}
+        branches={branches.map((branch) => ({ ...branch, createdAt: branch.createdAt.toISOString(), staff: staff.get(branch.id) ?? 0, restricted: restricted.has(branch.id) }))}
         limit={plan.limits.branches}
         planName={plan.name}
         canManage={canManage && ctx.access.writable}
