@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PLANS } from '@/lib/plans';
-import { branchCapacity, branchParamsQuery, branchSummary, filterBranches, parseBranchParams } from '@/lib/branch-list';
+import { PLAN_ORDER } from '@/lib/plans';
+import { branchCapacity, branchParamsQuery, branchSummary, filterBranches, parseBranchParams, staffByRole, upgradePath } from '@/lib/branch-list';
 
 const branch = (id: string, name: string, code: string, isActive: boolean, day: number, isDefault = false) => ({
   id,
@@ -69,11 +70,11 @@ test('the summary counts listed branches and each staff account once', () => {
 });
 
 test('list choices survive the address: unknown values fall back, defaults stay out of the URL', () => {
-  assert.deepEqual(parseBranchParams({}), { q: '', status: 'all', sort: 'name', view: 'grid' });
-  assert.deepEqual(parseBranchParams({ q: ' agd ', status: 'inactive', sort: 'recent', view: 'list' }), { q: 'agd', status: 'inactive', sort: 'recent', view: 'list' });
-  assert.deepEqual(parseBranchParams({ status: 'deleted', sort: ['status', 'x'], view: 'table' }), { q: '', status: 'all', sort: 'status', view: 'grid' });
-  assert.equal(branchParamsQuery({ q: '', status: 'all', sort: 'name', view: 'grid' }), '');
-  assert.equal(branchParamsQuery({ q: 'a b', status: 'active', sort: 'name', view: 'list' }), '?q=a+b&status=active&view=list');
+  assert.deepEqual(parseBranchParams({}), { q: '', status: 'all', sort: 'name', view: 'list' });
+  assert.deepEqual(parseBranchParams({ q: ' agd ', status: 'inactive', sort: 'recent', view: 'grid' }), { q: 'agd', status: 'inactive', sort: 'recent', view: 'grid' });
+  assert.deepEqual(parseBranchParams({ status: 'deleted', sort: ['status', 'x'], view: 'table' }), { q: '', status: 'all', sort: 'status', view: 'list' });
+  assert.equal(branchParamsQuery({ q: '', status: 'all', sort: 'name', view: 'list' }), '');
+  assert.equal(branchParamsQuery({ q: 'a b', status: 'active', sort: 'name', view: 'grid' }), '?q=a+b&status=active&view=grid');
 });
 
 test('the branch page reads branches and staff through the store-scoped client and the viewer’s branch scope', () => {
@@ -85,4 +86,17 @@ test('the branch page reads branches and staff through the store-scoped client a
   assert.doesNotMatch(page, /platformPrisma|prisma\./);
   const manager = readFileSync('src/features/branches/branches-manager.tsx', 'utf8');
   assert.doesNotMatch(manager, /limit[^=]*=\s*[135]\b/, 'no plan limit written into the screen');
+});
+
+test('staff by role reads "2 Cashier, 1 Inventory Staff", largest group first', () => {
+  assert.equal(staffByRole(['Inventory Staff', 'Cashier', 'Cashier']), '2 Cashier, 1 Inventory Staff');
+  assert.equal(staffByRole([]), '');
+});
+
+test('the upgrade path lists the higher plans with their own branch limits', () => {
+  const above = (id: (typeof PLAN_ORDER)[number]) =>
+    PLAN_ORDER.slice(PLAN_ORDER.indexOf(id) + 1).map((plan) => ({ name: PLANS[plan].name, branches: PLANS[plan].limits.branches }));
+  assert.equal(upgradePath(above('BASIC')), 'Upgrade to Business (up to 3) or Enterprise (up to 5)');
+  assert.equal(upgradePath(above('BUSINESS')), 'Upgrade to Enterprise (up to 5)');
+  assert.equal(upgradePath(above('ENTERPRISE')), null);
 });

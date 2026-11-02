@@ -16,7 +16,7 @@ export interface BranchListParams {
   view: BranchView;
 }
 
-export const DEFAULT_BRANCH_PARAMS: BranchListParams = { q: '', status: 'all', sort: 'name', view: 'grid' };
+export const DEFAULT_BRANCH_PARAMS: BranchListParams = { q: '', status: 'all', sort: 'name', view: 'list' };
 
 const STATUSES: readonly BranchStatusFilter[] = ['all', 'active', 'inactive'];
 const SORTS: readonly BranchSort[] = ['name', 'recent', 'status'];
@@ -128,4 +128,26 @@ export function branchSummary(rows: readonly { id: string; isActive: boolean }[]
     inactive: rows.length - active,
     assignedStaff: new Set(staff.filter((member) => listed.has(member.branchId)).map((member) => member.id)).size,
   };
+}
+
+/** "2 Cashier, 1 Inventory Staff": a branch's staff by role, largest group first. */
+export function staffByRole(roleNames: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const name of roleNames) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return [...counts]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, count]) => `${count} ${name}`)
+    .join(', ');
+}
+
+/**
+ * "Upgrade to Business (up to 3) or Enterprise (up to 5)", from the plans
+ * above the current one, or null on the top plan. The numbers are the plans'
+ * own limits, passed in by the caller.
+ */
+export function upgradePath(higher: readonly { name: string; branches: number | null }[]): string | null {
+  const options = higher.map((plan) => `${plan.name} (${plan.branches === null ? 'no limit' : `up to ${plan.branches}`})`);
+  if (options.length === 0) return null;
+  const list = options.length === 1 ? options[0] : `${options.slice(0, -1).join(', ')} or ${options[options.length - 1]}`;
+  return `Upgrade to ${list}`;
 }

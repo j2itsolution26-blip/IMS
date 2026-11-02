@@ -13,12 +13,15 @@ export function PageHeader({
   description,
   breadcrumbs,
   actions,
+  leading,
   className,
 }: {
   title: string;
   description?: string;
   breadcrumbs?: Crumb[];
   actions?: React.ReactNode;
+  /** An icon tile beside the title, e.g. on a section's main page. */
+  leading?: React.ReactNode;
   className?: string;
 }) {
   return (
@@ -43,9 +46,12 @@ export function PageHeader({
       )}
 
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-title sm:text-title-lg">{title}</h1>
-          {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          {leading}
+          <div className="min-w-0">
+            <h1 className="text-title sm:text-title-lg">{title}</h1>
+            {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+          </div>
         </div>
         {/* `max-w-full`: a non-shrinking flex item is otherwise as wide as all
             its buttons in one row, so its own wrap never engages and the row

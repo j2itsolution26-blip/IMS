@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import { PLAN_ORDER } from '@/lib/plans';
+import { PLANS, PLAN_ORDER } from '@/lib/plans';
 import { requirePermission, userCan } from '@/lib/session';
 import { getStoreContext } from '@/lib/tenant/context';
 import { getBranchScope } from '@/lib/tenant/branch';
-import { isStoreOwner } from '@/server/platform/billing-service';
+import { getBillingConfig, isStoreOwner } from '@/server/platform/billing-service';
 import { listBranches } from '@/server/services/branch-service';
 import { STORE_ACCOUNT_WHERE } from '@/server/services/account-policy';
 import { BranchesManager } from '@/features/branches/branches-manager';
@@ -40,14 +40,19 @@ export default async function BranchesPage({ searchParams }: { searchParams: Pro
   const visible = scope.visibleIds ? all.filter((branch) => scope.visibleIds!.includes(branch.id)) : all;
   const ids = visible.map((branch) => branch.id);
 
-  const [staff, lastSales] = await Promise.all([
+  const [staff, lastSales, billing] = await Promise.all([
     ctx.db.user.findMany({
       where: { AND: [STORE_ACCOUNT_WHERE, { isActive: true, warehouseId: { in: ids } }] },
       orderBy: { name: 'asc' },
       select: { id: true, name: true, username: true, warehouseId: true, role: { select: { name: true } } },
     }),
     ctx.db.sale.groupBy({ by: ['warehouseId'], where: { warehouseId: { in: ids } }, _max: { createdAt: true } }),
+    getBillingConfig(),
   ]);
+  // The plan's monthly price from the platform's price list; none set, none shown.
+  const monthly = billing.prices.find((price) => price.plan === plan.id && price.interval === 'MONTHLY');
+  // Plans above this one, with their own limits, for the upgrade message.
+  const higherPlans = PLAN_ORDER.slice(PLAN_ORDER.indexOf(plan.id) + 1).map((id) => ({ name: PLANS[id].name, branches: PLANS[id].limits.branches }));
   const lastSaleOf = new Map(lastSales.map((row) => [row.warehouseId, row._max.createdAt?.toISOString() ?? null]));
 
   const canManage = userCan(user, 'branches.manage') && isOwner;
@@ -66,7 +71,10 @@ export default async function BranchesPage({ searchParams }: { searchParams: Pro
       planName={plan.name}
       canManage={canManage}
       writable={ctx.access.writable}
-      canUpgrade={userCan(user, 'billing.view') && PLAN_ORDER.indexOf(plan.id) < PLAN_ORDER.length - 1}
+      planPrice={monthly ? { amount: monthly.amount, currency: monthly.currency } : null}
+      higherPlans={higherPlans}
+      canUpgrade={userCan(user, 'billing.view') && higherPlans.length > 0}
+      canViewReports={userCan(user, 'reports.view')}
       canManageStaff={userCan(user, 'users.view')}
       initialParams={parseBranchParams(await searchParams)}
     />
