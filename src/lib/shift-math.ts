@@ -62,3 +62,102 @@ export function cashVariance(counted: Numeric, expected: Numeric): { difference:
   const kind: VarianceKind = difference.isZero() ? 'BALANCED' : difference.greaterThan(0) ? 'OVERAGE' : 'SHORTAGE';
   return { difference: toNum(difference), kind };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Drawer breakdown                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Every kind of money a shift handled, whether or not it touched the drawer.
+ * The cash parts are the ones `drawerTotals` adds up; the electronic parts
+ * are listed beside them at ₱0 so the owner and cashier can see why money
+ * received by GCash is not in the drawer.
+ */
+export interface BreakdownParts {
+  openingCash: number;
+  /** Cash kept from sales: tendered less change. */
+  cashSales: number;
+  /** Paid by GCash for products — sales, but not drawer cash. */
+  gcashSales: number;
+  /** Paid by card or other non-cash methods. */
+  otherNonCashSales: number;
+  /** GCash cash-in / load: cash the customer handed over for e-money (fee excluded). */
+  walletCashIn: number;
+  /** GCash cash-out: cash handed to customers before the fee is kept. */
+  walletCashOut: number;
+  /** GCash service fees, collected in cash. */
+  walletFees: number;
+  /** Drawer cash in (change fund, owner top-up). */
+  cashIn: number;
+  /** Drawer cash out (petty cash, supplier payments). */
+  cashOut: number;
+  cashRefunds: number;
+  /** Refunds paid back by GCash or another non-cash method. */
+  nonCashRefunds: number;
+}
+
+export type MovementKind =
+  | 'OPENING'
+  | 'CASH_COLLECTION'
+  | 'ELECTRONIC_PAYMENT'
+  | 'FEE_COLLECTION'
+  | 'CASH_INFLOW'
+  | 'CASH_OUTFLOW'
+  | 'REFUND_OUTFLOW'
+  | 'ELECTRONIC_REFUND';
+
+export const MOVEMENT_KIND_LABEL: Record<MovementKind, string> = {
+  OPENING: 'Opening cash',
+  CASH_COLLECTION: 'Cash collection',
+  ELECTRONIC_PAYMENT: 'Electronic payment',
+  FEE_COLLECTION: 'Fee collection',
+  CASH_INFLOW: 'Cash inflow',
+  CASH_OUTFLOW: 'Cash outflow',
+  REFUND_OUTFLOW: 'Refund outflow',
+  ELECTRONIC_REFUND: 'Electronic refund',
+};
+
+export interface BreakdownRow {
+  key: string;
+  item: string;
+  kind: MovementKind;
+  /** Signed effect on the physical drawer; 0 for electronic money. */
+  drawerImpact: number;
+  /** For electronic rows: the amount received or paid, shown for reference. */
+  recorded?: number;
+}
+
+export interface DrawerBreakdown {
+  rows: BreakdownRow[];
+  expectedCash: number;
+}
+
+/**
+ * The drawer, line by line, in the format the owner and cashier share:
+ * expected = starting cash + cash collections + fees + cash inflows
+ *            − cash outflows − cash refunds.
+ * Electronic payments and refunds are listed at ₱0.
+ */
+export function drawerBreakdown(parts: BreakdownParts): DrawerBreakdown {
+  const rows: BreakdownRow[] = [
+    { key: 'opening', item: 'Starting cash (base float)', kind: 'OPENING', drawerImpact: parts.openingCash },
+    { key: 'cashSales', item: 'Cash sales (after change)', kind: 'CASH_COLLECTION', drawerImpact: parts.cashSales },
+    { key: 'gcashSales', item: 'GCash sales (customer paid electronically)', kind: 'ELECTRONIC_PAYMENT', drawerImpact: 0, recorded: parts.gcashSales },
+  ];
+  if (parts.otherNonCashSales) {
+    rows.push({ key: 'otherSales', item: 'Card and other non-cash sales', kind: 'ELECTRONIC_PAYMENT', drawerImpact: 0, recorded: parts.otherNonCashSales });
+  }
+  rows.push(
+    { key: 'walletIn', item: 'GCash cash-in / load (customer paid cash)', kind: 'CASH_COLLECTION', drawerImpact: parts.walletCashIn },
+    { key: 'walletOut', item: 'GCash cash-out (cash given to customer)', kind: 'CASH_OUTFLOW', drawerImpact: -parts.walletCashOut },
+    { key: 'walletFees', item: 'GCash service fees (paid in cash)', kind: 'FEE_COLLECTION', drawerImpact: parts.walletFees },
+    { key: 'cashIn', item: 'Drawer cash in (change fund, top-up)', kind: 'CASH_INFLOW', drawerImpact: parts.cashIn },
+    { key: 'cashOut', item: 'Drawer cash out (petty cash, expenses)', kind: 'CASH_OUTFLOW', drawerImpact: -parts.cashOut },
+    { key: 'cashRefunds', item: 'Cash refunds', kind: 'REFUND_OUTFLOW', drawerImpact: -parts.cashRefunds },
+  );
+  if (parts.nonCashRefunds) {
+    rows.push({ key: 'otherRefunds', item: 'GCash and other non-cash refunds', kind: 'ELECTRONIC_REFUND', drawerImpact: 0, recorded: parts.nonCashRefunds });
+  }
+  const expected = rows.reduce((sum, row) => sum.plus(D(row.drawerImpact)), D(0));
+  return { rows: rows.map((row) => ({ ...row, drawerImpact: toNum(money(row.drawerImpact)) })), expectedCash: toNum(money(expected)) };
+}

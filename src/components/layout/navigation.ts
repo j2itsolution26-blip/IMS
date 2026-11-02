@@ -1,6 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  ArrowLeftRight,
   Boxes,
   CreditCard,
   Inbox,
@@ -145,9 +144,8 @@ export const NAVIGATION: NavSection[] = [
       },
       { label: 'Reports', href: '/reports', icon: FileBarChart, permission: 'reports.view' },
       // Refunds hang off their sale, so their pages light Sales up too.
-      { label: 'Sales', href: '/sales', icon: ShoppingCart, permission: 'sales.view', match: ['/sales', '/returns'] },
-      // Cash put into or taken from a drawer. Cashiers see their own; the owner everyone's.
-      { label: 'Cash In / Out', href: '/cash-movements', icon: ArrowLeftRight, permission: 'pos.view' },
+      // Cash in / out and GCash services are tabs of Sales, so they light it up too.
+      { label: 'Sales', href: '/sales', icon: ShoppingCart, permission: 'sales.view', match: ['/sales', '/returns', '/cash-movements', '/gcash-services'] },
       // Every cashier's drawer — owner only, so it uses the financial key.
       { label: 'Shift Management', href: '/shifts', icon: Wallet, permission: FINANCIAL_PERMISSION },
       // Every settings page has its own entry, so the menu stays lit wherever

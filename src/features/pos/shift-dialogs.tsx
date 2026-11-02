@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/misc';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatCurrency, formatTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -19,6 +18,8 @@ import { CATEGORIES_FOR, CATEGORY_LABEL, type MovementCategory } from '@/lib/cas
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { addCashMovementAction, closeShiftAction, previewShiftCloseAction } from '@/features/pos/shift-actions';
 import { OpenShiftDialog } from '@/features/pos/open-shift-dialog';
+import { DrawerBreakdownTable } from '@/features/shifts/drawer-breakdown-table';
+import type { BreakdownParts } from '@/lib/shift-math';
 
 /** Shown instead of the till when the cashier has no open shift. */
 export function ShiftGate({ suggestedAmount, currency }: { suggestedAmount: number; currency: string }) {
@@ -261,6 +262,7 @@ interface Summary {
   expectedCash: number;
   totalSales: number;
   transactionCount: number;
+  breakdown: BreakdownParts;
 }
 
 const VARIANCE = {
@@ -366,7 +368,7 @@ function CloseShiftDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-md">
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{step === 'done' ? 'Shift closed' : 'Close shift'}</DialogTitle>
           <DialogDescription>
@@ -419,20 +421,16 @@ function CloseShiftDialog({
           </form>
         ) : shown ? (
           <div className="space-y-2 text-sm">
-            <Line label="Starting cash" value={formatCurrency(shown.openingCash, currency)} />
-            <Line label={`Cash sales (${shown.transactionCount} sale${shown.transactionCount === 1 ? '' : 's'})`} value={`+ ${formatCurrency(shown.cashSales, currency)}`} />
-            <Line label="Cash in" value={`+ ${formatCurrency(shown.cashIn, currency)}`} />
-            <Line label="Cash refunds" value={`− ${formatCurrency(shown.cashRefunds, currency)}`} />
-            <Line label="Cash out" value={`− ${formatCurrency(shown.cashOut, currency)}`} />
-            {Boolean(shown.walletCash) && (
-              <Line
-                label="GCash services (cash)"
-                value={`${(shown.walletCash ?? 0) >= 0 ? '+' : '−'} ${formatCurrency(Math.abs(shown.walletCash ?? 0), currency)}`}
-              />
-            )}
-            <Separator />
-            <Line label="Expected in drawer" value={formatCurrency(shown.expectedCash, currency)} strong />
-            <Line label="Counted" value={formatCurrency(step === 'done' && result ? result.actualCash : parsed.ok ? parsed.value : 0, currency)} strong />
+            <p className="text-xs text-muted-foreground">
+              {shown.transactionCount} sale{shown.transactionCount === 1 ? '' : 's'} on this shift ({formatCurrency(shown.totalSales, currency)} all payments).
+              Count only the cash in the drawer: GCash payments are listed but are not in it.
+            </p>
+            <DrawerBreakdownTable
+              parts={shown.breakdown}
+              expectedCash={shown.expectedCash}
+              actualCash={step === 'done' && result ? result.actualCash : parsed.ok ? parsed.value : null}
+              currency={currency}
+            />
             {variance && (
               <div className="flex items-center justify-between rounded-xl border bg-muted/40 px-4 py-3">
                 <span className="font-semibold">{VARIANCE[variance.kind].label}</span>
@@ -482,14 +480,5 @@ function CloseShiftDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function Line({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className={strong ? 'font-semibold' : 'text-muted-foreground'}>{label}</span>
-      <span className={cn('tabular', strong && 'font-semibold')}>{value}</span>
-    </div>
   );
 }

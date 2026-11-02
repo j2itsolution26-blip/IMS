@@ -9,7 +9,7 @@ import { readBranchIds, visibleBranchIds, whereBranch, whereSaleBranch } from '@
 import { D, money, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { MAX_DRAWER_AMOUNT } from '@/lib/cash-amount';
-import { cashVariance, drawerTotals, type DrawerTotals, type VarianceKind } from '@/lib/shift-math';
+import { cashVariance, drawerTotals, type BreakdownParts, type DrawerTotals, type VarianceKind } from '@/lib/shift-math';
 import {
   adjustedVariance,
   closeNotificationTypes,
@@ -180,6 +180,54 @@ export interface ShiftCloseSummary extends DrawerTotals {
   /** Completed (not voided) sales on the shift, all payment methods. */
   totalSales: number;
   transactionCount: number;
+  /**
+   * Every movement on the shift, cash and electronic, for the drawer
+   * breakdown the owner and cashier share (drawerBreakdown in shift-math).
+   */
+  breakdown: BreakdownParts;
+}
+
+/**
+ * The electronic payments and the GCash service split for a shift, read from
+ * its records, with the cash figures supplied (live, or frozen at close).
+ * If a closed shift's GCash services no longer add up to the figure frozen at
+ * close, the frozen net figure is shown as one line so the breakdown still
+ * sums to the reconciled expected cash.
+ */
+async function breakdownParts(
+  db: Db,
+  shiftId: string,
+  cash: { openingCash: number; cashSales: number; cashIn: number; cashOut: number; cashRefunds: number; walletCash: number },
+): Promise<BreakdownParts> {
+  const [received, refunds, wallet] = await Promise.all([
+    db.payment.groupBy({
+      by: ['method'],
+      where: { shiftId, direction: 'INBOUND', method: { not: 'CASH' }, sale: { status: { not: 'VOIDED' } } },
+      _sum: { amount: true },
+    }),
+    db.payment.aggregate({ where: { shiftId, direction: 'OUTBOUND', method: { not: 'CASH' } }, _sum: { amount: true } }),
+    db.walletTransaction.groupBy({ by: ['type'], where: { shiftId, reversedAt: null }, _sum: { amount: true, fee: true } }),
+  ]);
+  const sumOf = (method?: string) =>
+    toNum(money(received.filter((r) => (method ? r.method === method : r.method !== 'GCASH')).reduce((s, r) => s.plus(D(r._sum.amount ?? 0)), D(0))));
+  const of = (type: 'CASH_IN' | 'CASH_OUT') => wallet.find((row) => row.type === type)?._sum;
+  let walletCashIn = toNum(money(of('CASH_IN')?.amount ?? 0));
+  let walletCashOut = toNum(money(of('CASH_OUT')?.amount ?? 0));
+  let walletFees = toNum(money(D(of('CASH_IN')?.fee ?? 0).plus(D(of('CASH_OUT')?.fee ?? 0))));
+  if (toNum(money(D(walletCashIn).minus(walletCashOut).plus(walletFees))) !== cash.walletCash) {
+    walletCashIn = Math.max(cash.walletCash, 0);
+    walletCashOut = Math.max(-cash.walletCash, 0);
+    walletFees = 0;
+  }
+  return {
+    ...cash,
+    gcashSales: sumOf('GCASH'),
+    otherNonCashSales: sumOf(),
+    walletCashIn,
+    walletCashOut,
+    walletFees,
+    nonCashRefunds: toNum(money(refunds._sum.amount ?? 0)),
+  };
 }
 
 /** The live drawer figures for a shift, from the sales, payments and movements tied to it. */
@@ -206,18 +254,20 @@ export async function computeShiftSummary(shiftId: string, openingCash: Numeric,
 
   const movement = (type: CashMovementType) => movements.find((m) => m.type === type)?._sum.amount ?? 0;
 
+  const totals = drawerTotals({
+    openingCash,
+    cashTendered: tendered._sum.amount ?? 0,
+    changeGiven: sales._sum.changeAmount ?? 0,
+    cashIn: movement('CASH_IN'),
+    cashRefunds: refunds._sum.amount ?? 0,
+    cashOut: movement('CASH_OUT'),
+    walletCash: walletDrawerCash(wallet),
+  });
   return {
-    ...drawerTotals({
-      openingCash,
-      cashTendered: tendered._sum.amount ?? 0,
-      changeGiven: sales._sum.changeAmount ?? 0,
-      cashIn: movement('CASH_IN'),
-      cashRefunds: refunds._sum.amount ?? 0,
-      cashOut: movement('CASH_OUT'),
-      walletCash: walletDrawerCash(wallet),
-    }),
+    ...totals,
     totalSales: toNum(money(sales._sum.total ?? 0)),
     transactionCount: sales._count._all,
+    breakdown: await breakdownParts(db, shiftId, totals),
   };
 }
 
@@ -576,7 +626,7 @@ export interface ShiftListQuery {
   all?: boolean;
 }
 
-export interface ShiftHistoryRow extends ShiftCloseSummary {
+export interface ShiftHistoryRow extends Omit<ShiftCloseSummary, 'breakdown'> {
   id: string;
   number: number;
   reference: string;
@@ -667,21 +717,26 @@ async function totalsFor(row: {
   walletCash?: Numeric | null;
   totalSales: Numeric | null;
   transactionCount: number | null;
-}): Promise<ShiftCloseSummary> {
+}): Promise<Omit<ShiftCloseSummary, 'breakdown'> & { frozen: boolean }> {
   if (row.status === 'CLOSED' && row.expectedCash != null) {
-    return {
+    const frozen = {
       openingCash: toNum(row.openingCash),
       cashSales: toNum(row.cashSales),
       cashRefunds: toNum(row.cashRefunds),
       cashIn: toNum(row.cashIn),
       cashOut: toNum(row.cashOut),
       walletCash: toNum(row.walletCash ?? 0),
+    };
+    return {
+      ...frozen,
       expectedCash: toNum(row.expectedCash),
       totalSales: toNum(row.totalSales),
       transactionCount: row.transactionCount ?? 0,
+      frozen: true,
     };
   }
-  return computeShiftSummary(row.id, row.openingCash);
+  const { breakdown: _breakdown, ...live } = await computeShiftSummary(row.id, row.openingCash);
+  return { ...live, frozen: false };
 }
 
 export async function listShifts(query: ShiftListQuery) {
@@ -732,7 +787,7 @@ export async function listShifts(query: ShiftListQuery) {
 
   const shifts: ShiftHistoryRow[] = await Promise.all(
     rows.map(async (row) => {
-      const totals = await totalsFor(row);
+      const { frozen: _frozen, ...totals } = await totalsFor(row);
       const actual = row.actualCash == null ? null : toNum(row.actualCash);
       const difference = row.difference == null ? null : toNum(row.difference);
       return {
@@ -816,6 +871,8 @@ export async function getShiftKpis(now: Date = new Date()): Promise<ShiftKpis> {
 
 export interface ShiftDetail extends ShiftHistoryRow {
   reviewNote: string | null;
+  /** Every movement, cash and electronic, for the shared drawer breakdown. */
+  breakdown: BreakdownParts;
   /** For a closed shift: what the records give today, when it differs from what was frozen at close. */
   liveExpectedCash: number | null;
   sales: {
@@ -875,7 +932,9 @@ export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | nul
   if (!row) return null;
 
   const live = await computeShiftSummary(row.id, row.openingCash);
-  const totals = await totalsFor(row);
+  const { frozen, ...totals } = await totalsFor(row);
+  // Closed: the cash lines as frozen at close; open: the live records.
+  const breakdown = frozen ? await breakdownParts(db, row.id, totals) : live.breakdown;
   const notVoided = { shiftId: row.id, status: { not: 'VOIDED' as const } };
 
   const [completed, voided, received, refunds, transactions, refundRows, lastPayment] = await Promise.all([
@@ -947,6 +1006,7 @@ export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | nul
     reviewedByName: row.reviewedBy?.name ?? null,
     reviewedAt: row.reviewedAt,
     reviewNote: row.reviewNote,
+    breakdown,
     lastActivityAt,
     liveExpectedCash: row.status === 'CLOSED' && live.expectedCash !== totals.expectedCash ? live.expectedCash : null,
     sales: {

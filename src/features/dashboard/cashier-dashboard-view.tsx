@@ -13,6 +13,7 @@ import {
 import type { SaleStatus } from '@prisma/client';
 import type { CashierDashboardData, CashierRecentSale } from '@/server/analytics/cashier-dashboard';
 import { formatCurrency, formatDateTime, formatNumber, formatTime } from '@/lib/format';
+import { DrawerBreakdownTable } from '@/features/shifts/drawer-breakdown-table';
 import { formatPieces } from '@/lib/quantity';
 import { cn } from '@/lib/utils';
 import { Panel, PanelEmpty } from '@/components/panel';
@@ -170,15 +171,6 @@ function ShiftCard({
   summary: NonNullable<CashierDashboardData['shiftSummary']>;
   currency: string;
 }) {
-  const rows: [string, string][] = [
-    ['Starting cash', formatCurrency(summary.openingCash, currency)],
-    ['Cash sales this shift', formatCurrency(summary.cashSales, currency)],
-    ['Cash in / out', `+${formatCurrency(summary.cashIn, currency)} / −${formatCurrency(summary.cashOut, currency)}`],
-    ['Cash refunds', `−${formatCurrency(summary.cashRefunds, currency)}`],
-    ...(summary.walletCash
-      ? ([['GCash services (cash)', `${summary.walletCash >= 0 ? '+' : '−'}${formatCurrency(Math.abs(summary.walletCash), currency)}`]] as [string, string][])
-      : []),
-  ];
   return (
     <section aria-labelledby="shift-card-title" className="mb-4 rounded-card border bg-card p-4 shadow-card sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -195,18 +187,16 @@ function ShiftCard({
           <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" /> Open
         </span>
       </div>
-      <dl className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-5">
-        {rows.map(([label, value]) => (
-          <div key={label} className="min-w-0">
-            <dt className="text-xs text-muted-foreground">{label}</dt>
-            <dd className="tabular truncate text-sm font-semibold">{value}</dd>
-          </div>
-        ))}
-        <div className="min-w-0 rounded-lg bg-primary/10 px-3 py-2 lg:-my-2">
-          <dt className="text-xs font-medium text-primary">Expected in drawer</dt>
-          <dd className="tabular text-lg font-bold text-primary">{formatCurrency(summary.expectedCash, currency)}</dd>
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_15rem]">
+        <DrawerBreakdownTable parts={summary.breakdown} expectedCash={summary.expectedCash} actualCash={null} currency={currency} />
+        <div className="self-start rounded-lg bg-primary/10 px-4 py-3">
+          <p className="text-xs font-medium text-primary">Expected in drawer</p>
+          <p className="tabular text-2xl font-bold text-primary">{formatCurrency(summary.expectedCash, currency)}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            GCash received: {formatCurrency(summary.breakdown.gcashSales, currency)} (in the store&apos;s GCash, not the drawer)
+          </p>
         </div>
-      </dl>
+      </div>
     </section>
   );
 }

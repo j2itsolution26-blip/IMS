@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { ShiftStatusBadge, VarianceText } from '@/features/shifts/shift-status-badge';
 import { AdjustmentButton, OwnerCloseButton, ReviewForm } from '@/features/shifts/shift-owner-actions';
 import { AutoRefresh, PrintButton } from '@/features/shifts/auto-refresh';
+import { DrawerBreakdownTable } from '@/features/shifts/drawer-breakdown-table';
 
 export const metadata: Metadata = { title: 'Shift report' };
 export const dynamic = 'force-dynamic';
@@ -101,22 +102,13 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
           />
         </Panel>
 
-        <Panel title="Drawer" description={shift.status === 'OPEN' ? 'Live from the records' : 'As reconciled at close'}>
+        <Panel
+          title="Drawer"
+          description={shift.status === 'OPEN' ? 'Every movement, live from the records' : 'Every movement, as reconciled at close'}
+          className="lg:col-span-2"
+        >
+          <DrawerBreakdownTable parts={shift.breakdown} expectedCash={shift.expectedCash} actualCash={shift.actualCash} currency={currency} />
           <dl className="divide-y text-sm">
-            <Line label="Starting cash" value={money(shift.openingCash)} />
-            <Line label="+ Cash sales (after change)" value={money(shift.cashSales)} />
-            <Line label="+ Cash in" value={money(shift.cashIn)} />
-            <Line label="− Cash refunds" value={money(shift.cashRefunds)} />
-            <Line label="− Cash out" value={money(shift.cashOut)} />
-            {shift.walletCash !== 0 && (
-              <Line label={`${shift.walletCash >= 0 ? '+' : '−'} GCash services (cash)`} value={money(Math.abs(shift.walletCash))} />
-            )}
-            <Line label="Expected drawer cash" value={money(shift.expectedCash)} strong />
-            <Line label="Counted cash" value={shift.actualCash == null ? 'Not counted yet' : money(shift.actualCash)} />
-            <Line
-              label="Variance"
-              value={<VarianceText difference={shift.difference} kind={shift.varianceKind} currency={currency} className="font-semibold" />}
-            />
             {shift.adjustments.length > 0 && (
               <>
                 <Line label="Adjustments" value={`${adjustmentsTotal >= 0 ? '+' : '−'}${money(Math.abs(adjustmentsTotal))}`} />

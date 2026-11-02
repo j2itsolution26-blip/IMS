@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlanGate } from '@/features/subscription/plan-gate';
+import { SalesTabs } from '@/features/sales/sales-tabs';
 
 export const metadata: Metadata = { title: 'Sales' };
 export const dynamic = 'force-dynamic';
@@ -58,7 +59,7 @@ export default async function SalesPage({
   const user = await requirePermission('sales.view');
   const params = await searchParams;
 
-  const { period, range, custom } = resolveRangeFromParams(params, 'month');
+  const { period, range, custom } = resolveRangeFromParams(params, 'today');
   const currency = await getCurrency();
   // Profit and cost are the owner's. Staff who may view sales see the takings
   // only; the figures are zeroed here, before anything is rendered.
@@ -89,6 +90,7 @@ export default async function SalesPage({
 
   return (
     <>
+      <SalesTabs current="sales" />
       {/* Header */}
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">

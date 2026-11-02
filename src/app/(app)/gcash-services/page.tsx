@@ -16,6 +16,7 @@ import { FilterBar, PaginationBar } from '@/components/filter-bar';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { WalletTable } from '@/features/wallet/wallet-table';
+import { SalesTabs } from '@/features/sales/sales-tabs';
 
 export const metadata: Metadata = { title: 'GCash Services' };
 export const dynamic = 'force-dynamic';
@@ -57,6 +58,7 @@ export default async function GcashServicesPage({
 
   return (
     <>
+      <SalesTabs current="gcash" />
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-title sm:text-title-lg">GCash Services</h1>

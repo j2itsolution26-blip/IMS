@@ -17,6 +17,7 @@ import { PeriodPicker } from '@/components/period-picker';
 import { FilterBar, PaginationBar } from '@/components/filter-bar';
 import { EmptyState } from '@/components/empty-state';
 import { CashMovementTable } from '@/features/cash-movements/movement-table';
+import { SalesTabs } from '@/features/sales/sales-tabs';
 
 export const metadata: Metadata = { title: 'Cash In / Out' };
 export const dynamic = 'force-dynamic';
@@ -78,6 +79,7 @@ export default async function CashMovementsPage({
 
   return (
     <>
+      <SalesTabs current="cash" />
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-title sm:text-title-lg">Cash In / Out</h1>
