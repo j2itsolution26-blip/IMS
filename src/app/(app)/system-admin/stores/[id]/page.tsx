@@ -1,4 +1,6 @@
+import Link from 'next/link';
 import { ResetDemoButton } from '@/features/platform/reset-demo-button';
+import { DemoAccountButton } from '@/features/platform/demo-account-button';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { AlertTriangle, CalendarClock, FileText, History, Mail, Receipt, UserRound } from 'lucide-react';
@@ -77,6 +79,9 @@ export default async function StoreDetailPage({ params }: { params: Promise<{ id
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {store.isDemo && canManage && <ResetDemoButton storeId={store.id} storeName={store.name} />}
+            {!store.isDemo && !store.demoStore && canManage && (
+              <DemoAccountButton storeId={store.id} storeName={store.name} suggestedUsername={`${store.ownerUsername ?? 'store'}.demo`.slice(0, 30)} />
+            )}
             <StoreControls storeId={store.id} storeName={store.name} plan={store.plan} status={store.status} canManage={canManage} />
           </div>
         }
@@ -86,6 +91,25 @@ export default async function StoreDetailPage({ params }: { params: Promise<{ id
         <p role="status" className="mb-4 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-text">
           <span className="font-bold tracking-wider">DEMO</span> — a demonstration store with sample data. It is never billed, is
           left out of platform figures and reminders, and its data can be reset. It cannot become a real store.
+          {store.demoOf && (
+            <>
+              {' '}
+              Demo account for{' '}
+              <Link href={`/system-admin/stores/${store.demoOf.id}`} className="font-semibold underline">
+                {store.demoOf.name}
+              </Link>
+              .
+            </>
+          )}
+        </p>
+      )}
+      {store.demoStore && (
+        <p className="mb-4 rounded-md border bg-card px-3 py-2 text-sm">
+          Demo account:{' '}
+          <Link href={`/system-admin/stores/${store.demoStore.id}`} className="font-semibold text-primary hover:underline">
+            {store.demoStore.name}
+          </Link>
+          {store.demoStore.ownerUsername && <span className="text-muted-foreground"> — sign in as {store.demoStore.ownerUsername}</span>}
         </p>
       )}
 

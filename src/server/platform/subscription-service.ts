@@ -356,6 +356,8 @@ export interface NewStoreInput {
    * sample data, marked DEMO everywhere, and resettable. Fixed at creation.
    */
   demo?: boolean;
+  /** For a demo store: the real store it is the demonstration account for. */
+  demoOfStoreId?: string;
 }
 
 /** Raised so the form can show the matches and ask the administrator to confirm. */
@@ -402,7 +404,7 @@ export async function createStore(actor: Actor, input: NewStoreInput, now = new 
     const created = await tx.store.create({
       data: input.demo
         ? // Business features, active with no end date, never billed.
-          { name, slug, plan: 'BUSINESS', status: 'ACTIVE', trialEndsAt: null, currentPeriodEnd: null, isDemo: true }
+          { name, slug, plan: 'BUSINESS', status: 'ACTIVE', trialEndsAt: null, currentPeriodEnd: null, isDemo: true, demoOfStoreId: input.demoOfStoreId ?? null }
         : { name, slug, ...newTrial(now) },
       select: { id: true, name: true },
     });
@@ -487,4 +489,39 @@ async function removeEmptyStore(storeId: string): Promise<void> {
     await tx.warehouse.deleteMany({ where: { storeId } });
     await tx.store.delete({ where: { id: storeId } });
   }, TX);
+}
+
+// --- Demo account per store ---------------------------------------------------
+
+/**
+ * The demonstration account for a real store: a separate demo store named
+ * "<store> (Demo)", with its own owner login and the sample catalogue,
+ * linked to the store it was made for. Being its own store, it can never see
+ * or change the real store's sales, stock, cash, staff or billing, and it is
+ * never billed. One per store; the database holds that.
+ */
+export async function createStoreDemo(
+  actor: Actor,
+  input: { storeId: string; username: string; password: string },
+): Promise<{ storeId: string; ownerId: string }> {
+  const real = await platformPrisma.store.findUnique({
+    where: { id: input.storeId },
+    select: { id: true, name: true, isDemo: true, demoStore: { select: { id: true } }, owner: { select: { name: true } } },
+  });
+  if (!real) throw new NotFoundError('Store');
+  if (real.isDemo) throw new ConflictError('This is already a demo store.');
+  if (real.demoStore) throw new ConflictError('This store already has a demo account.');
+  return createStore(actor, {
+    storeName: `${real.name} (Demo)`.slice(0, 80),
+    owner: {
+      name: `${real.owner?.name ?? real.name} (Demo)`.slice(0, 80),
+      username: input.username,
+      // Never a real mailbox: the demo login signs in by username.
+      email: `${input.username}@demo.invalid`,
+      password: input.password,
+    },
+    allowSimilar: true,
+    demo: true,
+    demoOfStoreId: real.id,
+  });
 }

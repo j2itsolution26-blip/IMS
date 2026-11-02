@@ -12,7 +12,7 @@ import { MAX_TRIAL_EXTENSION_DAYS, PAYMENT_MONTHS } from '@/lib/subscription';
 import { recordAuditFor } from '@/server/services/audit-service';
 import {
   changePlan,
-  createStore,
+  createStore, createStoreDemo,
   extendTrial,
   recordManualPayment,
   setStoreStatus,
@@ -187,6 +187,29 @@ export async function createStoreAction(input: unknown): Promise<ActionResult<{ 
     });
     refresh();
     revalidatePath('/system-admin/owners');
+    return { storeId };
+  });
+}
+
+const demoAccountSchema = z.object({
+  storeId: z.string().trim().min(1).max(64),
+  username: z
+    .string()
+    .transform(normalizeUsername)
+    .superRefine((value, ctx) => {
+      const problem = usernameProblem(value);
+      if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+    }),
+  password,
+});
+/** Creates the demonstration account for one real store (see createStoreDemo). */
+export async function createStoreDemoAction(input: unknown): Promise<ActionResult<{ storeId: string }>> {
+  return runAction(async () => {
+    const actor = await requireManager('create a demo account');
+    const values = parseInput(demoAccountSchema, input);
+    const { storeId } = await createStoreDemo(actor, values);
+    refresh(values.storeId);
+    refresh(storeId);
     return { storeId };
   });
 }

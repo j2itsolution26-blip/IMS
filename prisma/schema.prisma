@@ -71,6 +71,11 @@ model Store {
   // at creation and fixed for ever after (trigger, migration 20261108090000),
   // so a real store's data can never be reset.
   isDemo Boolean @default(false)
+  // On a demo store: the real store it is the demonstration account for.
+  // One per store, fixed once set (migration 20261115090000).
+  demoOfStoreId String? @unique
+  demoOf        Store?  @relation("StoreDemo", fields: [demoOfStoreId], references: [id], onDelete: Restrict)
+  demoStore     Store?  @relation("StoreDemo")
 
   members               User[]                       @relation("StoreMembers")
   roles                 Role[]

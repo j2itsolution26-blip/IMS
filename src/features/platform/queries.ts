@@ -251,7 +251,14 @@ export interface PlatformInvoice {
 }
 
 export interface PlatformStoreDetail {
-  store: Omit<PlatformStoreRow, 'products' | 'staff' | 'branches'> & { ownerEmail: string | null; ownerPhone: string | null };
+  store: Omit<PlatformStoreRow, 'products' | 'staff' | 'branches'> & {
+    ownerEmail: string | null;
+    ownerPhone: string | null;
+    /** On a demo store: the real store it was made for. */
+    demoOf: { id: string; name: string } | null;
+    /** On a real store: its demo account, if one was made. */
+    demoStore: { id: string; name: string; ownerUsername: string | null } | null;
+  };
   usage: { products: number; staff: number; branches: number; backgroundRemovals: number };
   payments: PlatformPayment[];
   invoices: PlatformInvoice[];
@@ -270,6 +277,8 @@ export async function getStoreDetail(storeId: string, period: string): Promise<P
     select: {
       id: true, name: true, plan: true, status: true, trialEndsAt: true, currentPeriodEnd: true, createdAt: true, ownerId: true, isDemo: true,
       owner: { select: { name: true, username: true, email: true, phone: true } },
+      demoOf: { select: { id: true, name: true } },
+      demoStore: { select: { id: true, name: true, owner: { select: { username: true } } } },
     },
   });
   if (!store) return null;
@@ -313,6 +322,8 @@ export async function getStoreDetail(storeId: string, period: string): Promise<P
       currentPeriodEnd: store.currentPeriodEnd, createdAt: store.createdAt, isDemo: store.isDemo,
       ownerName: store.owner?.name ?? null, ownerUsername: store.owner?.username ?? null,
       ownerEmail: store.owner?.email ?? null, ownerPhone: store.owner?.phone ?? null,
+      demoOf: store.demoOf,
+      demoStore: store.demoStore ? { id: store.demoStore.id, name: store.demoStore.name, ownerUsername: store.demoStore.owner?.username ?? null } : null,
     },
     usage: { products, staff, branches, backgroundRemovals: removals?.count ?? 0 },
     payments: payments.map((p) => ({
