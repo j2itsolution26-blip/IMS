@@ -12,6 +12,7 @@ import { GlobalSearch } from '@/components/layout/global-search';
 import { LockScreenButton, ScreenLockProvider } from '@/features/auth/screen-lock';
 import { NotificationBell } from '@/features/notifications/notification-bell';
 import { OfflineBanner } from '@/features/pwa/offline-banner';
+import { InstallAppButton } from '@/features/pwa/install-app-button';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 
@@ -147,6 +148,7 @@ export function AppShell({
               // Shift alerts are time-sensitive, so the owner's bell checks more often.
               <NotificationBell viewAllHref="/notifications" pollMs={60_000} />
             ) : null}
+            <InstallAppButton />
             <LockScreenButton />
             <ThemeToggle />
             {userSlot}
