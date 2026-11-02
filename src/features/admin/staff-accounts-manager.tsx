@@ -40,6 +40,9 @@ export interface StaffRow {
   phone: string | null;
   roleId: string;
   roleName: string;
+  /** The branch the account works at; null for the owner (every branch). */
+  branchId: string | null;
+  branchName: string | null;
   isOwner: boolean;
   isActive: boolean;
   /** The drawer this person has open right now, if any. */
@@ -67,6 +70,7 @@ interface CreateValues {
   confirmPassword: string;
   roleId: string;
   status: 'active' | 'inactive';
+  warehouseId: string;
 }
 
 interface EditValues {
@@ -74,6 +78,7 @@ interface EditValues {
   username: string;
   phone: string;
   roleId: string;
+  warehouseId: string;
 }
 
 /** react-hook-form rule shared by the create and edit dialogs. */
@@ -119,7 +124,13 @@ export function roleUnavailable(
     .join(', ')}. Deactivate that account first, create this one as inactive, or upgrade your plan.`;
 }
 
-const emptyCreate = (roles: AssignableRole[]): CreateValues => ({
+/** An active branch staff can be assigned to; the main branch first. */
+export interface BranchChoice {
+  id: string;
+  name: string;
+}
+
+const emptyCreate = (roles: AssignableRole[], branches: BranchChoice[]): CreateValues => ({
   name: '',
   username: '',
   email: '',
@@ -127,7 +138,26 @@ const emptyCreate = (roles: AssignableRole[]): CreateValues => ({
   confirmPassword: '',
   roleId: (roles.find((role) => !roleUnavailable(role, { active: true })) ?? roles[0])?.id ?? '',
   status: 'active',
+  warehouseId: branches[0]?.id ?? '',
 });
+
+/** The branch select; only shown when the store has more than one branch. */
+function BranchSelect({ id, value, onChange, branches }: { id: string; value: string; onChange: (value: string) => void; branches: BranchChoice[] }) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger id={id}>
+        <SelectValue placeholder="Choose a branch" />
+      </SelectTrigger>
+      <SelectContent>
+        {branches.map((branch) => (
+          <SelectItem key={branch.id} value={branch.id}>
+            {branch.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 function RoleOptions({ roles, active, accountId }: { roles: AssignableRole[]; active: boolean; accountId?: string }) {
   return (
@@ -156,11 +186,14 @@ function RoleOptions({ roles, active, accountId }: { roles: AssignableRole[]; ac
 export function StaffAccountsManager({
   rows,
   roles,
+  branches,
   currentUserId,
   permissions,
 }: {
   rows: StaffRow[];
   roles: AssignableRole[];
+  /** Active branches, main first. */
+  branches: BranchChoice[];
   currentUserId: string;
   permissions: { canCreate: boolean; canUpdate: boolean; canDelete: boolean };
 }) {
@@ -177,9 +210,10 @@ export function StaffAccountsManager({
   const [leaveShiftOpen, setLeaveShiftOpen] = React.useState(false);
 
   const createForm = useForm<CreateValues>({
-    defaultValues: emptyCreate(roles),
+    defaultValues: emptyCreate(roles, branches),
   });
-  const editForm = useForm<EditValues>({ defaultValues: { name: '', username: '', phone: '', roleId: '' } });
+  const editForm = useForm<EditValues>({ defaultValues: { name: '', username: '', phone: '', roleId: '', warehouseId: '' } });
+  const multiBranch = branches.length > 1;
   const resetForm = useForm<ResetValues>({ defaultValues: { password: '', confirmPassword: '' } });
 
   // A full role slot (Basic) is explained under the field; the role stays
@@ -194,7 +228,7 @@ export function StaffAccountsManager({
 
   const openCreate = () => {
     setFormError(null);
-    createForm.reset(emptyCreate(roles));
+    createForm.reset(emptyCreate(roles, branches));
     setCreateOpen(true);
   };
 
@@ -205,7 +239,7 @@ export function StaffAccountsManager({
 
   const openEdit = (staff: StaffRow) => {
     setFormError(null);
-    editForm.reset({ name: staff.name, username: staff.username, phone: staff.phone ?? '', roleId: staff.roleId });
+    editForm.reset({ name: staff.name, username: staff.username, phone: staff.phone ?? '', roleId: staff.roleId, warehouseId: staff.branchId ?? branches[0]?.id ?? '' });
     setEditing(staff);
   };
 
@@ -225,6 +259,7 @@ export function StaffAccountsManager({
       password: values.password,
       roleId: values.roleId,
       isActive: values.status === 'active',
+      warehouseId: values.warehouseId || undefined,
     });
 
     if (!result.ok) {
@@ -254,6 +289,7 @@ export function StaffAccountsManager({
       ...values,
       username: normalizeUsername(values.username),
       isActive: editing.isActive,
+      warehouseId: editing.isOwner || !values.warehouseId ? undefined : values.warehouseId,
     });
     if (!result.ok) {
       setFormError(result.error);
@@ -375,7 +411,12 @@ export function StaffAccountsManager({
       {
         accessorKey: 'roleName',
         header: 'Role',
-        cell: ({ row }) => <Badge variant="default">{row.original.roleName}</Badge>,
+        cell: ({ row }) => (
+          <div className="flex flex-col items-start gap-1">
+            <Badge variant="default">{row.original.roleName}</Badge>
+            {multiBranch && <span className="text-xs text-muted-foreground">{row.original.isOwner ? 'All branches' : (row.original.branchName ?? 'Main branch')}</span>}
+          </div>
+        ),
       },
       {
         accessorKey: 'isActive',
@@ -459,7 +500,7 @@ export function StaffAccountsManager({
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [currentUserId],
+    [currentUserId, multiBranch],
   );
 
   return (
@@ -601,6 +642,16 @@ export function StaffAccountsManager({
               )}
             </FormField>
 
+            {multiBranch && (
+              <FormField id="staff-branch" label="Branch" required description="The store location this person works at. They only see and sell from this branch.">
+                <Controller
+                  name="warehouseId"
+                  control={createForm.control}
+                  render={({ field }) => <BranchSelect id="staff-branch" value={field.value} onChange={field.onChange} branches={branches} />}
+                />
+              </FormField>
+            )}
+
             <FormField
               id="staff-status"
               label="Account Status"
@@ -702,6 +753,16 @@ export function StaffAccountsManager({
                 />
               )}
             </FormField>
+
+            {multiBranch && editing && !editing.isOwner && (
+              <FormField id="edit-branch" label="Branch" description="Moving someone is refused while they have a shift open.">
+                <Controller
+                  name="warehouseId"
+                  control={editForm.control}
+                  render={({ field }) => <BranchSelect id="edit-branch" value={field.value} onChange={field.onChange} branches={branches} />}
+                />
+              </FormField>
+            )}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditing(null)}>

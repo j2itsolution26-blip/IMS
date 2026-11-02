@@ -6,7 +6,7 @@ import { NotFoundError, ValidationError } from '@/lib/errors';
 import { applyStockMovement, validQuantity } from '@/server/services/inventory-service';
 import { nextDocumentNumber } from '@/server/services/numbering-service';
 import { recordAudit } from '@/server/services/audit-service';
-import { getDefaultWarehouseId } from '@/server/services/warehouse-service';
+import { writableBranchId } from '@/lib/tenant/branch';
 
 /**
  * Manual stock operations: a simple "Stock In" for received goods, and
@@ -32,7 +32,7 @@ export async function createStockIn(input: StockInInput) {
     throw new ValidationError('Enter a quantity received above zero.');
   }
 
-  const warehouseId = await getDefaultWarehouseId();
+  const warehouseId = await writableBranchId();
 
   return db.$transaction(async (tx) => {
     const reference = await nextDocumentNumber('ADJUSTMENT', tx);
@@ -101,7 +101,7 @@ export async function createAdjustment(input: CreateAdjustmentInput) {
     });
   }
 
-  const warehouseId = await getDefaultWarehouseId();
+  const warehouseId = await writableBranchId();
 
   const result = await db.$transaction(
     async (tx) => {

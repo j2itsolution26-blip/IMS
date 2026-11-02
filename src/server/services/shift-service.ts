@@ -4,6 +4,7 @@ import type { CashMovementCategory, CashMovementType, PaymentMethod, Prisma, Sal
 import { CATEGORY_LABEL, correctionTypeFor, isCategoryAllowed, movementReference } from '@/lib/cash-movements';
 import type { DbClient } from '@/lib/prisma';
 import { getStoreContext, storeDb, storeDbForShiftClose } from '@/lib/tenant/context';
+import { writableBranchId } from '@/lib/tenant/branch';
 import { D, money, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { MAX_DRAWER_AMOUNT } from '@/lib/cash-amount';
@@ -46,17 +47,20 @@ export interface OpenShiftSummary {
   openedAt: Date;
   openingCash: number;
   openingNotes: string | null;
+  /** The branch whose drawer this is; sales on the shift belong to it. */
+  warehouseId: string;
 }
 
-const OPEN_SHIFT_SELECT = { id: true, number: true, openedAt: true, openingCash: true, openingNotes: true } as const;
+const OPEN_SHIFT_SELECT = { id: true, number: true, openedAt: true, openingCash: true, openingNotes: true, warehouseId: true } as const;
 
-function toSummary(shift: { id: string; number: number; openedAt: Date; openingCash: Numeric; openingNotes: string | null }): OpenShiftSummary {
+function toSummary(shift: { id: string; number: number; openedAt: Date; openingCash: Numeric; openingNotes: string | null; warehouseId: string }): OpenShiftSummary {
   return {
     id: shift.id,
     number: shift.number,
     openedAt: shift.openedAt,
     openingCash: toNum(shift.openingCash),
     openingNotes: shift.openingNotes,
+    warehouseId: shift.warehouseId,
   };
 }
 
@@ -118,12 +122,15 @@ export async function openShift(input: {
 
   const openingCash = validDrawerAmount(input.openingCash, 'Starting cash', { allowZero: true });
   const openingNotes = input.openingNotes?.trim() || null;
+  // The drawer belongs to the account's branch (or the owner's selected one),
+  // resolved on the server; the database checks it again.
+  const warehouseId = await writableBranchId();
 
   let created;
   try {
     created = await db.$transaction(async (tx) => {
       const shift = await tx.cashierShift.create({
-        data: { userId: input.userId, openingCash, openingNotes, status: 'OPEN' },
+        data: { userId: input.userId, warehouseId, openingCash, openingNotes, status: 'OPEN' },
         select: { ...OPEN_SHIFT_SELECT, user: { select: { name: true } } },
       });
       const reference = shiftReference(shift.number);

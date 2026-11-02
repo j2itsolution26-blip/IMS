@@ -395,7 +395,8 @@ if (!URL_ENV) {
     test('refuses model and raw writes, allows reads, raw reads and audit entries', async () => {
       const s = await makeStore({});
       const rw = storeClient(s.storeId);
-      const shift = await rw.cashierShift.create({ data: { storeId: s.storeId, userId: s.ownerId, openingCash: 500 } });
+      const branch = await rw.warehouse.create({ data: { code: 'MAIN', name: 'Main', isDefault: true } });
+      const shift = await rw.cashierShift.create({ data: { storeId: s.storeId, userId: s.ownerId, warehouseId: branch.id, openingCash: 500 } });
       const existing = await rw.product.create({ data: product(s, 1) });
       const ro = storeClient(s.storeId, { writable: false });
       const readOnly = (error: unknown) => (error as { code?: string })?.code === 'STORE_READ_ONLY';

@@ -131,9 +131,23 @@ export async function reactivateBranch(userId: string, id: string): Promise<void
 }
 
 /**
- * Why a branch cannot be archived yet, or null. Extended as branches gain
- * shifts and staff (an open drawer must be counted first; staff moved).
+ * Why a branch cannot be archived yet, or null: an open drawer must be
+ * counted and closed first, and active staff moved or deactivated. The
+ * database refuses the same (migration 20261113090000).
  */
-export async function branchArchiveBlockers(_ctx: StoreContext, _id: string): Promise<string | null> {
+export async function branchArchiveBlockers(ctx: StoreContext, id: string): Promise<string | null> {
+  const [openShifts, staff] = await Promise.all([
+    ctx.db.cashierShift.count({ where: { warehouseId: id, status: 'OPEN' } }),
+    ctx.db.user.count({ where: { warehouseId: id, isActive: true } }),
+  ]);
+  if (openShifts > 0) return `Close the ${openShifts === 1 ? 'open shift' : `${openShifts} open shifts`} at this branch before archiving it.`;
+  if (staff > 0) return `Move or deactivate the ${staff === 1 ? 'staff member' : `${staff} staff members`} at this branch before archiving it.`;
   return null;
+}
+
+/** Active staff per branch, for the branch list. */
+export async function staffPerBranch(ctx?: StoreContext): Promise<Map<string, number>> {
+  const { db } = ctx ?? (await getStoreContext());
+  const rows = await db.user.groupBy({ by: ['warehouseId'], where: { isActive: true, warehouseId: { not: null } }, _count: { _all: true } });
+  return new Map(rows.map((row) => [row.warehouseId as string, row._count._all]));
 }

@@ -9,11 +9,11 @@
 //  * `Inventory` is the single source of truth for on-hand stock and is only ever
 //    mutated inside a transaction that also writes an `InventoryTransaction` row.
 //    The ledger and the balance can therefore never drift.
-//  * Multi-store: every business row belongs to a `Store` (see below). Each
-//    store is a single location: exactly one `Warehouse` row per store is
-//    seeded and every operation resolves it silently server-side — there is no location
-//    picker anywhere in the UI. The model is kept (rather than removed) so the
-//    stock-ledger engine below needs no changes to its signatures.
+//  * Multi-store: every business row belongs to a `Store` (see below). A
+//    store has one or more locations (`Warehouse` rows, "branches"): the main
+//    one is seeded with the store, and the plan sets how many may be active
+//    (migration 20261112090000). Stock, sales and shifts belong to a branch;
+//    the server resolves it from the signed-in account (src/lib/tenant/branch.ts).
 //  * There is no Customer model. Every sale is a walk-in sale.
 
 generator client {
@@ -588,6 +588,12 @@ model User {
   roleId String
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
+  // The branch a staff account works at; null for the owner (every branch)
+  // and platform accounts. Must be an active branch of the same store
+  // (migration 20261113090000).
+  warehouseId String?
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
   sessions             Session[]
   accounts             Account[]
   auditLogs            AuditLog[]
@@ -625,6 +631,7 @@ model User {
   @@index([roleId])
   @@index([isActive])
   @@index([storeId])
+  @@index([warehouseId])
   @@map("users")
 }
 
@@ -910,9 +917,9 @@ enum PriceField {
 // Location
 // ---------------------------------------------------------------------------
 
-// Single-location system: exactly one row is seeded and used everywhere.
-// Kept as its own table (rather than removed) so the stock-ledger engine
-// below needs no changes — see the file-level note at the top.
+// A branch: one physical store location. The main branch is seeded with the
+// store; the owner adds more within the plan's limit. Archived branches keep
+// their history and are never deleted while they have any.
 model Warehouse {
   id String @id @default(cuid())
 
@@ -930,6 +937,8 @@ model Warehouse {
   inventory             Inventory[]
   inventoryTransactions InventoryTransaction[]
   sales                 Sale[]
+  shifts                CashierShift[]
+  staff                 User[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1050,6 +1059,10 @@ model CashierShift {
   store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
   userId  String
   user    User   @relation("ShiftCashier", fields: [userId], references: [id], onDelete: Restrict)
+  // The branch whose drawer this is. Set when the shift opens and never
+  // changed; sales on the shift belong to the same branch (migration 20261113090000).
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
 
   status       ShiftStatus @default(OPEN)
   openedAt     DateTime    @default(now())
@@ -1107,6 +1120,7 @@ model CashierShift {
   @@index([closedAt])
   @@index([reviewStatus])
   @@index([storeId, status])
+  @@index([warehouseId, status])
   @@map("cashier_shifts")
 }
 
@@ -1380,6 +1394,7 @@ model Sale {
   @@index([status])
   @@index([shiftId])
   @@index([storeId, createdAt])
+  @@index([warehouseId, createdAt])
   @@map("sales")
 }
 

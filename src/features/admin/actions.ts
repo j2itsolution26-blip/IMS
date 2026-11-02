@@ -304,7 +304,27 @@ const createUserSchema = z.object({
   roleId: z.string().min(1, 'Choose a role.'),
   phone: z.string().trim().max(40).optional(),
   isActive: z.boolean().default(true),
+  /** The branch the account works at; the main branch when left out. */
+  warehouseId: z.string().trim().max(64).optional(),
 });
+
+/**
+ * The branch a staff account is assigned to: the one asked for if it is an
+ * active branch of this store (the store-scoped client cannot see any other),
+ * otherwise refused; the main branch when none is given. Owners get none —
+ * they work across every branch.
+ */
+async function staffBranchFor(db: Awaited<ReturnType<typeof storeDb>>, roleSlug: string, warehouseId: string | undefined): Promise<string | null> {
+  if (roleSlug === 'owner') return null;
+  const branch = await db.warehouse.findFirst({
+    where: warehouseId ? { id: warehouseId, isActive: true } : { isDefault: true },
+    select: { id: true },
+  });
+  if (!branch) {
+    throw new ValidationError('Choose an active branch.', { warehouseId: ['Choose an active branch.'] });
+  }
+  return branch.id;
+}
 
 export async function createUser(input: unknown): Promise<ActionResult<{ id: string }>> {
   return runAction(async () => {
@@ -422,7 +442,12 @@ export async function createUser(input: unknown): Promise<ActionResult<{ id: str
     try {
       await db.user.update({
         where: { id: userId },
-        data: { roleId: values.roleId, phone: values.phone || null, isActive: values.isActive },
+        data: {
+          roleId: values.roleId,
+          phone: values.phone || null,
+          isActive: values.isActive,
+          warehouseId: await staffBranchFor(db, role.slug, values.warehouseId),
+        },
       });
     } catch (error) {
       await db.user.delete({ where: { id: userId } }).catch(() => undefined);
@@ -465,6 +490,7 @@ const updateUserSchema = z.object({
   roleId: z.string().min(1, 'Choose a role.'),
   phone: z.string().trim().max(40).optional(),
   isActive: z.boolean(),
+  warehouseId: z.string().trim().max(64).optional(),
 });
 
 export async function updateUser(id: string, input: unknown): Promise<ActionResult<{ id: string }>> {
@@ -520,6 +546,17 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
     const usernameChanged = values.username !== target.username;
     if (usernameChanged) await assertUsernameFree(values.username, id);
 
+    // Moving to another branch. Not while a drawer is open: a shift stays at
+    // the branch where it was opened.
+    const current = await db.user.findUniqueOrThrow({ where: { id }, select: { warehouseId: true, warehouse: { select: { name: true } } } });
+    const warehouseId =
+      newRole.slug === 'owner' ? null : values.warehouseId === undefined && current.warehouseId ? current.warehouseId : await staffBranchFor(db, newRole.slug, values.warehouseId);
+    const branchChanged = warehouseId !== current.warehouseId;
+    if (branchChanged && (await db.cashierShift.count({ where: { userId: id, status: 'OPEN' } })) > 0) {
+      throw new ConflictError('Close this account’s open shift before moving it to another branch.');
+    }
+    const newBranchName = branchChanged && warehouseId ? (await db.warehouse.findUnique({ where: { id: warehouseId }, select: { name: true } }))?.name : null;
+
     await db.user
       .update({
         where: { id },
@@ -529,6 +566,7 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
           roleId: values.roleId,
           phone: values.phone || null,
           isActive: values.isActive,
+          warehouseId,
         },
       })
       .catch((error: unknown) => {
@@ -544,7 +582,9 @@ export async function updateUser(id: string, input: unknown): Promise<ActionResu
       entityId: id,
       summary: `Updated user ${target.email} — ${
         usernameChanged ? `username @${target.username} → @${values.username}, ` : ''
-      }role ${target.role.name} → ${newRole.name}`,
+      }role ${target.role.name} → ${newRole.name}${
+        branchChanged ? `, branch ${current.warehouse?.name ?? 'none'} → ${newBranchName ?? 'all branches'}` : ''
+      }`,
       userId: admin.id,
     });
 

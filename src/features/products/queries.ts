@@ -3,7 +3,7 @@ import 'server-only';
 import type { Prisma, ProductStatus } from '@prisma/client';
 import { getStoreContext, storeDb } from '@/lib/tenant/context';
 import { toNum } from '@/lib/decimal';
-import { getDefaultWarehouseId } from '@/server/services/warehouse-service';
+import { posBranchId } from '@/server/services/warehouse-service';
 import { normalizeBarcode } from '@/lib/barcode';
 
 /**
@@ -253,7 +253,7 @@ export interface SellableFilters {
 export async function searchSellableProducts(term: string, limit = 24, filters: SellableFilters = {}) {
   const db = await storeDb();
   const trimmed = term.trim();
-  const warehouseId = await getDefaultWarehouseId();
+  const warehouseId = await posBranchId();
 
   const products = await db.product.findMany({
     where: {
@@ -339,7 +339,7 @@ export async function getPosCategories(lowStockAtOrBelow: number): Promise<{
   categories: PosCategoryChip[];
 }> {
   const db = await storeDb();
-  const warehouseId = await getDefaultWarehouseId();
+  const warehouseId = await posBranchId();
 
   const [total, lowStock, grouped, categories] = await Promise.all([
     db.product.count({ where: { status: 'ACTIVE' } }),

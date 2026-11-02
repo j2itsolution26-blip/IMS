@@ -1,21 +1,22 @@
 import 'server-only';
 
 import { cache } from 'react';
+import { assertPasswordSettled, getCurrentUser } from '@/lib/session';
 import { storeDb } from '@/lib/tenant/context';
-import { NotFoundError } from '@/lib/errors';
+import { operatingBranchId } from '@/lib/tenant/branch';
 
 /**
- * This is a single-store system. Exactly one warehouse ("Main Store") is
- * seeded by `prisma/bootstrap.ts` and every POS/inventory operation resolves
- * it silently — there is no location picker anywhere in the UI.
+ * The branch whose stock the till shows: the branch of the cashier's open
+ * shift (where the sale will be filed), or the account's operating branch
+ * before a shift is open. See src/lib/tenant/branch.ts.
  */
-export const getDefaultWarehouseId = cache(async (): Promise<string> => {
-  const db = await storeDb();
-  const warehouse = await db.warehouse.findFirst({
-    where: { isActive: true },
-    orderBy: { isDefault: 'desc' },
-    select: { id: true },
-  });
-  if (!warehouse) throw new NotFoundError('Default warehouse — run `npm run db:bootstrap`.');
-  return warehouse.id;
+export const posBranchId = cache(async (): Promise<string> => {
+  const user = await getCurrentUser();
+  if (user) {
+    assertPasswordSettled(user);
+    const db = await storeDb();
+    const shift = await db.cashierShift.findFirst({ where: { userId: user.id, status: 'OPEN' }, select: { warehouseId: true } });
+    if (shift) return shift.warehouseId;
+  }
+  return operatingBranchId();
 });

@@ -45,11 +45,19 @@ export default async function StaffAccountsPage() {
         email: true,
         phone: true,
         isActive: true,
+        warehouseId: true,
+        warehouse: { select: { name: true } },
         role: { select: ROLE_SELECT },
       },
     }),
     db.role.findMany({ orderBy: { name: 'asc' }, select: ROLE_SELECT }),
   ]);
+  // Active branches staff can be assigned to, main first.
+  const branches = await db.warehouse.findMany({
+    where: { isActive: true },
+    orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+    select: { id: true, name: true },
+  });
 
   // Open drawers and the latest Deactivated / Reactivated entry per account,
   // so the owner sees what a status change affects and who last made one.
@@ -94,6 +102,8 @@ export default async function StaffAccountsPage() {
       phone: user.phone,
       roleId: user.role.id,
       roleName: user.role.name,
+      branchId: user.warehouseId,
+      branchName: user.warehouse?.name ?? null,
       isOwner: user.role.slug === OWNER_ROLE_SLUG,
       isActive: user.isActive,
       openShift: (() => {
@@ -146,6 +156,7 @@ export default async function StaffAccountsPage() {
       <StaffAccountsManager
         rows={rows}
         roles={assignableRoles}
+        branches={branches}
         currentUserId={currentUser.id}
         permissions={{
           canCreate: userCan(currentUser, 'users.create'),

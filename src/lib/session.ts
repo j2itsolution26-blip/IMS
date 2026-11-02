@@ -32,6 +32,11 @@ export interface CurrentUser {
     isDemo: boolean;
   } | null;
   permissions: Set<PermissionKey>;
+  /**
+   * The branch this account works at; null for the owner (every branch) and
+   * platform accounts. Resolve the branch to use with src/lib/tenant/branch.
+   */
+  branchId: string | null;
   /** The Better Auth session this request is running under. */
   sessionId: string;
   /** True while the POS lock screen is up for this session. */
@@ -96,6 +101,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       isActive: true,
       posPinHash: true,
       mustChangePassword: true,
+      warehouseId: true,
       store: { select: { id: true, name: true, status: true, plan: true, trialEndsAt: true, currentPeriodEnd: true, isDemo: true } },
       role: {
         select: {
@@ -127,6 +133,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     role: { id: user.role.id, name: user.role.name, slug: user.role.slug },
     store: user.store,
     permissions: new Set(user.role.permissions.map((rp) => rp.permission.key as PermissionKey)),
+    branchId: user.warehouseId,
     sessionId: session.session.id,
     isLocked: sessionRow.lockedAt !== null,
     hasPin: user.posPinHash !== null,

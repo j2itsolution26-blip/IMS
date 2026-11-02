@@ -59,7 +59,7 @@ if (!URL_ENV) {
     await p.warehouse.create({ data: { id: id('wh'), storeId, code: 'MAIN', name: `Main ${tag}` } });
     await p.inventory.create({ data: { id: id('inv'), storeId, productId: id('prod'), warehouseId: id('wh'), quantity: 50 } });
     await p.inventoryTransaction.create({ data: { id: id('itx'), storeId, productId: id('prod'), warehouseId: id('wh'), type: 'STOCK_IN', quantity: 50, balanceBefore: 0, balanceAfter: 50 } });
-    await p.cashierShift.create({ data: { id: id('shift'), storeId, userId: id('user'), openingCash: 1000 } });
+    await p.cashierShift.create({ data: { id: id('shift'), storeId, userId: id('user'), warehouseId: id('wh'), openingCash: 1000 } });
     await p.cashMovement.create({ data: { id: id('cash'), storeId, shiftId: id('shift'), type: 'CASH_IN', amount: 100, reason: 'coins', userId: id('user') } });
     await p.shiftAdjustment.create({ data: { id: id('adj'), storeId, shiftId: id('shift'), amount: 5, reason: 'recount', userId: id('user') } });
     await p.notification.create({ data: { id: id('note'), storeId, type: 'SHIFT_OPENED', title: 'Shift opened', body: tag, dedupeKey: id('dedupe') } });
@@ -352,7 +352,8 @@ if (!URL_ENV) {
       await platform.store.create({ data: { id: demoId, name: `Demo ${run}`, slug: `demo-${run}`, status: 'ACTIVE', plan: 'BUSINESS', isDemo: true } });
       await platform.role.create({ data: { id: `demorole_${run}`, storeId: demoId, name: 'Owner', slug: 'owner' } });
       await platform.user.create({ data: { id: `demouser_${run}`, storeId: demoId, name: 'Demo', email: `demo_${run}@it.test`, username: `demo_${run}`, roleId: `demorole_${run}` } });
-      await platform.cashierShift.create({ data: { id: `demoshift_${run}`, storeId: demoId, userId: `demouser_${run}`, openingCash: 100 } });
+      await platform.warehouse.create({ data: { id: `demowh_${run}`, storeId: demoId, code: 'MAIN', name: 'Main', isDefault: true } });
+      await platform.cashierShift.create({ data: { id: `demoshift_${run}`, storeId: demoId, userId: `demouser_${run}`, warehouseId: `demowh_${run}`, openingCash: 100 } });
       await platform.cashMovement.create({ data: { storeId: demoId, shiftId: `demoshift_${run}`, type: 'CASH_OUT', amount: 10, reason: 'demo', userId: `demouser_${run}` } });
 
       // Without the reset flag, even a demo store's history is append-only.

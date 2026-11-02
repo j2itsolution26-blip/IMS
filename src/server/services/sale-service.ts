@@ -9,7 +9,6 @@ import { applyStockMovement, assertStockAvailable, quantityFor } from '@/server/
 import { nextDocumentNumber } from '@/server/services/numbering-service';
 import { recordAudit } from '@/server/services/audit-service';
 import { getSettings, readNumber } from '@/server/services/settings-service';
-import { getDefaultWarehouseId } from '@/server/services/warehouse-service';
 import { lockShiftIfOpen, requireOpenShift } from '@/server/services/shift-service';
 import { GCASH_REFERENCE_HINT, normalizeGcashReference } from '@/lib/tender';
 
@@ -250,11 +249,9 @@ export async function createSale(input: CreateSaleInput): Promise<CompletedSale>
   }
   const payments = checkedPayments(input.payments);
   const orderDiscount = money(input.discount ?? 0);
-  const [warehouseId, shift, settings] = await Promise.all([
-    getDefaultWarehouseId(),
-    requireOpenShift(input.userId),
-    getSettings(),
-  ]);
+  const [shift, settings] = await Promise.all([requireOpenShift(input.userId), getSettings()]);
+  // A sale belongs to its shift's branch: the drawer and the stock are there.
+  const warehouseId = shift.warehouseId;
   const taxRate = D(readNumber(settings, 'sales.defaultTaxRate'));
 
   try {

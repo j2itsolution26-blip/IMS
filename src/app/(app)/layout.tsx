@@ -9,6 +9,8 @@ import { SuspendedGate } from '@/features/support/suspended-gate';
 import { countMyUnreadReplies } from '@/server/support/support-service';
 import { countAwaitingAdmin } from '@/server/support/support-admin-service';
 import { pendingPaymentCount } from '@/server/platform/payment-review-queries';
+import { getBranchScope, seesAllBranches } from '@/lib/tenant/branch';
+import { BranchBar } from '@/features/branches/branch-bar';
 
 /**
  * Authenticated shell.
@@ -34,6 +36,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // Administrators: owner payments awaiting verification.
     userCan(user, 'platform.view') ? pendingPaymentCount().catch(() => 0) : 0,
   ]);
+  // Which branch the pages below show. Hidden for a single-location store;
+  // the owner gets the switcher, staff see the branch they work at.
+  const scope = user.store && user.store.status !== 'SUSPENDED' ? await getBranchScope().catch(() => null) : null;
+  const owner = seesAllBranches(user);
+  const overLimit = owner && scope && scope.limit !== null && scope.storeBranches > scope.limit ? { active: scope.storeBranches, limit: scope.limit } : null;
+  const showBranchBar = scope !== null && (scope.storeBranches > 1 || overLimit !== null);
 
   return (
     <AppShell
@@ -83,6 +91,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           )}
           {user.store && !user.store.isDemo && (
             <SubscriptionBanner access={storeAccess(user.store)} canManageBilling={userCan(user, 'billing.view')} now={new Date()} />
+          )}
+          {showBranchBar && scope && (
+            <BranchBar
+              branches={scope.branches.map(({ id, name, restricted }) => ({ id, name, restricted }))}
+              selected={scope.selected}
+              canSwitch={scope.canSwitch}
+              overLimit={overLimit}
+            />
           )}
           {children}
         </>

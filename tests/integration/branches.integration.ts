@@ -163,3 +163,92 @@ if (!URL_ENV) {
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Branch scope for shifts, sales and staff (migration 20261113090000)
+// ---------------------------------------------------------------------------
+
+if (process.env.INTEGRATION_DATABASE_URL) {
+  let platform: PrismaClient;
+  let storeClient: (storeId: string, options?: { writable?: boolean }) => PrismaClient;
+  const run = randomBytes(4).toString('hex');
+  let seq = 0;
+  const isRule = (error: unknown) => /BRANCH_RULE/.test(String((error as Error)?.message ?? error));
+  const isStore = (error: unknown) => /another store/.test(String((error as Error)?.message ?? error));
+
+  /** A Business store with two branches, an owner, and a cashier assigned to branch 2. */
+  async function makeStore() {
+    const { storedLimits } = await import('@/lib/store-access');
+    const tag = `${run}_${++seq}`;
+    const storeId = `bs_${tag}`;
+    await platform.store.create({
+      data: { id: storeId, name: `Scope ${tag}`, slug: storeId.replace(/_/g, '-'), status: 'ACTIVE', plan: 'BUSINESS', ...storedLimits({ plan: 'BUSINESS', status: 'ACTIVE' }) },
+    });
+    const db = storeClient(storeId);
+    const main = await db.warehouse.create({ data: { code: 'MAIN', name: 'Main', isDefault: true } });
+    const second = await db.warehouse.create({ data: { code: 'BR2', name: 'Second' } });
+    const ownerRole = await db.role.create({ data: { name: 'Owner', slug: 'owner', isSystem: true } });
+    const cashierRole = await db.role.create({ data: { name: 'Cashier', slug: 'cashier', isSystem: true } });
+    const owner = await db.user.create({ data: { name: 'Owner', email: `o_${tag}@bs.test`, username: `o_${tag}`, roleId: ownerRole.id } });
+    await platform.store.update({ where: { id: storeId }, data: { ownerId: owner.id } });
+    const cashier = await db.user.create({
+      data: { name: 'Cashier', email: `c_${tag}@bs.test`, username: `c_${tag}`, roleId: cashierRole.id, warehouseId: second.id },
+    });
+    return { storeId, db, main, second, owner, cashier, tag };
+  }
+
+  describe('branch scope', () => {
+    before(async () => {
+      ({ platformPrisma: platform } = await import('@/lib/prisma'));
+      ({ storeClient } = await import('@/lib/tenant/client'));
+    });
+    after(async () => {
+      await platform?.$disconnect();
+    });
+
+    test('a cashier opens a shift only at their own branch; the owner at any active branch', async () => {
+      const s = await makeStore();
+      await assert.rejects(s.db.cashierShift.create({ data: { userId: s.cashier.id, warehouseId: s.main.id, openingCash: 0 } }), isRule);
+      await s.db.cashierShift.create({ data: { userId: s.cashier.id, warehouseId: s.second.id, openingCash: 0 } });
+      await s.db.cashierShift.create({ data: { userId: s.owner.id, warehouseId: s.main.id, openingCash: 0 } });
+    });
+
+    test("a sale is filed under its shift's branch, and a shift never changes branch", async () => {
+      const s = await makeStore();
+      const shift = await s.db.cashierShift.create({ data: { userId: s.cashier.id, warehouseId: s.second.id, openingCash: 0 } });
+      await assert.rejects(
+        s.db.sale.create({ data: { invoiceNumber: `X-${s.tag}`, warehouseId: s.main.id, userId: s.cashier.id, shiftId: shift.id, total: 1 } }),
+        isRule,
+      );
+      await s.db.sale.create({ data: { invoiceNumber: `Y-${s.tag}`, warehouseId: s.second.id, userId: s.cashier.id, shiftId: shift.id, total: 1 } });
+      await assert.rejects(s.db.cashierShift.update({ where: { id: shift.id }, data: { warehouseId: s.main.id } }), isRule);
+    });
+
+    test('a branch with an open shift or active staff cannot be archived; once clear it can, and then takes nothing new', async () => {
+      const s = await makeStore();
+      const shift = await s.db.cashierShift.create({ data: { userId: s.cashier.id, warehouseId: s.second.id, openingCash: 0 } });
+      await assert.rejects(s.db.warehouse.update({ where: { id: s.second.id }, data: { isActive: false } }), isRule);
+      await platform.cashierShift.update({ where: { id: shift.id }, data: { status: 'CLOSED', closedAt: new Date() } });
+      await assert.rejects(s.db.warehouse.update({ where: { id: s.second.id }, data: { isActive: false } }), isRule);
+      await s.db.user.update({ where: { id: s.cashier.id }, data: { warehouseId: s.main.id } });
+      await s.db.warehouse.update({ where: { id: s.second.id }, data: { isActive: false } });
+
+      // Archived: no new shift, no new sale, no staff assigned there.
+      await assert.rejects(s.db.cashierShift.create({ data: { userId: s.owner.id, warehouseId: s.second.id, openingCash: 0 } }), isRule);
+      await assert.rejects(s.db.sale.create({ data: { invoiceNumber: `Z-${s.tag}`, warehouseId: s.second.id, userId: s.owner.id, total: 1 } }), isRule);
+      await assert.rejects(s.db.user.update({ where: { id: s.cashier.id }, data: { warehouseId: s.second.id } }), isRule);
+      // Its history is still there.
+      assert.equal(await s.db.cashierShift.count({ where: { warehouseId: s.second.id } }), 1);
+    });
+
+    test("staff and shifts can never point at another store's branch", async () => {
+      const a = await makeStore();
+      const b = await makeStore();
+      await assert.rejects(a.db.user.update({ where: { id: a.cashier.id }, data: { warehouseId: b.main.id } }), isStore);
+      await assert.rejects(
+        platform.cashierShift.create({ data: { storeId: a.storeId, userId: a.owner.id, warehouseId: b.main.id, openingCash: 0 } }),
+        isStore,
+      );
+    });
+  });
+}

@@ -1,12 +1,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { authorize } from '@/lib/session';
 import { runAction, parseInput, type ActionResult } from '@/lib/action';
 import { ForbiddenError } from '@/lib/errors';
 import { isStoreOwner } from '@/server/platform/billing-service';
 import { archiveBranch, createBranch, reactivateBranch, updateBranch } from '@/server/services/branch-service';
+import { ALL_BRANCHES, BRANCH_COOKIE, getBranchScope } from '@/lib/tenant/branch';
 
 /**
  * Branch management. Each action needs `branches.manage` and the store's
@@ -80,5 +82,23 @@ export async function reactivateBranchAction(input: unknown): Promise<ActionResu
     const { id } = parseInput(idSchema, input);
     await reactivateBranch(owner.id, id);
     refresh();
+  });
+}
+
+const selectSchema = z.object({ branch: z.string().trim().min(1).max(64) });
+
+/**
+ * Remembers which branch the owner is looking at. Only a branch this account
+ * may see (or "all branches" for the owner) is accepted; every request checks
+ * the remembered value again, so the cookie can never widen access.
+ */
+export async function selectBranchAction(input: unknown): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const { branch } = parseInput(selectSchema, input);
+    const scope = await getBranchScope();
+    const allowed = branch === ALL_BRANCHES ? scope.canSwitch : scope.canSwitch && scope.branches.some((b) => b.id === branch);
+    if (!allowed) throw new ForbiddenError('You do not have access to that branch.');
+    (await cookies()).set(BRANCH_COOKIE, branch, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 60 * 60 * 24 * 365 });
+    revalidatePath('/', 'layout');
   });
 }
