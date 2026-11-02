@@ -1,7 +1,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 
 /**
  * Plan quotas and read-only stores against a real PostgreSQL database.
@@ -36,11 +36,11 @@ if (!URL_ENV) {
   let seq = 0;
 
   /** A store with an owner and the given quotas. */
-  async function makeStore(limits: { productLimit?: number | null; staffLimit?: number | null; staffRoleLimit?: number | null }) {
+  async function makeStore(limits: { productLimit?: number | null; staffLimit?: number | null; staffRoleLimits?: Record<string, number> | null }) {
     const tag = `${run}_${++seq}`;
     const storeId = `pl_${tag}`;
     await platform.store.create({
-      data: { id: storeId, name: `Plan ${tag}`, slug: storeId.replace(/_/g, '-'), status: 'ACTIVE', plan: 'BASIC', ...limits },
+      data: { id: storeId, name: `Plan ${tag}`, slug: storeId.replace(/_/g, '-'), status: 'ACTIVE', plan: 'BASIC', ...limits, staffRoleLimits: limits.staffRoleLimits ?? Prisma.DbNull },
     });
     const roleId = `role_${tag}`;
     const inventoryRoleId = `inv_${tag}`;
@@ -201,9 +201,9 @@ if (!URL_ENV) {
       return { s, db, created: results.filter((r) => r.status === 'fulfilled').length };
     }
 
-    test('Basic stops at 2 staff accounts, also during a trial', async () => {
-      assert.equal((await concurrentStaffOn('BASIC')).created, 2);
-      assert.equal((await concurrentStaffOn('BASIC', 'TRIAL')).created, 2);
+    test('Basic stops at 3 staff accounts, also during a trial', async () => {
+      assert.equal((await concurrentStaffOn('BASIC')).created, 3);
+      assert.equal((await concurrentStaffOn('BASIC', 'TRIAL')).created, 3);
     });
 
     test('Business stops at 10 staff accounts', async () => {
@@ -234,23 +234,24 @@ if (!URL_ENV) {
     });
   });
 
-  describe('Basic role slots: one Cashier, one Inventory Staff (migration 20261111090000)', () => {
+  describe('Basic role slots: two Cashiers, one Inventory Staff (migration 20261114090000)', () => {
     async function basicStore() {
       const { storedLimits } = await import('@/lib/store-access');
       const s = await makeStore(storedLimits({ plan: 'BASIC', status: 'ACTIVE' }));
       return { s, db: storeClient(s.storeId) };
     }
-    const isRoleSlot = (slug: string) => (error: unknown) => new RegExp(`PLAN_LIMIT: role ${slug} 1`).test(String(error));
+    const isRoleSlot = (slug: string, limit = slug === 'cashier' ? 2 : 1) => (error: unknown) => new RegExp(`PLAN_LIMIT: role ${slug} ${limit}`).test(String(error));
     const isCustomRole = (error: unknown) => /PLAN_LIMIT: custom-role/.test(String(error));
 
-    test('the first Cashier and Inventory Staff are accepted; a second Cashier is refused below the total', async () => {
+    test('two Cashiers and one Inventory Staff are accepted (3 staff); a third Cashier is refused below the total', async () => {
       const { s, db } = await basicStore();
       await db.user.create({ data: staff(s, 1) });
-      // Only 1 of 2 places is used, yet a second Cashier is refused by its slot.
-      await assert.rejects(db.user.create({ data: staff(s, 2) }), isRoleSlot('cashier'));
-      await db.user.create({ data: staff(s, 3, true, s.inventoryRoleId) });
-      await assert.rejects(db.user.create({ data: staff(s, 4, true, s.inventoryRoleId) }), isQuota);
-      assert.equal(await db.user.count({ where: { isActive: true, id: { not: s.ownerId } } }), 2);
+      await db.user.create({ data: staff(s, 2) });
+      // Only 2 of 3 places are used, yet a third Cashier is refused by its slot.
+      await assert.rejects(db.user.create({ data: staff(s, 3) }), isRoleSlot('cashier'));
+      await db.user.create({ data: staff(s, 4, true, s.inventoryRoleId) });
+      await assert.rejects(db.user.create({ data: staff(s, 5, true, s.inventoryRoleId) }), isQuota);
+      assert.equal(await db.user.count({ where: { isActive: true, id: { not: s.ownerId } } }), 3);
     });
 
     test('a second Inventory Staff is refused by its slot even with a place left', async () => {
@@ -259,31 +260,33 @@ if (!URL_ENV) {
       await assert.rejects(db.user.create({ data: staff(s, 2, true, s.inventoryRoleId) }), isRoleSlot('inventory-staff'));
     });
 
-    test('20 concurrent Cashier creates end with exactly one Cashier', async () => {
+    test('20 concurrent Cashier creates end with exactly two Cashiers', async () => {
       const { s, db } = await basicStore();
       const results = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => db.user.create({ data: staff(s, i) })));
-      assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+      assert.equal(results.filter((r) => r.status === 'fulfilled').length, 2);
       for (const r of results) if (r.status === 'rejected') assert.ok(isQuota(r.reason), String(r.reason));
-      assert.equal(await platform.user.count({ where: { storeId: s.storeId, roleId: s.roleId, isActive: true } }), 1);
+      assert.equal(await platform.user.count({ where: { storeId: s.storeId, roleId: s.roleId, isActive: true } }), 2);
     });
 
     test('a bulk insert is checked row by row', async () => {
       const { s, db } = await basicStore();
-      await assert.rejects(db.user.createMany({ data: [staff(s, 1), staff(s, 2)] }), isRoleSlot('cashier'));
+      await assert.rejects(db.user.createMany({ data: [staff(s, 1), staff(s, 2), staff(s, 3)] }), isRoleSlot('cashier'));
       assert.equal(await platform.user.count({ where: { storeId: s.storeId, id: { not: s.ownerId } } }), 0, 'a refused batch adds nothing');
     });
 
-    test('reactivating a second Cashier is refused; it works once the slot is free', async () => {
+    test('reactivating a third Cashier is refused; it works once a slot is free', async () => {
       const { s, db } = await basicStore();
       await db.user.create({ data: staff(s, 1) });
+      await db.user.create({ data: staff(s, 9) });
       const parked = await db.user.create({ data: staff(s, 2, false) }); // inactive: takes no slot
       await assert.rejects(db.user.update({ where: { id: parked.id }, data: { isActive: true } }), isRoleSlot('cashier'));
       await db.user.update({ where: { id: staff(s, 1).id }, data: { isActive: false } });
       await db.user.update({ where: { id: parked.id }, data: { isActive: true } });
     });
 
-    test('concurrent reactivations of two parked Cashiers enable exactly one', async () => {
+    test('concurrent reactivations of two parked Cashiers, with one slot left, enable exactly one', async () => {
       const { s, db } = await basicStore();
+      await db.user.create({ data: staff(s, 9) });
       await db.user.create({ data: staff(s, 1, false) });
       await db.user.create({ data: staff(s, 2, false) });
       const results = await Promise.allSettled([1, 2].map((n) => db.user.update({ where: { id: staff(s, n).id }, data: { isActive: true } })));
@@ -293,6 +296,7 @@ if (!URL_ENV) {
     test('a role change cannot fill a taken slot; a change into a free slot is allowed', async () => {
       const { s, db } = await basicStore();
       await db.user.create({ data: staff(s, 1) });
+      await db.user.create({ data: staff(s, 9) });
       const inv = await db.user.create({ data: staff(s, 2, true, s.inventoryRoleId) });
       await assert.rejects(db.user.update({ where: { id: inv.id }, data: { roleId: s.roleId } }), isRoleSlot('cashier'));
       // Free the Cashier slot first, then the change goes through.
@@ -318,10 +322,11 @@ if (!URL_ENV) {
       await db.user.create({ data: staff(s, 1) });
       await db.user.create({ data: staff(s, 2) });
       await db.user.create({ data: staff(s, 3, true, s.customRoleId) });
+      await db.user.create({ data: staff(s, 4) });
 
       await platform.store.update({ where: { id: s.storeId }, data: { plan: 'BASIC' } });
       await syncLimits(platform, s.storeId);
-      assert.equal(await db.user.count({ where: { isActive: true, id: { not: s.ownerId } } }), 3, 'nothing switched off');
+      assert.equal(await db.user.count({ where: { isActive: true, id: { not: s.ownerId } } }), 4, 'nothing switched off');
       // The same write updateUser sends: new name and phone, unchanged role and status.
       for (const n of [2, 3]) {
         const roleId = n === 3 ? s.customRoleId : s.roleId;

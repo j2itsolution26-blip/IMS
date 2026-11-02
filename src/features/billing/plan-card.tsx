@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, Crown, Gem, Minus, Package, Store, Users, type LucideIcon } from 'lucide-react';
-import { CORE_FEATURES, FEATURE_LABEL, PLANS, STAFF_SLOT_ROLES, previousPlan, type Feature, type LimitKey, type PlanId } from '@/lib/plans';
+import { CORE_FEATURES, FEATURE_LABEL, PLANS, previousPlan, staffSlotSummary, type Feature, type LimitKey, type PlanId, type StaffSlotSlug } from '@/lib/plans';
 import { annualSavingsPercent, type BillingInterval, type PlanPricing } from '@/lib/billing';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -74,9 +74,9 @@ function limitLine(value: number | null, row: { one: string; many: string }): { 
   return { text: `Up to ${formatNumber(value, 0)} ${row.many}`, included: true };
 }
 
-/** "1 Cashier, 1 Inventory Staff" */
-export function staffSplit(perRole: number): string {
-  return STAFF_SLOT_ROLES.map((role) => `${perRole} ${role.name}`).join(', ');
+/** "2 Cashiers, 1 Inventory Staff" */
+export function staffSplit(slots: Record<StaffSlotSlug, number>): string {
+  return staffSlotSummary(slots);
 }
 
 /** A plan's locations (physical store branches), from the plan configuration. */
@@ -98,8 +98,8 @@ export function featureLines(id: PlanId): { text: string; included: boolean }[] 
     ...LIMIT_ROWS.map((row) => {
       const line = limitLine(plan.limits[row.key], row);
       // Basic's staff places are one per role.
-      return row.key === 'staff' && plan.staffPerRole !== null && line.included
-        ? { ...line, text: `${line.text} (${staffSplit(plan.staffPerRole)})` }
+      return row.key === 'staff' && plan.staffSlots !== null && line.included
+        ? { ...line, text: `${line.text} (${staffSplit(plan.staffSlots)})` }
         : line;
     }),
     { text: plan.auditHistoryDays === null ? 'Full audit history' : `${plan.auditHistoryDays}-day audit history`, included: true },

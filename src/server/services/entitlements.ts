@@ -10,6 +10,7 @@ import {
   limitMessage,
   lowestPlanWith,
   roleSlotMessage,
+  staffSlotLimit,
   type Feature,
   type LimitKey,
   type StaffSlotSlug,
@@ -211,10 +212,9 @@ export async function staffRoleSlots(ctx: StoreContext): Promise<StaffRoleSlot[]
     orderBy: { name: 'asc' },
     select: { id: true, name: true, username: true, role: { select: { slug: true } } },
   });
-  const limit = ctx.access.plan.staffPerRole;
   return STAFF_SLOT_ROLES.map((role) => {
     const inRole = holders.filter((user) => user.role.slug === role.slug).map(({ id, name, username }) => ({ id, name, username }));
-    return { slug: role.slug, name: role.name, used: inRole.length, limit, holders: inRole };
+    return { slug: role.slug, name: role.name, used: inRole.length, limit: staffSlotLimit(ctx.access.plan, role.slug), holders: inRole };
   });
 }
 
@@ -234,7 +234,7 @@ export async function requireStaffRoleSlot(
   roleSlug: string,
   { exceptUserId, active = true }: { exceptUserId?: string; active?: boolean } = {},
 ): Promise<void> {
-  const limit = ctx.access.plan.staffPerRole;
+  const limit = staffSlotLimit(ctx.access.plan, roleSlug);
   if (limit === null || roleSlug === OWNER_ROLE_SLUG) return;
   // A custom role is not handed out on a plan with slots, active or not: an
   // inactive one could never be switched on there anyway.
@@ -243,7 +243,6 @@ export async function requireStaffRoleSlot(
   const slot = (await staffRoleSlots(ctx)).find((item) => item.slug === roleSlug);
   const others = (slot?.holders ?? []).filter((user) => user.id !== exceptUserId);
   if (others.length >= limit) {
-    const holder = others[0];
-    throw new PlanLimitError(roleSlotMessage(roleSlug, limit, holder ? `${holder.name} (@${holder.username})` : null));
+    throw new PlanLimitError(roleSlotMessage(roleSlug, limit, others.map((user) => `${user.name} (@${user.username})`)));
   }
 }

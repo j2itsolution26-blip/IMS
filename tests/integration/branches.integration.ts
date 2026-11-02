@@ -37,7 +37,7 @@ if (!URL_ENV) {
 
   /** A store on a plan, with quotas copied the way every platform action copies them, and its main branch. */
   async function makeStore(plan: 'BASIC' | 'BUSINESS' | 'ENTERPRISE') {
-    const { storedLimits } = await import('@/lib/store-access');
+    const { limitsRow: storedLimits } = await import('@/server/platform/store-setup');
     const tag = `${run}_${++seq}`;
     const storeId = `br_${tag}`;
     await platform.store.create({
@@ -178,7 +178,7 @@ if (process.env.INTEGRATION_DATABASE_URL) {
 
   /** A Business store with two branches, an owner, and a cashier assigned to branch 2. */
   async function makeStore() {
-    const { storedLimits } = await import('@/lib/store-access');
+    const { limitsRow: storedLimits } = await import('@/server/platform/store-setup');
     const tag = `${run}_${++seq}`;
     const storeId = `bs_${tag}`;
     await platform.store.create({
@@ -274,7 +274,7 @@ if (process.env.INTEGRATION_DATABASE_URL) {
     test('per-branch totals add up to the all-branches total, with nothing from another store or counted twice', async () => {
       const { sqlBranch } = await import('@/server/analytics/branch-filter');
       const { buildDataExport } = await import('@/server/services/data-export-service');
-      const { storedLimits } = await import('@/lib/store-access');
+      const { limitsRow: storedLimits } = await import('@/server/platform/store-setup');
 
       const makeStore = async (tag: string) => {
         const storeId = `cf_${run}_${tag}`;

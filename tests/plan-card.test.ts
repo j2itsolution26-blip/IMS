@@ -24,7 +24,7 @@ test('both views list the same plan contents, straight from the plan configurati
   const missing = (plan: 'BASIC' | 'BUSINESS' | 'ENTERPRISE') => featureLines(plan).filter((line) => !line.included).map((line) => line.text);
 
   // Locations sit under the price (locationLine); the list keeps one order on every card.
-  assert.deepEqual(included('BASIC'), ['Up to 2 staff accounts (1 Cashier, 1 Inventory Staff)', 'Up to 1,500 products', '90-day audit history']);
+  assert.deepEqual(included('BASIC'), ['Up to 3 staff accounts (2 Cashiers, 1 Inventory Staff)', 'Up to 1,500 products', '90-day audit history']);
   assert.deepEqual(missing('BASIC'), ['Background removals / month', 'Report exports (CSV, Excel, PDF)', 'Custom roles and permission editing']);
   assert.deepEqual(included('BUSINESS'), [
     'Up to 10 staff accounts',

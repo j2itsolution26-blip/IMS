@@ -130,8 +130,8 @@ export default async function StaffAccountsPage() {
   // On a plan with role slots (Basic) each role also says who holds its slot
   // and whether it can be chosen at all, so the form can disable a full role
   // and say why. The actions check the same rules again.
-  const perRole = ctx.access.plan.staffPerRole;
-  const slots = perRole === null ? [] : await staffRoleSlots(ctx);
+  const hasSlots = ctx.access.plan.staffSlots !== null;
+  const slots = hasSlots ? await staffRoleSlots(ctx) : [];
   const assignableRoles = roles
     .filter((role) => canAssignRole(actor, toPolicyRole(role)).allowed)
     .map((role) => {
@@ -139,8 +139,8 @@ export default async function StaffAccountsPage() {
       return {
         id: role.id,
         name: role.name,
-        slot: slot && perRole !== null ? { limit: perRole, holders: slot.holders.map((h) => ({ id: h.id, label: `${h.name} (@${h.username})` })) } : null,
-        blockedReason: perRole !== null && !isStaffSlotRole(role.slug) ? CUSTOM_ROLE_ON_SLOTS_MESSAGE : null,
+        slot: slot && slot.limit !== null ? { limit: slot.limit, holders: slot.holders.map((h) => ({ id: h.id, label: `${h.name} (@${h.username})` })) } : null,
+        blockedReason: hasSlots && !isStaffSlotRole(role.slug) ? CUSTOM_ROLE_ON_SLOTS_MESSAGE : null,
       };
     });
   const allowance = userCan(currentUser, 'users.create') ? await staffAllowanceFor() : null;

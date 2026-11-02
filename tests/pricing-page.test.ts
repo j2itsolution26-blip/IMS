@@ -58,8 +58,8 @@ test('the comparison table reads from the plan configuration, including the 1,50
   assert.deepEqual(row('Locations (physical stores)'), ['1', '3', '5']);
   assert.deepEqual(row('All-branches dashboard'), [false, true, true]);
   assert.deepEqual(row('Stock transfers between branches'), ['Coming soon', 'Coming soon', 'Coming soon']);
-  assert.deepEqual(row('Staff accounts'), ['2', '10', 'Unlimited']);
-  assert.deepEqual(row('Staff roles'), ['1 Cashier, 1 Inventory Staff', 'Any mix', 'Any mix']);
+  assert.deepEqual(row('Staff accounts'), ['3', '10', 'Unlimited']);
+  assert.deepEqual(row('Staff roles'), ['2 Cashiers, 1 Inventory Staff', 'Any mix', 'Any mix']);
   assert.deepEqual(row('Products'), ['1,500', '5,000', 'Unlimited']);
   assert.deepEqual(row('Report exports (CSV, Excel, PDF)'), [false, true, true]);
   assert.deepEqual(row('Custom roles and permission editing'), [false, true, true]);
@@ -97,7 +97,7 @@ test('each plan has its own "Why choose this plan?" explanation, read from the p
 
   const basic = planReason('BASIC');
   assert.match(basic.headline, /small stores/);
-  assert.match(basic.summary, /one store location, up to two staff accounts and up to 1,500 products/);
+  assert.match(basic.summary, /one store location, up to three staff accounts and up to 1,500 products/);
   assert.ok(!basic.benefits.some((b) => /all branches/i.test(b.text)), 'Basic has one location, so no all-branches view');
 
   const business = planReason('BUSINESS');

@@ -80,7 +80,7 @@ export async function staffAllowanceFor(): Promise<StaffAllowance | null> {
     planName: plan.name,
     total: { used: total.used, limit: total.limit },
     roles:
-      plan.staffPerRole === null
+      plan.staffSlots === null
         ? []
         : slots.map((slot) => ({
             slug: slot.slug,

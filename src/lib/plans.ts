@@ -25,12 +25,12 @@ export interface PlanDefinition {
   /** How far back a store can see its audit trail, in days; null = all of it. */
   auditHistoryDays: number | null;
   /**
-   * Most active accounts per staff role (see STAFF_SLOT_ROLES), within the
-   * `staff` total; null = no per-role cap. When set, only the built-in staff
-   * roles can be held by an active account — a custom role would sidestep
-   * the slots. The owner never takes a slot.
+   * Most active accounts per built-in staff role (see STAFF_SLOT_ROLES),
+   * within the `staff` total; null = no per-role cap. When set, only the
+   * built-in staff roles can be held by an active account — a custom role
+   * would sidestep the slots. The owner never takes a slot.
    */
-  staffPerRole: number | null;
+  staffSlots: Record<StaffSlotSlug, number> | null;
 }
 
 export const PLANS: Record<PlanId, PlanDefinition> = {
@@ -38,10 +38,11 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     id: 'BASIC',
     name: 'Basic',
     description: 'For a single store getting started.',
-    limits: { branches: 1, staff: 2, products: 1500, backgroundRemovalsPerMonth: 0 },
+    limits: { branches: 1, staff: 3, products: 1500, backgroundRemovalsPerMonth: 0 },
     features: { reportExports: false, customRoles: false, backgroundRemoval: false },
     auditHistoryDays: 90,
-    staffPerRole: 1,
+    // Two cashiers for two shifts, and one for stock.
+    staffSlots: { cashier: 2, 'inventory-staff': 1 },
   },
   BUSINESS: {
     id: 'BUSINESS',
@@ -50,7 +51,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     limits: { branches: 3, staff: 10, products: 5000, backgroundRemovalsPerMonth: 100 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: 365,
-    staffPerRole: null,
+    staffSlots: null,
   },
   ENTERPRISE: {
     id: 'ENTERPRISE',
@@ -59,13 +60,13 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     limits: { branches: 5, staff: null, products: null, backgroundRemovalsPerMonth: 1000 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: null,
-    staffPerRole: null,
+    staffSlots: null,
   },
 };
 
 /**
- * The built-in staff roles that each take one slot on a plan with
- * `staffPerRole` (Basic: one Cashier and one Inventory Staff). Slots follow
+ * The built-in staff roles that take slots on a plan with `staffSlots`
+ * (Basic: two Cashiers and one Inventory Staff). Slots follow
  * the role, never its permissions, so they cannot be shuffled by editing a
  * role — and Basic cannot edit role permissions anyway.
  */
@@ -84,11 +85,30 @@ export function staffSlotName(slug: string): string {
   return STAFF_SLOT_ROLES.find((role) => role.slug === slug)?.name ?? slug;
 }
 
-/** "Your plan allows 1 active Cashier account. …" */
-export function roleSlotMessage(slug: string, limit: number, holder?: string | null): string {
+/** A role's slot count on a plan; null when the plan has no per-role cap. */
+export function staffSlotLimit(plan: Pick<PlanDefinition, 'staffSlots'>, slug: string): number | null {
+  if (plan.staffSlots === null) return null;
+  return isStaffSlotRole(slug) ? plan.staffSlots[slug] : 0;
+}
+
+/** "2 Cashiers, 1 Inventory Staff" */
+export function staffSlotSummary(slots: Record<StaffSlotSlug, number>): string {
+  return STAFF_SLOT_ROLES.map((role) => {
+    const count = slots[role.slug];
+    const plural = count !== 1 && !role.name.endsWith('Staff');
+    return `${count} ${role.name}${plural ? 's' : ''}`;
+  }).join(', ');
+}
+
+/** "Your plan allows 2 active Cashier accounts. …" */
+export function roleSlotMessage(slug: string, limit: number, holders?: string | string[] | null): string {
   const name = staffSlotName(slug);
-  const filled = holder ? ` The ${name} slot is already used by ${holder}.` : '';
-  return `Your plan allows ${limit} active ${name} account${limit === 1 ? '' : 's'}.${filled} Deactivate that account, or upgrade to Business for up to 10 staff in any mix of roles.`;
+  const list = holders == null ? [] : Array.isArray(holders) ? holders : [holders];
+  let filled = '';
+  if (list.length > 0) {
+    filled = limit === 1 ? ` The ${name} slot is already used by ${list[0]}.` : ` All ${limit} ${name} slots are in use (${list.join(', ')}).`;
+  }
+  return `Your plan allows ${limit} active ${name} account${limit === 1 ? '' : 's'}.${filled} Deactivate one of them, or upgrade to Business for up to 10 staff in any mix of roles.`;
 }
 
 export const CUSTOM_ROLE_ON_SLOTS_MESSAGE =

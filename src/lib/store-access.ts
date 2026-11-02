@@ -77,14 +77,14 @@ export function storeAccess(subscription: StoreSubscription, now: Date = new Dat
 export function storedLimits(subscription: Pick<StoreSubscription, 'plan' | 'status'>): {
   productLimit: number | null;
   staffLimit: number | null;
-  staffRoleLimit: number | null;
+  staffRoleLimits: Record<string, number> | null;
   branchLimit: number | null;
 } {
   const plan = PLANS[effectivePlanId(subscription)];
   return {
     productLimit: plan.limits.products,
     staffLimit: plan.limits.staff,
-    staffRoleLimit: plan.staffPerRole,
+    staffRoleLimits: plan.staffSlots,
     branchLimit: plan.limits.branches,
   };
 }

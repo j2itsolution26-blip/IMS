@@ -10,7 +10,7 @@ import { runAsProvisioning } from '@/lib/provisioning-context';
 import { getRequestContext } from '@/lib/session';
 import { AppError, ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { OWNER_ROLE_SLUG } from '@/lib/permissions';
-import { LIMIT_LABEL, PLANS, isStaffSlotRole, type LimitKey } from '@/lib/plans';
+import { LIMIT_LABEL, PLANS, isStaffSlotRole, staffSlotLimit, type LimitKey } from '@/lib/plans';
 import { effectivePlanId, type StoreSubscription } from '@/lib/store-access';
 import { MAX_TRIAL_EXTENSION_DAYS, PAYMENT_METHOD_LABEL, STATUS_LABEL, newTrial, normalizeReference, paymentPeriod } from '@/lib/subscription';
 import { formatDate } from '@/lib/format';
@@ -108,10 +108,10 @@ async function overLimits(tx: Tx, storeId: string, subscription: Pick<StoreSubsc
     if (limit !== null && counts[key] > limit) over.push(`${counts[key]} ${LIMIT_LABEL[key]} (plan allows ${limit})`);
   }
 
-  // Role slots (Basic: one active Cashier, one active Inventory Staff, built-in
-  // roles only). Reported, never fixed: no account is changed or switched off.
-  const perRole = PLANS[effectivePlanId(subscription)].staffPerRole;
-  if (perRole !== null) {
+  // Role slots (Basic: two active Cashiers, one active Inventory Staff,
+  // built-in roles only). Reported, never fixed: no account is changed or switched off.
+  const slotPlan = PLANS[effectivePlanId(subscription)];
+  if (slotPlan.staffSlots !== null) {
     const roles = await tx.$queryRaw<{ slug: string; name: string; active: number }[]>`
       SELECT r.slug, r.name, count(*)::int AS active
       FROM users u JOIN roles r ON r.id = u."roleId" JOIN stores s ON s.id = u."storeId"
@@ -120,8 +120,8 @@ async function overLimits(tx: Tx, storeId: string, subscription: Pick<StoreSubsc
     for (const role of roles) {
       if (!isStaffSlotRole(role.slug)) {
         over.push(`${role.active} active ${role.name} account(s) (custom roles are not available on this plan)`);
-      } else if (role.active > perRole) {
-        over.push(`${role.active} active ${role.name} accounts (plan allows ${perRole})`);
+      } else if (role.active > (staffSlotLimit(slotPlan, role.slug) ?? Infinity)) {
+        over.push(`${role.active} active ${role.name} accounts (plan allows ${staffSlotLimit(slotPlan, role.slug)})`);
       }
     }
   }

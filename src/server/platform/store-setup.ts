@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { ALL_PERMISSIONS, SYSTEM_ADMIN_ROLE_SLUG, SYSTEM_ROLES, resolveRolePermissions } from '../../lib/permissions';
 import { SETTING_DEFINITIONS, settingRow } from '../../lib/settings-definitions';
 import { storedLimits } from '../../lib/store-access';
@@ -118,9 +118,15 @@ export async function installSettings(db: Db, storeId: string): Promise<number> 
 }
 
 /** Copies the plan's quotas onto the store row, where the quota trigger reads them. */
+/** The plan's quotas as store-row columns; "no per-role cap" is a database NULL. */
+export function limitsRow(subscription: Parameters<typeof storedLimits>[0]) {
+  const limits = storedLimits(subscription);
+  return { ...limits, staffRoleLimits: limits.staffRoleLimits ?? Prisma.DbNull };
+}
+
 export async function syncLimits(db: Db, storeId: string): Promise<void> {
   const store = await db.store.findUniqueOrThrow({ where: { id: storeId }, select: { plan: true, status: true } });
-  await db.store.update({ where: { id: storeId }, data: storedLimits(store) });
+  await db.store.update({ where: { id: storeId }, data: limitsRow(store) });
 }
 
 /** All of the above for one store. Returns the number of settings created. */

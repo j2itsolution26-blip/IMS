@@ -58,10 +58,10 @@ model Store {
   // means unlimited.
   productLimit Int?
   staffLimit   Int?
-  // Most active accounts per built-in staff role (Basic: 1 Cashier, 1
-  // Inventory Staff); null = no per-role cap. Set with the others; the same
-  // trigger enforces it (migration 20261111090000).
-  staffRoleLimit Int?
+  // Most active accounts per built-in staff role, by slug (Basic:
+  // {"cashier": 2, "inventory-staff": 1}); null = no per-role cap. Set with
+  // the others; the same trigger enforces it (migration 20261114090000).
+  staffRoleLimits Json?
   // Most active locations (warehouses); null = no cap. Set with the others;
   // enforced by its own trigger on warehouses (migration 20261112090000).
   branchLimit    Int?
