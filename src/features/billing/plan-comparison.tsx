@@ -17,7 +17,11 @@ export function comparisonRows(): { group: string; rows: { label: string; value:
     {
       group: 'Capacity',
       rows: [
-        { label: 'Locations', value: (p) => limit(p.limits.branches) },
+        {
+          label: 'Locations',
+          // Planned locations above the enforced limit are announced, never sold.
+          value: (p) => (p.limits.branches !== null && p.plannedBranches > p.limits.branches ? `${limit(p.limits.branches)} (${limit(p.plannedBranches)} coming soon)` : limit(p.limits.branches)),
+        },
         { label: 'Staff accounts', value: (p) => limit(p.limits.staff) },
         {
           label: 'Staff roles',

@@ -23,29 +23,27 @@ test('both views list the same plan contents, straight from the plan configurati
   const included = (plan: 'BASIC' | 'BUSINESS' | 'ENTERPRISE') => featureLines(plan).filter((line) => line.included).map((line) => line.text);
   const missing = (plan: 'BASIC' | 'BUSINESS' | 'ENTERPRISE') => featureLines(plan).filter((line) => !line.included).map((line) => line.text);
 
-  const soon = 'Multi-branch (more than one location per store) — coming soon';
-  assert.deepEqual(included('BASIC'), ['1 location', 'Up to 2 staff accounts (1 Cashier, 1 Inventory Staff)', 'Up to 1,500 products', '90-day audit history']);
-  assert.deepEqual(missing('BASIC'), ['Background removals / month', 'Report exports (CSV, Excel, PDF)', 'Custom roles and permission editing', soon]);
+  // Locations sit under the price (locationLine); the list keeps one order on every card.
+  assert.deepEqual(included('BASIC'), ['Up to 2 staff accounts (1 Cashier, 1 Inventory Staff)', 'Up to 1,500 products', '90-day audit history']);
+  assert.deepEqual(missing('BASIC'), ['Background removals / month', 'Report exports (CSV, Excel, PDF)', 'Custom roles and permission editing']);
   assert.deepEqual(included('BUSINESS'), [
-    '1 location',
     'Up to 10 staff accounts',
     'Up to 5,000 products',
     'Up to 100 background removals / month',
+    '365-day audit history',
     'Report exports (CSV, Excel, PDF)',
     'Custom roles and permission editing',
-    '365-day audit history',
   ]);
-  assert.deepEqual(missing('BUSINESS'), [soon]);
+  assert.deepEqual(missing('BUSINESS'), []);
   assert.deepEqual(included('ENTERPRISE'), [
-    '1 location',
     'Unlimited staff accounts',
     'Unlimited products',
     'Up to 1,000 background removals / month',
+    'Full audit history',
     'Report exports (CSV, Excel, PDF)',
     'Custom roles and permission editing',
-    'Full audit history',
   ]);
-  assert.deepEqual(missing('ENTERPRISE'), [soon]);
+  assert.deepEqual(missing('ENTERPRISE'), []);
 
   // No limit is written into the card itself: they all come from lib/plans.
   const card = read('src/features/billing/plan-card.tsx');

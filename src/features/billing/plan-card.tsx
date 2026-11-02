@@ -1,10 +1,11 @@
 import * as React from 'react';
-import { Check, Crown, Gem, Minus, Package, Users, type LucideIcon } from 'lucide-react';
-import { COMING_SOON, CORE_FEATURES, FEATURE_LABEL, PLANS, STAFF_SLOT_ROLES, previousPlan, type Feature, type LimitKey, type PlanId } from '@/lib/plans';
+import { Check, Crown, Gem, Minus, Package, Store, Users, type LucideIcon } from 'lucide-react';
+import { CORE_FEATURES, FEATURE_LABEL, PLANS, STAFF_SLOT_ROLES, previousPlan, type Feature, type LimitKey, type PlanId } from '@/lib/plans';
 import { annualSavingsPercent, type BillingInterval, type PlanPricing } from '@/lib/billing';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { BasicArt, BusinessArt, EnterpriseArt } from '@/features/billing/plan-art';
+import { PlanWhyButton } from '@/features/billing/plan-why-dialog';
 
 /**
  * The one plan card, shared by the owner's Subscription & Billing page and
@@ -58,8 +59,8 @@ export const THEME: Record<
   },
 };
 
+// Locations are shown on their own under the price (see locationLine).
 const LIMIT_ROWS: { key: LimitKey; one: string; many: string }[] = [
-  { key: 'branches', one: 'location', many: 'locations' },
   { key: 'staff', one: 'staff account', many: 'staff accounts' },
   { key: 'products', one: 'product', many: 'products' },
   { key: 'backgroundRemovalsPerMonth', one: 'background removal / month', many: 'background removals / month' },
@@ -79,8 +80,24 @@ export function staffSplit(perRole: number): string {
 }
 
 /**
- * What a plan includes, from the plan configuration: included lines first,
- * then what it lacks, then what is announced but not built yet.
+ * A plan's locations, from the plan configuration. While multi-branch is not
+ * built, a plan meant for more locations shows that number as coming soon,
+ * next to the one location it includes today.
+ */
+export function locationLine(id: PlanId): { headline: string; today: string | null; soon: boolean } {
+  const plan = PLANS[id];
+  const included = plan.limits.branches ?? plan.plannedBranches;
+  const label = (value: number) => (value === 1 ? '1 Location' : `Up to ${formatNumber(value, 0)} Locations`);
+  if (plan.plannedBranches > included) {
+    return { headline: label(plan.plannedBranches), today: `${formatNumber(included, 0)} location included today`, soon: true };
+  }
+  return { headline: included === 1 ? '1 Location Included' : label(included), today: null, soon: false };
+}
+
+/**
+ * What a plan includes besides locations, from the plan configuration, in the
+ * same order on every card (staff, products, background removals, audit
+ * history, exports, roles): included lines first, then what it lacks.
  */
 export function featureLines(id: PlanId): { text: string; included: boolean }[] {
   const plan = PLANS[id];
@@ -92,11 +109,10 @@ export function featureLines(id: PlanId): { text: string; included: boolean }[] 
         ? { ...line, text: `${line.text} (${staffSplit(plan.staffPerRole)})` }
         : line;
     }),
-    ...FEATURE_ROWS.map((feature) => ({ text: FEATURE_LABEL[feature], included: plan.features[feature] })),
     { text: plan.auditHistoryDays === null ? 'Full audit history' : `${plan.auditHistoryDays}-day audit history`, included: true },
+    ...FEATURE_ROWS.map((feature) => ({ text: FEATURE_LABEL[feature], included: plan.features[feature] })),
   ];
-  const comingSoon = COMING_SOON.map((text) => ({ text: `${text} — coming soon`, included: false }));
-  return [...lines.filter((line) => line.included), ...lines.filter((line) => !line.included), ...comingSoon];
+  return [...lines.filter((line) => line.included), ...lines.filter((line) => !line.included)];
 }
 
 /**
@@ -150,6 +166,7 @@ export function PlanCard({
   const Decoration = theme.art;
   const savePercent = annualSavingsPercent(pricing);
   const amount = interval === 'MONTHLY' ? pricing.monthly : pricing.annual;
+  const location = locationLine(id);
   return (
     <li
       aria-current={current ? 'true' : undefined}
@@ -213,6 +230,16 @@ export function PlanCard({
             <p className="mt-1 text-sm text-muted-foreground">Prices are set by the platform administrator.</p>
           </>
         )}
+        <div className="mt-4 flex items-start gap-3 rounded-xl border border-border/70 bg-muted/30 px-3.5 py-2.5">
+          <Store className={cn('mt-0.5 h-5 w-5 shrink-0', theme.check)} aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
+              {location.headline}
+              {location.soon && <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Coming soon</span>}
+            </p>
+            {location.today && <p className="mt-0.5 text-xs text-muted-foreground">{location.today}</p>}
+          </div>
+        </div>
       </div>
 
       {/* Row 3: what it includes */}
@@ -238,8 +265,11 @@ export function PlanCard({
         ))}
       </ul>
 
-      {/* Row 4: action */}
-      <div className="relative self-end">{action}</div>
+      {/* Row 4: why this plan, then the page's action */}
+      <div className="relative space-y-2 self-end">
+        <PlanWhyButton plan={id} />
+        {action}
+      </div>
     </li>
   );
 }

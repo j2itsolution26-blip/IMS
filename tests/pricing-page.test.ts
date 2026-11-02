@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { CORE_FEATURES, PLANS, PLAN_ORDER, type PlanId } from '@/lib/plans';
 import { annualSavingsLabel, annualSavingsPercent, planCtaKind, planPricing, type BillingInterval } from '@/lib/billing';
-import { highlightLines } from '@/features/billing/plan-card';
+import { highlightLines, locationLine } from '@/features/billing/plan-card';
+import { planReason } from '@/features/billing/plan-reasons';
 import { comparisonRows } from '@/features/billing/plan-comparison';
 
 /** The published price list the pricing page is designed around. */
@@ -55,7 +56,7 @@ test('the comparison table reads from the plan configuration, including the 1,50
   const rows = comparisonRows().flatMap((group) => group.rows);
   const row = (label: string) => PLAN_ORDER.map((id) => rows.find((r) => r.label === label)!.value(PLANS[id]));
   // One location on every plan until multi-branch is built; it is announced, never sold as capacity.
-  assert.deepEqual(row('Locations'), ['1', '1', '1']);
+  assert.deepEqual(row('Locations'), ['1', '1 (3 coming soon)', '1 (5 coming soon)']);
   assert.deepEqual(row('Multi-branch (more than one location per store)'), ['Coming soon', 'Coming soon', 'Coming soon']);
   assert.deepEqual(row('Staff accounts'), ['2', '10', 'Unlimited']);
   assert.deepEqual(row('Staff roles'), ['1 Cashier, 1 Inventory Staff', 'Any mix', 'Any mix']);
@@ -67,12 +68,56 @@ test('the comparison table reads from the plan configuration, including the 1,50
 });
 
 test('the pricing page promises nothing that is not built', () => {
-  const sources = ['src/features/billing/plan-cards.tsx', 'src/features/billing/plan-card.tsx', 'src/features/billing/plan-comparison.tsx', 'src/lib/plans.ts']
+  const sources = [
+    'src/features/billing/plan-cards.tsx',
+    'src/features/billing/plan-card.tsx',
+    'src/features/billing/plan-comparison.tsx',
+    'src/features/billing/plan-reasons.ts',
+    'src/features/billing/plan-why-dialog.tsx',
+    'src/lib/plans.ts',
+  ]
     .map((path) => readFileSync(path, 'utf8'))
     .join('\n');
   assert.doesNotMatch(sources, /priority support|branch analytics|branch monitoring|access management|low-stock alerts|stock-transfer/i);
   // No plan sells more than one location while multi-branch is not built.
   for (const id of PLAN_ORDER) assert.equal(PLANS[id].limits.branches, 1, `${id} must not advertise extra branches`);
+  // The planned locations are display-only and never below what is enforced.
+  assert.deepEqual(PLAN_ORDER.map((id) => PLANS[id].plannedBranches), [1, 3, 5]);
   // Prices are never written into the page: they come from the published price list.
   assert.doesNotMatch(readFileSync('src/features/billing/plan-cards.tsx', 'utf8'), /₱\s?\d|\b(499|999|1499|4990|9990|14990)\b/);
+});
+
+test('every card shows its locations: 1 included on Basic, 3 and 5 marked coming soon', () => {
+  assert.deepEqual(locationLine('BASIC'), { headline: '1 Location Included', today: null, soon: false });
+  assert.deepEqual(locationLine('BUSINESS'), { headline: 'Up to 3 Locations', today: '1 location included today', soon: true });
+  assert.deepEqual(locationLine('ENTERPRISE'), { headline: 'Up to 5 Locations', today: '1 location included today', soon: true });
+});
+
+test('each plan has its own "Why choose this plan?" explanation, with unbuilt items marked coming soon', () => {
+  const card = readFileSync('src/features/billing/plan-card.tsx', 'utf8');
+  assert.match(card, /<PlanWhyButton plan=\{id\} \/>/, 'the shared card renders the button for its own plan');
+
+  const basic = planReason('BASIC');
+  assert.match(basic.headline, /small stores/);
+  assert.match(basic.summary, /one store location, up to two staff accounts and up to 1,500 products/);
+  assert.deepEqual(basic.benefits.filter((b) => b.soon), []);
+
+  const business = planReason('BUSINESS');
+  assert.deepEqual(business.benefits.map((b) => b.text), [
+    'Up to three locations',
+    'Up to ten staff accounts',
+    'Up to 5,000 products',
+    'Up to 100 photo background removals per month',
+    'Report exports (CSV, Excel, PDF)',
+    'Custom roles and permissions',
+    '365-day audit history',
+  ]);
+  assert.deepEqual(business.benefits.filter((b) => b.soon).map((b) => b.text), ['Up to three locations']);
+  assert.match(business.summary, /coming soon/);
+
+  const enterprise = planReason('ENTERPRISE');
+  assert.deepEqual(enterprise.benefits.filter((b) => b.soon).map((b) => b.text), ['Up to five locations', 'Centralized multi-branch management']);
+  assert.ok(enterprise.benefits.some((b) => b.text === 'Unlimited staff accounts' && !b.soon));
+  assert.ok(enterprise.benefits.some((b) => b.text === 'Up to 1,000 photo background removals per month' && !b.soon));
+  assert.ok(enterprise.benefits.some((b) => b.text === 'Full audit history'));
 });

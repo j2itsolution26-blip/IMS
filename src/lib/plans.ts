@@ -31,6 +31,12 @@ export interface PlanDefinition {
    * the slots. The owner never takes a slot.
    */
   staffPerRole: number | null;
+  /**
+   * Locations the plan is meant to include once multi-branch ships. Shown on
+   * the pricing page as "coming soon" while it is above `limits.branches`;
+   * never enforced and never sold as capacity. `limits.branches` is the rule.
+   */
+  plannedBranches: number;
 }
 
 export const PLANS: Record<PlanId, PlanDefinition> = {
@@ -42,6 +48,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     features: { reportExports: false, customRoles: false, backgroundRemoval: false },
     auditHistoryDays: 90,
     staffPerRole: 1,
+    plannedBranches: 1,
   },
   BUSINESS: {
     id: 'BUSINESS',
@@ -51,6 +58,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: 365,
     staffPerRole: null,
+    plannedBranches: 3,
   },
   ENTERPRISE: {
     id: 'ENTERPRISE',
@@ -60,6 +68,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: null,
     staffPerRole: null,
+    plannedBranches: 5,
   },
 };
 
@@ -134,7 +143,8 @@ export const CORE_FEATURES = [
  * Announced but not built. Shown as "Coming soon" and never as capacity.
  * Every store is one location today: `branches` is 1 on every plan until
  * multi-branch (branch creation, switching, per-branch stock and staff,
- * transfers) ships as its own project.
+ * transfers) ships as its own project. Until then the pricing page shows
+ * each plan's `plannedBranches` as "coming soon".
  */
 export const COMING_SOON = ['Multi-branch (more than one location per store)'] as const;
 
