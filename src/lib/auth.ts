@@ -6,7 +6,9 @@ import { platformPrisma } from '@/lib/prisma';
 import { getAppUrl, getTrustedOrigins } from '@/lib/env';
 import { provisioningTarget } from '@/lib/provisioning-context';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password';
-import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
+import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from 'better-auth/api';
+import { after } from 'next/server';
+import { recordFailedSignIn } from '@/lib/sign-in-audit';
 import { MUST_CHANGE_PASSWORD_MESSAGE, isBlockedWhileRestricted } from '@/lib/password-change';
 import { APP_NAME } from '@/lib/brand';
 import { resolvePasskeyConfig } from '@/lib/passkey-config';
@@ -230,6 +232,33 @@ export const auth = betterAuth({
       });
       if (user?.mustChangePassword) {
         throw new APIError('FORBIDDEN', { message: MUST_CHANGE_PASSWORD_MESSAGE });
+      }
+    }),
+    // A refused password sign-in goes to the account's store activity log
+    // (src/lib/sign-in-audit.ts). Only "wrong credentials" refusals count —
+    // not rate limits or malformed requests — and it is written after the
+    // response, so it never slows or changes what the caller sees.
+    after: createAuthMiddleware(async (ctx) => {
+      const method = ctx.path === '/sign-in/username' ? 'username' : ctx.path === '/sign-in/email' ? 'email' : null;
+      if (!method) return;
+      const returned = ctx.context.returned;
+      if (!isAPIError(returned) || returned.status !== 'UNAUTHORIZED') return;
+      const body = (ctx.body ?? {}) as Record<string, unknown>;
+      const identifier = body[method];
+      if (typeof identifier !== 'string') return;
+      const headers = ctx.request?.headers ?? ctx.headers;
+      const task = () =>
+        recordFailedSignIn({
+          method,
+          identifier,
+          ipAddress: headers?.get('x-forwarded-for')?.split(',')[0]?.trim() || headers?.get('x-real-ip') || null,
+          userAgent: headers?.get('user-agent') ?? null,
+        }).catch((error) => console.error('[audit] failed sign-in not recorded', error));
+      try {
+        after(task);
+      } catch {
+        // Outside a request (scripts): record it now.
+        await task();
       }
     }),
   },

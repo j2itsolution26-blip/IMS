@@ -7,6 +7,7 @@ import { applyStockMovement, validQuantity } from '@/server/services/inventory-s
 import { nextDocumentNumber } from '@/server/services/numbering-service';
 import { recordAudit } from '@/server/services/audit-service';
 import { writableBranchId } from '@/lib/tenant/branch';
+import { formatUnits } from '@/lib/quantity';
 
 /**
  * Manual stock operations: a simple "Stock In" for received goods, and
@@ -38,7 +39,7 @@ export async function createStockIn(input: StockInInput) {
     const reference = await nextDocumentNumber('ADJUSTMENT', tx);
     const product = await tx.product.findUnique({
       where: { id: input.productId },
-      select: { name: true, costPrice: true },
+      select: { name: true, costPrice: true, unit: true },
     });
     if (!product) throw new NotFoundError('Product');
 
@@ -59,7 +60,7 @@ export async function createStockIn(input: StockInInput) {
         action: 'INVENTORY_CHANGE',
         entity: 'Inventory',
         entityId: reference,
-        summary: `Stock in ${reference}: ${product.name} +${toNum(q3(input.quantity))} pcs`,
+        summary: `Stock in ${reference}: ${product.name} +${formatUnits(toNum(q3(input.quantity)), product.unit)}`,
         userId: input.userId,
       },
       tx,

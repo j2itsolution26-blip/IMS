@@ -26,11 +26,14 @@ export function FilterBar({
   searchPlaceholder = 'Search…',
   selects = [],
   showSearch = true,
+  extraActive = 0,
   children,
 }: {
   searchPlaceholder?: string;
   selects?: FilterSelect[];
   showSearch?: boolean;
+  /** Filters applied outside this bar (a period picker passed as children), so Clear shows for them too. */
+  extraActive?: number;
   children?: React.ReactNode;
 }) {
   const router = useRouter();
@@ -68,7 +71,7 @@ export function FilterBar({
   }, [term, currentSearch, push]);
 
   const activeCount =
-    (currentSearch ? 1 : 0) + selects.filter((select) => searchParams.get(select.name)).length;
+    (currentSearch ? 1 : 0) + selects.filter((select) => searchParams.get(select.name)).length + extraActive;
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2">

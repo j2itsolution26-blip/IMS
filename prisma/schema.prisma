@@ -1620,6 +1620,8 @@ model AuditLog {
 enum AuditAction {
   LOGIN
   LOGOUT
+  // A wrong password for an existing store account (migration 20261117090000).
+  LOGIN_FAILED
   CREATE
   UPDATE
   DELETE

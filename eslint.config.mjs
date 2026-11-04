@@ -65,6 +65,8 @@ const config = [
       'src/lib/session.ts',
       'src/lib/auth.ts',
       'src/lib/passkey-plugin.ts',
+      // Failed sign-ins: no session or store context exists yet.
+      'src/lib/sign-in-audit.ts',
       'src/features/auth/**',
       'src/features/platform/**',
       'src/features/admin/actions.ts',
