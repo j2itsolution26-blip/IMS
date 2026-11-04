@@ -319,6 +319,15 @@
     background: #fff;
     color: #000;
   }
+
+  /* The app shell's tinted workspace and any open toast stay off the page. */
+  main {
+    background: #fff !important;
+  }
+
+  [data-sonner-toaster] {
+    display: none !important;
+  }
 }
 
 .print-only {

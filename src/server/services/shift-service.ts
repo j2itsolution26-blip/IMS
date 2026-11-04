@@ -22,6 +22,7 @@ import {
 import { endOfStoreDay, startOfStoreDay } from '@/lib/store-time';
 import { formatCurrency } from '@/lib/format';
 import { recordAudit } from '@/server/services/audit-service';
+import { DUPLICATE_ADJUSTMENT_WINDOW_MS, isDuplicateAdjustment, salePaymentKind, type SalePaymentKind } from '@/lib/shift-detail';
 import { markNotificationsRead, raiseNotifications, type NewNotification } from '@/server/services/notification-service';
 import { getSettings, readNumber } from '@/server/services/settings-service';
 
@@ -871,6 +872,8 @@ export async function getShiftKpis(now: Date = new Date()): Promise<ShiftKpis> {
 
 export interface ShiftDetail extends ShiftHistoryRow {
   reviewNote: string | null;
+  /** The branch whose drawer this is. */
+  branchName: string | null;
   /** Every movement, cash and electronic, for the shared drawer breakdown. */
   breakdown: BreakdownParts;
   /** For a closed shift: what the records give today, when it differs from what was frozen at close. */
@@ -909,6 +912,8 @@ export interface ShiftDetail extends ShiftHistoryRow {
     total: number;
     cash: number;
     other: number;
+    /** How the customer paid: one method, split, or none recorded. */
+    payment: SalePaymentKind;
   }[];
   refundRows: { id: string; returnId: string | null; returnNumber: string | null; method: PaymentMethod; amount: number; createdAt: Date }[];
   transactionsTruncated: boolean;
@@ -923,6 +928,7 @@ export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | nul
     where: { id: shiftId, ...whereBranch(await visibleBranchIds()) },
     include: {
       user: { select: { name: true } },
+      warehouse: { select: { name: true } },
       closedBy: { select: { name: true } },
       reviewedBy: { select: { name: true } },
       movements: { orderBy: { createdAt: 'asc' }, include: { user: { select: { name: true } } } },
@@ -1006,6 +1012,7 @@ export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | nul
     reviewedByName: row.reviewedBy?.name ?? null,
     reviewedAt: row.reviewedAt,
     reviewNote: row.reviewNote,
+    branchName: row.warehouse?.name ?? null,
     breakdown,
     lastActivityAt,
     liveExpectedCash: row.status === 'CLOSED' && live.expectedCash !== totals.expectedCash ? live.expectedCash : null,
@@ -1050,6 +1057,7 @@ export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | nul
         total: toNum(money(sale.total)),
         cash: toNum(money(cashTendered.minus(D(sale.changeAmount)))),
         other: toNum(money(other)),
+        payment: salePaymentKind(sale.payments.map((p) => p.method)),
       };
     }),
     refundRows: refundRows.map((p) => ({
@@ -1139,9 +1147,22 @@ export async function addShiftAdjustment(input: {
   await assertShiftVisible(input.shiftId);
 
   return db.$transaction(async (tx) => {
+    // Lock the shift so two copies of the same submission are checked one after the other.
+    const { storeId } = await getStoreContext();
+    await tx.$queryRaw`SELECT id FROM cashier_shifts WHERE id = ${input.shiftId} AND "storeId" = ${storeId} FOR UPDATE`;
     const shift = await tx.cashierShift.findUnique({ where: { id: input.shiftId }, select: { status: true, number: true } });
     if (!shift) throw new NotFoundError('Shift');
     if (shift.status !== 'CLOSED') throw new ConflictError('Only a closed shift can be adjusted.');
+
+    // A resubmitted form or network retry would otherwise record the same correction twice.
+    const now = new Date();
+    const recent = await tx.shiftAdjustment.findMany({
+      where: { shiftId: input.shiftId, userId: input.actorId, createdAt: { gte: new Date(now.getTime() - DUPLICATE_ADJUSTMENT_WINDOW_MS) } },
+      select: { amount: true, reason: true, userId: true, createdAt: true },
+    });
+    if (isDuplicateAdjustment(recent, { amount, reason: reason.slice(0, 500), userId: input.actorId }, now)) {
+      throw new ConflictError('This adjustment was just recorded. Refresh the page to see it.');
+    }
 
     const adjustment = await tx.shiftAdjustment.create({
       data: { shiftId: input.shiftId, amount, reason: reason.slice(0, 500), userId: input.actorId },

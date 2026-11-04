@@ -16,6 +16,7 @@ export function DrawerBreakdownTable({
   actualCash,
   currency,
   className,
+  showTotals = true,
 }: {
   parts: BreakdownParts;
   /** The reconciled expected cash (frozen at close); defaults to the breakdown's own total. */
@@ -24,6 +25,8 @@ export function DrawerBreakdownTable({
   actualCash: number | null;
   currency: string;
   className?: string;
+  /** False when the page shows expected / counted / variance in its own summary. */
+  showTotals?: boolean;
 }) {
   const breakdown = drawerBreakdown(parts);
   const expected = expectedCash ?? breakdown.expectedCash;
@@ -32,7 +35,7 @@ export function DrawerBreakdownTable({
 
   return (
     <div className={cn('overflow-x-auto', className)}>
-      <table className="w-full min-w-[22rem] text-sm">
+      <table className="w-full min-w-[18rem] text-sm">
         <caption className="sr-only">Drawer breakdown: every movement and its effect on the physical cash in the drawer</caption>
         <thead>
           <tr className="border-b text-left text-xs text-muted-foreground">
@@ -67,6 +70,7 @@ export function DrawerBreakdownTable({
             );
           })}
         </tbody>
+        {showTotals && (
         <tfoot className="border-t-2">
           <tr className="bg-primary/5">
             <th scope="row" className="py-2.5 pr-3 text-left font-semibold" colSpan={1}>
@@ -92,6 +96,7 @@ export function DrawerBreakdownTable({
             </td>
           </tr>
         </tfoot>
+        )}
       </table>
     </div>
   );
