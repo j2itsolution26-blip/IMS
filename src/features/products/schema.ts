@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { validateImageUrl } from '@/lib/image-url';
 import { MAX_LINE_QUANTITY, QUANTITY_DECIMALS, UNIT_ORDER, UNITS, decimalPlaces, type ProductUnit } from '@/lib/quantity';
+import { MAX_PRESETS, presetsProblem } from '@/lib/quantity-presets';
 
 /**
  * Product validation. Shared by the client form and the server action so the
@@ -73,6 +74,9 @@ export const productSchema = z
     // pieces, whole numbers only.
     unit: z.enum(UNIT_ORDER as [ProductUnit, ...ProductUnit[]]).default('PIECE'),
     allowsDecimal: z.boolean().default(false),
+    // The cashier's quick quantity buttons, in the product's unit. Empty:
+    // the unit's standard buttons. Checked against the unit below.
+    quantityPresets: z.array(z.number().finite()).max(MAX_PRESETS, `Use at most ${MAX_PRESETS} quick quantities.`).default([]),
 
     // Stock thresholds are counted in the product's unit.
     minStock: pieceField('Minimum stock'),
@@ -84,6 +88,8 @@ export const productSchema = z
     isTrackable: z.boolean().default(true),
   })
   .superRefine((values, ctx) => {
+    const presets = presetsProblem(values.quantityPresets, values);
+    if (presets) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['quantityPresets'], message: presets });
     // A product sold in whole units keeps whole thresholds too.
     if (!values.allowsDecimal) {
       for (const field of ['minStock', 'maxStock', 'reorderLevel', 'reorderQty'] as const) {

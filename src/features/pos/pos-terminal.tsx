@@ -49,10 +49,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Checkbox, Separator } from '@/components/ui/misc';
-import { GCASH_REFERENCE_HINT, normalizeGcashReference, quickCashOptions, tenderSummary } from '@/lib/tender';
+import { GCASH_REFERENCE_OPTIONAL_HINT, optionalGcashReference, quickCashOptions, tenderSummary } from '@/lib/tender';
 import { Receipt, type ReceiptData } from '@/features/pos/receipt';
 import { PosCameraScanner, type ScanOutcome } from '@/features/pos/pos-camera-scanner';
 import { QuantityInput } from '@/features/pos/quantity-input';
+import { QuantityPresets } from '@/features/pos/quantity-presets';
+import { formatSaleQuantity, pricePer } from '@/lib/quantity-presets';
 import { useOnlineStatus } from '@/features/pwa/use-online-status';
 import { formatCurrency, formatQuantity } from '@/lib/format';
 import { UNITS, type ProductUnit } from '@/lib/quantity';
@@ -119,6 +121,8 @@ interface BasketLine {
   /** Optional: orders held before units existed are whole pieces. */
   unit?: ProductUnit;
   allowsDecimal?: boolean;
+  /** The product's own quick quantities; absent or empty: its unit's standard ones. */
+  quantityPresets?: number[];
 }
 
 /**
@@ -206,6 +210,7 @@ export function PosTerminal({
   const [cashReceived, setCashReceived] = React.useState('');
   const [gcashAmount, setGcashAmount] = React.useState('');
   const [gcashReference, setGcashReference] = React.useState('');
+  const [showGcashReference, setShowGcashReference] = React.useState(false);
   const [gcashConfirmed, setGcashConfirmed] = React.useState(false);
   // One id per checkout attempt: a doubled or retried submit records the sale once.
   const [checkoutRequestId, setCheckoutRequestId] = React.useState('');
@@ -302,6 +307,7 @@ export function PosTerminal({
           isTrackable: product.isTrackable,
           unit: product.unit,
           allowsDecimal: product.allowsDecimal,
+          quantityPresets: product.quantityPresets,
         },
       ];
     });
@@ -480,6 +486,19 @@ export function PosTerminal({
     setTimeout(() => searchRef.current?.focus(), 0);
   };
 
+  // After the camera scanner closes, the next step is paying: bring the
+  // Charge button into view and give it focus, wherever the page or the cart
+  // panel is scrolled. It only moves the cashier there; nothing is charged.
+  const chargeRef = React.useRef<HTMLButtonElement>(null);
+  const goToCharge = React.useCallback(() => {
+    const button = chargeRef.current;
+    if (!button) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    button.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+    // Focus without a second, instant scroll fighting the smooth one.
+    button.focus({ preventScroll: true });
+  }, []);
+
   const setQuantity = (productId: string, requested: number) => {
     setBasket((current) =>
       current.flatMap((line) => {
@@ -582,7 +601,9 @@ export function PosTerminal({
       tax,
       discount: round(discount),
       total: round(taxable + tax),
-      itemCount: basket.reduce((acc, line) => acc + line.quantity, 0),
+      // Whole units count each piece; a weighed or measured line (0.5 kg,
+      // 2.5 m) is one item, so kilos and meters are never added to pieces.
+      itemCount: basket.reduce((acc, line) => acc + (line.allowsDecimal ? 1 : line.quantity), 0),
     };
   }, [basket, orderDiscount, taxRate]);
 
@@ -593,9 +614,11 @@ export function PosTerminal({
   const paid = tender.received;
   const change = tender.change;
   const outstanding = tender.outstanding;
-  const gcashReferenceValid = normalizeGcashReference(gcashReference) !== null;
+  // Optional: blank is fine; a typed one must look like a reference.
+  const gcashReferenceValid = optionalGcashReference(gcashReference).problem === null;
   // The sale service takes no partial payments, so the tender has to cover the
-  // whole total; GCash must be exact, with a reference and a confirmed receipt.
+  // whole total; GCash must be exact and confirmed as received. The reference
+  // number is optional and never holds up the sale when left blank.
   const canComplete =
     tender.canComplete && (method === 'CASH' || (gcashReferenceValid && gcashConfirmed));
 
@@ -621,6 +644,7 @@ export function PosTerminal({
     setCashReceived('');
     setGcashAmount(totals.total.toFixed(2));
     setGcashReference('');
+    setShowGcashReference(false);
     setGcashConfirmed(false);
     setCheckoutRequestId(crypto.randomUUID());
     setPayOpen(true);
@@ -633,7 +657,9 @@ export function PosTerminal({
         tender.overpaidNonCash
           ? 'GCash must be for the exact amount due.'
           : method === 'GCASH' && tender.canComplete
-            ? 'Enter the GCash reference and confirm the payment arrived.'
+            ? gcashReferenceValid
+              ? 'Confirm the GCash payment arrived in the store account.'
+              : 'Fix the GCash reference or clear it; it is optional.'
             : 'The payment does not cover the amount due.',
       );
       return;
@@ -694,7 +720,7 @@ export function PosTerminal({
         {
           method: METHOD_LABEL[method],
           amount: paid,
-          reference: method === 'GCASH' ? normalizeGcashReference(gcashReference) : null,
+          reference: method === 'GCASH' ? optionalGcashReference(gcashReference).reference : null,
         },
       ],
       company,
@@ -757,7 +783,10 @@ export function PosTerminal({
               quantity: line.quantity,
               discount: line.discount,
               allowsDecimal: line.allowsDecimal,
+              unit: line.unit,
+              quantityPresets: line.quantityPresets,
             }))}
+            onDone={goToCharge}
             total={totals.total}
             itemCount={totals.itemCount}
             currency={currency}
@@ -896,7 +925,7 @@ export function PosTerminal({
                         {line.barcode || line.sku}
                       </p>
                       <p className="tabular text-xs text-muted-foreground">
-                        {formatCurrency(line.unitPrice, currency)} / pc
+                        {formatSaleQuantity(line.quantity, line.unit)} × {formatCurrency(line.unitPrice, currency)} {pricePer(line.unit)}
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
@@ -942,6 +971,13 @@ export function PosTerminal({
                       <Trash2 />
                     </Button>
                   </div>
+                  <QuantityPresets
+                    className="mt-2"
+                    product={{ unit: line.unit ?? 'PIECE', allowsDecimal: Boolean(line.allowsDecimal), quantityPresets: line.quantityPresets }}
+                    value={line.quantity}
+                    onSelect={(quantity) => setQuantity(line.productId, quantity)}
+                    label={`Quick quantities for ${line.name}`}
+                  />
                 </li>
               ))}
             </ul>
@@ -977,7 +1013,10 @@ export function PosTerminal({
           </div>
 
           <Button
-            className="h-12 w-full rounded-xl bg-[#F5B70A] text-base font-semibold text-[#20160A] hover:bg-[#E0A609]"
+            ref={chargeRef}
+            // Clear of the sticky top bar and the phone's bottom edge when
+            // scrolled to after the scanner closes.
+            className="h-12 w-full scroll-mb-24 scroll-mt-24 rounded-xl bg-[#F5B70A] text-base font-semibold text-[#20160A] hover:bg-[#E0A609]"
             disabled={basket.length === 0 || !online}
             onClick={openPayment}
           >
@@ -1149,28 +1188,35 @@ export function PosTerminal({
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="gcash-reference">GCash Reference Number</Label>
-                  <Input
-                    id="gcash-reference"
-                    inputMode="numeric"
-                    value={gcashReference}
-                    onChange={(event) => setGcashReference(event.target.value)}
-                    placeholder="Enter reference number"
-                    maxLength={80}
-                    aria-invalid={gcashReference.trim() !== '' && !gcashReferenceValid}
-                    aria-describedby="gcash-reference-hint"
-                  />
-                  <p
-                    id="gcash-reference-hint"
-                    className={cn(
-                      'text-xs',
-                      gcashReference.trim() !== '' && !gcashReferenceValid ? 'text-destructive-text' : 'text-muted-foreground',
-                    )}
+                {/* Optional, and out of the way: a cashier in a rush never has
+                    to type the 13-digit number. */}
+                {showGcashReference ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="gcash-reference">GCash reference (optional)</Label>
+                    <Input
+                      id="gcash-reference"
+                      inputMode="numeric"
+                      autoFocus
+                      value={gcashReference}
+                      onChange={(event) => setGcashReference(event.target.value)}
+                      placeholder="From the GCash receipt"
+                      maxLength={80}
+                      aria-invalid={!gcashReferenceValid}
+                      aria-describedby="gcash-reference-hint"
+                    />
+                    <p id="gcash-reference-hint" className={cn('text-xs', gcashReferenceValid ? 'text-muted-foreground' : 'text-destructive-text')}>
+                      {GCASH_REFERENCE_OPTIONAL_HINT}
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setShowGcashReference(true)}
                   >
-                    {GCASH_REFERENCE_HINT}
-                  </p>
-                </div>
+                    + Add GCash reference (optional)
+                  </button>
+                )}
 
                 {/* A reference number or a customer's screenshot is not proof
                     of payment; the cashier checks the store's own account. */}

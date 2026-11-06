@@ -64,6 +64,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
           isTrackable: product.isTrackable,
           unit: product.unit,
           allowsDecimal: product.allowsDecimal,
+          quantityPresets: product.quantityPresets.map(toNum),
         }}
       />
     </>

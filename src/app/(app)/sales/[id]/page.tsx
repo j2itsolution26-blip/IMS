@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { getCurrentUser, requirePermission, userCan } from '@/lib/session';
 import { canViewSaleRecord } from '@/lib/sales-scope';
 import { FINANCIAL_PERMISSION } from '@/lib/permissions';
-import { formatPieces } from '@/lib/quantity';
+
 import { getSale, getReceiptData } from '@/features/sales/queries';
 import { getCompanyProfile, getCurrency } from '@/server/services/settings-service';
 import { formatCurrency, formatDateTime, humanizeEnum } from '@/lib/format';
@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { ProductImage } from '@/components/product-image';
 import { SaleActions } from '@/features/sales/sale-actions';
 import { ReceiptButton } from '@/features/sales/receipt-button';
+import { formatSaleQuantity } from '@/lib/quantity-presets';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,7 +130,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                             {item.sku}
                             {item.returnedQuantity > 0 && (
                               <span className="ml-1 text-warning-text">
-                                · {formatPieces(item.returnedQuantity, item.unit)} returned
+                                · {formatSaleQuantity(item.returnedQuantity, item.unit)} returned
                               </span>
                             )}
                           </p>
@@ -137,7 +138,7 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
                       </div>
                     </TableCell>
                     <TableCell className="tabular text-right">
-                      {formatPieces(item.quantity, item.unit)}
+                      {formatSaleQuantity(item.quantity, item.unit)}
                     </TableCell>
                     <TableCell className="tabular text-right">
                       {formatCurrency(item.unitPrice, currency)}

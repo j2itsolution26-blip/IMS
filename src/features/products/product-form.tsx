@@ -20,6 +20,7 @@ import { FormField, FormError, applyServerErrors } from '@/components/form';
 import { Label } from '@/components/ui/label';
 import { formatCurrency } from '@/lib/format';
 import { UNIT_ORDER, UNITS, type ProductUnit } from '@/lib/quantity';
+import { parsePresetText, presetLabel, presetText, presetsFor, pricePer } from '@/lib/quantity-presets';
 import { ProductPhotoField, type PhotoUploadStatus } from '@/components/product-photo-field';
 import { BarcodeScanButton } from '@/features/inventory/barcode-scan-button';
 import { BarcodeDuplicateNotice } from '@/features/inventory/barcode-duplicate-notice';
@@ -61,6 +62,7 @@ const EMPTY: ProductInput = {
   isTrackable: true,
   unit: 'PIECE',
   allowsDecimal: false,
+  quantityPresets: [],
 };
 
 /** Quick-add for a category, without leaving the product form. */
@@ -380,6 +382,14 @@ export function ProductForm({
                 </div>
               </div>
 
+              <QuickQuantitiesField
+                unit={unit}
+                allowsDecimal={allowsDecimal}
+                value={watch('quantityPresets') ?? []}
+                onChange={(values) => setValue('quantityPresets', values, { shouldDirty: true, shouldValidate: true })}
+                error={errors.quantityPresets?.message}
+              />
+
               <div className="flex items-start justify-between gap-4 rounded-md border p-3">
                 <div>
                   <Label htmlFor="isTrackable">Track stock levels</Label>
@@ -531,5 +541,66 @@ export function ProductForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * The cashier's quick quantity buttons for this product: "0.25, 0.5, 1" in
+ * the product's unit, or blank for the unit's standard buttons. The preview
+ * shows exactly what the till will offer.
+ */
+function QuickQuantitiesField({
+  unit,
+  allowsDecimal,
+  value,
+  onChange,
+  error,
+}: {
+  unit: ProductUnit;
+  allowsDecimal: boolean;
+  value: number[];
+  onChange: (values: number[]) => void;
+  error?: string;
+}) {
+  const [text, setText] = React.useState(() => presetText(value));
+  const [problem, setProblem] = React.useState<string | null>(null);
+  const shown = presetsFor({ unit, allowsDecimal, quantityPresets: value });
+
+  return (
+    <div className="space-y-1.5 rounded-md border p-3">
+      <Label htmlFor="quantityPresets">Quick quantities at the till</Label>
+      <Input
+        id="quantityPresets"
+        value={text}
+        inputMode="decimal"
+        autoComplete="off"
+        placeholder={`Standard buttons: ${presetText(presetsFor({ unit, allowsDecimal })) || 'none for this unit'}`}
+        aria-invalid={problem || error ? true : undefined}
+        aria-describedby="quantityPresets-hint"
+        onChange={(event) => {
+          setText(event.target.value);
+          const parsed = parsePresetText(event.target.value);
+          setProblem(parsed.problem);
+          if (!parsed.problem) onChange(parsed.values);
+        }}
+      />
+      <p id="quantityPresets-hint" className={problem || error ? 'text-xs text-destructive-text' : 'text-xs text-muted-foreground'}>
+        {problem ??
+          error ??
+          `In ${UNITS[unit].plural}, separated by commas (e.g. 0.25, 0.5, 1). Leave blank for the standard buttons. The cashier can still type any amount.`}
+      </p>
+      {shown.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 pt-1" aria-label="Buttons the cashier will see">
+          {shown.map((preset) => (
+            <span key={preset} className="rounded-md border bg-muted/50 px-2 py-1 text-xs font-medium">
+              {presetLabel(preset, unit)}
+            </span>
+          ))}
+          <span className="self-center text-xs text-muted-foreground">priced {pricePer(unit)}</span>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">No quick buttons: the cashier uses + and − or types the amount.</p>
+      )}
+    </div>
   );
 }

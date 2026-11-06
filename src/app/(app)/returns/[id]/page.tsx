@@ -8,11 +8,12 @@ import { visibleBranchIds, whereSaleBranch } from '@/server/analytics/branch-fil
 import { toNum } from '@/lib/decimal';
 import { getCurrency } from '@/server/services/settings-service';
 import { formatCurrency, formatDateTime, humanizeEnum } from '@/lib/format';
-import { formatPieces } from '@/lib/quantity';
+
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { formatSaleQuantity } from '@/lib/quantity-presets';
 
 export const dynamic = 'force-dynamic';
 
@@ -106,7 +107,7 @@ export default async function ReturnPage({ params }: { params: Promise<{ id: str
                       <p className="text-xs text-muted-foreground">{item.product.sku}</p>
                     </TableCell>
                     <TableCell className="tabular text-right">
-                      {formatPieces(toNum(item.quantity), item.product.unit)}
+                      {formatSaleQuantity(toNum(item.quantity), item.product.unit)}
                     </TableCell>
                     <TableCell className="tabular text-right">
                       {formatCurrency(toNum(item.unitPrice), currency)}

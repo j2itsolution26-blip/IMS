@@ -8,6 +8,9 @@ import { cn } from '@/lib/utils';
 import { ScannerDialog } from '@/features/scanner/scanner-dialog';
 import { primeAudio, type ScanFeedback } from '@/features/scanner/scanner-panel';
 import { QuantityInput } from '@/features/pos/quantity-input';
+import { QuantityPresets } from '@/features/pos/quantity-presets';
+import { pricePer } from '@/lib/quantity-presets';
+import type { ProductUnit } from '@/lib/quantity';
 
 /**
  * The till's camera scanner: stays open and rings item after item into the
@@ -39,6 +42,10 @@ export interface ScannerCartLine {
   quantity: number;
   /** Sold in fractions of its unit (0.5 kg); absent means whole units. */
   allowsDecimal?: boolean;
+  /** The product's unit; absent means pieces. */
+  unit?: ProductUnit;
+  /** The product's own quick quantities; absent: its unit's standard ones. */
+  quantityPresets?: number[];
   discount: number;
 }
 
@@ -64,6 +71,7 @@ export function PosCameraScanner({
   currency,
   onSetQuantity,
   onRemove,
+  onDone,
   label = 'Scan barcode',
   size,
   className,
@@ -77,6 +85,11 @@ export function PosCameraScanner({
   currency: string;
   onSetQuantity: (productId: string, quantity: number) => void;
   onRemove: (productId: string) => void;
+  /**
+   * Called once the scanner has closed with items in the cart, instead of
+   * returning focus to the scan button: the till brings the cashier to Charge.
+   */
+  onDone?: () => void;
   label?: string;
   size?: React.ComponentProps<typeof Button>['size'];
   className?: string;
@@ -113,6 +126,14 @@ export function PosCameraScanner({
         previewClassName="aspect-[16/10]"
         holdDecoding={editing}
         holdLabel="Finish the quantity to scan"
+        onCloseAutoFocus={(event) => {
+          // The cart is already updated (every scan lands in it as it
+          // happens), so the next step is paying: go to Charge, not back to
+          // the scan button. Nothing is charged; the cashier still taps it.
+          if (!onDone || lines.length === 0) return;
+          event.preventDefault();
+          onDone();
+        }}
         onBarcodeDetected={async (code) => {
           const outcome = await onScan(code);
           if (outcome.kind === 'added' || outcome.kind === 'stock') setLastId(outcome.productId);
@@ -199,11 +220,19 @@ function ScannerCart({
                 />
                 <div className="min-w-0 text-right">
                   <p className="tabular text-xs text-muted-foreground">
-                    {formatCurrency(line.unitPrice, currency)} / pc
+                    {formatCurrency(line.unitPrice, currency)} {pricePer(line.unit)}
                   </p>
                   <p className="tabular text-base font-semibold">{formatCurrency(subtotal, currency)}</p>
                 </div>
               </div>
+              <QuantityPresets
+                className="mt-2"
+                size={isLast ? 'lg' : 'default'}
+                product={{ unit: line.unit ?? 'PIECE', allowsDecimal: Boolean(line.allowsDecimal), quantityPresets: line.quantityPresets }}
+                value={line.quantity}
+                onSelect={(quantity) => onSetQuantity(line.productId, quantity)}
+                label={`Quick quantities for ${line.name}`}
+              />
             </li>
           );
         })}

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { normalizeGcashReference, quickCashOptions, tenderSummary, toCentavos } from '@/lib/tender';
+import { normalizeGcashReference, optionalGcashReference, quickCashOptions, tenderSummary, toCentavos } from '@/lib/tender';
 
 test('₱1,000 cash on a ₱350 sale gives exactly ₱650 change', () => {
   const t = tenderSummary({ total: 350, method: 'CASH', received: 1000 });
@@ -52,10 +52,24 @@ test('GCash references are normalised and must look like a reference', () => {
   assert.equal(normalizeGcashReference('12345<script>'), null);
 });
 
-test('the server refuses GCash overpayment, needs a confirmed reference, and returns a retried checkout once', () => {
+test('the GCash reference is optional: blank is stored as nothing, a typed one must look real', () => {
+  assert.deepEqual(optionalGcashReference(''), { reference: null, problem: null });
+  assert.deepEqual(optionalGcashReference('   '), { reference: null, problem: null });
+  assert.deepEqual(optionalGcashReference(undefined), { reference: null, problem: null });
+  assert.deepEqual(optionalGcashReference(' 1012 345 678 901 '), { reference: '1012345678901', problem: null });
+  assert.equal(optionalGcashReference('123').reference, null);
+  assert.match(optionalGcashReference('123').problem ?? '', /reference number/);
+});
+
+test('the server refuses GCash overpayment, needs a confirmed payment (reference optional), and returns a retried checkout once', () => {
   const service = readFileSync('src/server/services/sale-service.ts', 'utf8');
   assert.match(service, /nonCash\.greaterThan\(totals\.total\)/);
-  assert.match(service, /normalizeGcashReference/);
+  assert.match(service, /optionalGcashReference/);
+  assert.match(service, /confirmedReceived !== true/);
+  assert.doesNotMatch(service, /GCASH_REFERENCE_HINT/, 'a blank reference never blocks the sale');
+  const wallet = readFileSync('src/server/services/wallet-service.ts', 'utf8');
+  assert.match(wallet, /optionalGcashReference/);
+  assert.match(wallet, /input\.confirmed !== true/);
   assert.match(service, /clientRequestId/);
   const action = readFileSync('src/features/pos/actions.ts', 'utf8');
   assert.match(action, /clientRequestId: z\.string\(\)\.uuid\(\)/);

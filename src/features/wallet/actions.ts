@@ -17,7 +17,8 @@ const recordSchema = z.object({
   type: z.enum(['CASH_IN', 'CASH_OUT']),
   amount: z.number().finite(),
   fee: z.number().finite().default(0),
-  gcashReference: z.string().trim().max(80),
+  // Optional: the cashier does not have to type it.
+  gcashReference: z.string().trim().max(80).optional(),
   customerMobile: z.string().trim().max(20).optional(),
   notes: z.string().trim().max(300).optional(),
   // The cashier saw the transfer go out of / arrive in the store GCash.

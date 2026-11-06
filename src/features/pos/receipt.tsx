@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import { formatCurrency, formatDateTime, formatQuantity } from '@/lib/format';
-import { UNITS, formatUnits, type ProductUnit } from '@/lib/quantity';
+import { UNITS, type ProductUnit } from '@/lib/quantity';
+import { formatSaleQuantity } from '@/lib/quantity-presets';
 
 /**
  * Printable receipt.
@@ -80,7 +81,7 @@ export function Receipt({ data }: { data: ReceiptData }) {
                 <span className="block">{line.name}</span>
                 <span className="flex justify-between">
                   <span>
-                    {line.unit && line.unit !== 'PIECE' ? formatUnits(line.quantity, line.unit) : formatQuantity(line.quantity)} ×{' '}
+                    {line.unit && line.unit !== 'PIECE' ? formatSaleQuantity(line.quantity, line.unit) : formatQuantity(line.quantity)} ×{' '}
                     {formatCurrency(line.unitPrice, currency)}
                     {line.unit && line.unit !== 'PIECE' ? `/${UNITS[line.unit].singular}` : ''}
                     {line.discount > 0 && ` − ${formatCurrency(line.discount, currency)}`}

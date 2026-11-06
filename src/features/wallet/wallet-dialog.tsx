@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/misc';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { GCASH_REFERENCE_HINT, normalizeGcashReference } from '@/lib/tender';
+import { GCASH_REFERENCE_OPTIONAL_HINT, optionalGcashReference } from '@/lib/tender';
 import { WALLET_TYPE_LABEL, walletFigures, walletInstruction, walletProblem, type WalletType } from '@/lib/wallet';
 import { recordWalletAction } from '@/features/wallet/actions';
 
@@ -26,6 +26,7 @@ export function WalletDialog({ open, onOpenChange, currency }: { open: boolean; 
   const [amount, setAmount] = React.useState('');
   const [fee, setFee] = React.useState('');
   const [reference, setReference] = React.useState('');
+  const [showReference, setShowReference] = React.useState(false);
   const [mobile, setMobile] = React.useState('');
   const [notes, setNotes] = React.useState('');
   const [step, setStep] = React.useState<'enter' | 'confirm'>('enter');
@@ -40,6 +41,7 @@ export function WalletDialog({ open, onOpenChange, currency }: { open: boolean; 
     setAmount('');
     setFee('');
     setReference('');
+    setShowReference(false);
     setMobile('');
     setNotes('');
     setStep('enter');
@@ -52,13 +54,14 @@ export function WalletDialog({ open, onOpenChange, currency }: { open: boolean; 
   const amountValue = Number(amount);
   const feeValue = fee.trim() === '' ? 0 : Number(fee);
   const problem = walletProblem(type, amountValue, feeValue);
-  const referenceOk = normalizeGcashReference(reference) !== null;
+  // Optional: blank is fine; a typed one must look like a reference.
+  const { reference: cleanReference, problem: referenceProblem } = optionalGcashReference(reference);
   const figures = problem ? null : walletFigures(type, amountValue, feeValue);
 
   const next = () => {
     setError(null);
     if (problem) return setError(problem);
-    if (!referenceOk) return setError(GCASH_REFERENCE_HINT);
+    if (referenceProblem) return setError(referenceProblem);
     setConfirmed(false);
     setStep('confirm');
   };
@@ -71,7 +74,7 @@ export function WalletDialog({ open, onOpenChange, currency }: { open: boolean; 
       type,
       amount: amountValue,
       fee: feeValue,
-      gcashReference: reference,
+      gcashReference: cleanReference ?? undefined,
       customerMobile: mobile.trim() || undefined,
       notes: notes.trim() || undefined,
       confirmed,
@@ -138,11 +141,36 @@ export function WalletDialog({ open, onOpenChange, currency }: { open: boolean; 
                 <Input id="wallet-fee" inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="0.00" className="h-11 tabular" />
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="wallet-reference">GCash reference number</Label>
-              <Input id="wallet-reference" inputMode="numeric" value={reference} onChange={(e) => setReference(e.target.value)} maxLength={80} className="h-11" />
-              <p className="text-xs text-muted-foreground">{GCASH_REFERENCE_HINT}</p>
-            </div>
+            {/* Optional and out of the way: never needed to record the entry. */}
+            {showReference ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="wallet-reference">
+                  GCash reference <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="wallet-reference"
+                  inputMode="numeric"
+                  autoFocus
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  maxLength={80}
+                  className="h-11"
+                  aria-invalid={referenceProblem ? true : undefined}
+                  aria-describedby="wallet-reference-hint"
+                />
+                <p id="wallet-reference-hint" className={referenceProblem ? 'text-xs text-destructive-text' : 'text-xs text-muted-foreground'}>
+                  {GCASH_REFERENCE_OPTIONAL_HINT}
+                </p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => setShowReference(true)}
+              >
+                + Add GCash reference (optional)
+              </button>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="wallet-mobile">
@@ -173,7 +201,7 @@ export function WalletDialog({ open, onOpenChange, currency }: { open: boolean; 
                   [type === 'CASH_IN' ? 'Collect in cash' : 'Give in cash', money(type === 'CASH_IN' ? figures.collectCash : figures.giveCash)],
                   ['Drawer', `${figures.drawerEffect >= 0 ? '+' : '−'}${money(Math.abs(figures.drawerEffect))}`],
                   ['Store GCash', `${figures.walletEffect >= 0 ? '+' : '−'}${money(Math.abs(figures.walletEffect))}`],
-                  ['GCash reference', normalizeGcashReference(reference) ?? ''],
+                  ...(cleanReference ? [['GCash reference', cleanReference]] : []),
                 ].map(([label, value]) => (
                   <div key={label} className="flex justify-between gap-3 px-3 py-2">
                     <dt className="text-muted-foreground">{label}</dt>

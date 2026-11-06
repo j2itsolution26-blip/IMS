@@ -11,7 +11,7 @@ import { recordAudit } from '@/server/services/audit-service';
 import { getSettings, readNumber } from '@/server/services/settings-service';
 import { lockShiftIfOpen, requireOpenShift } from '@/server/services/shift-service';
 import { assertRecordBranchVisible } from '@/server/analytics/branch-filter';
-import { GCASH_REFERENCE_HINT, normalizeGcashReference } from '@/lib/tender';
+import { optionalGcashReference } from '@/lib/tender';
 
 /**
  * Sales / point of sale.
@@ -223,14 +223,15 @@ function isClientRequestConflict(error: unknown): boolean {
 type CheckedPayment = Omit<SalePaymentInput, 'reference'> & { reference: string | null };
 
 /**
- * Checks the tenders before anything is written. GCash needs a reference that
- * looks real and the cashier's confirmation that the money arrived.
+ * Checks the tenders before anything is written. GCash needs the cashier's
+ * confirmation that the money arrived; its reference number is optional, and
+ * checked only when one is typed.
  */
 function checkedPayments(payments: SalePaymentInput[]): CheckedPayment[] {
   return payments.map((payment) => {
     if (payment.method !== 'GCASH') return { ...payment, reference: payment.reference?.trim() || null };
-    const reference = normalizeGcashReference(payment.reference);
-    if (!reference) throw new ValidationError(GCASH_REFERENCE_HINT, { reference: [GCASH_REFERENCE_HINT] });
+    const { reference, problem } = optionalGcashReference(payment.reference);
+    if (problem) throw new ValidationError(problem, { reference: [problem] });
     if (payment.confirmedReceived !== true) {
       throw new ValidationError(
         'Check the store GCash account and confirm the payment arrived before completing the sale.',

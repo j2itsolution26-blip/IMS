@@ -314,6 +314,7 @@ export async function searchSellableProducts(term: string, limit = 24, filters: 
       isTrackable: true,
       unit: true,
       allowsDecimal: true,
+      quantityPresets: true,
       category: { select: { name: true } },
       inventory: {
         where: { warehouseId },
@@ -336,6 +337,7 @@ export async function searchSellableProducts(term: string, limit = 24, filters: 
       isTrackable: p.isTrackable,
       unit: p.unit,
       allowsDecimal: p.allowsDecimal,
+      quantityPresets: p.quantityPresets.map(toNum),
       categoryName: p.category.name,
       available,
     };

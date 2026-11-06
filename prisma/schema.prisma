@@ -851,6 +851,9 @@ model Product {
   // product that does not allow decimals. Existing products: PIECE, whole.
   unit          ProductUnit @default(PIECE)
   allowsDecimal Boolean     @default(false)
+  // The cashier's quick quantity buttons, in the product's unit (migration
+  // 20261119090000). Empty: the unit's standard buttons (lib/quantity-presets).
+  quantityPresets Decimal[] @default([]) @db.Decimal(18, 3)
 
   inventory             Inventory[]
   inventoryTransactions InventoryTransaction[]
@@ -1288,8 +1291,9 @@ model WalletTransaction {
   amount  Decimal               @db.Decimal(18, 4)
   // The store's service fee, typed in by the cashier; collected in cash.
   fee     Decimal               @default(0) @db.Decimal(18, 4)
-  // The GCash reference, normalised. One live entry per reference per store.
-  reference String
+  // The GCash reference, normalised, if the cashier typed one (optional since
+  // migration 20261118090000). One live entry per typed reference per store.
+  reference String?
   // Only the last four digits of the customer's number, if given.
   customerMobileLast4 String?
   notes               String?

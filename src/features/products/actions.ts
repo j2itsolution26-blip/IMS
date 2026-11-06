@@ -86,6 +86,7 @@ export async function createProduct(input: unknown): Promise<ActionResult<{ id: 
         isTrackable: values.isTrackable,
         unit: values.unit,
         allowsDecimal: values.allowsDecimal,
+        quantityPresets: values.quantityPresets,
       },
       select: { id: true, name: true, sku: true },
     });
@@ -167,6 +168,7 @@ export async function updateProduct(id: string, input: unknown): Promise<ActionR
         isTrackable: values.isTrackable,
         unit: values.unit,
         allowsDecimal: values.allowsDecimal,
+        quantityPresets: values.quantityPresets,
       },
       select: { id: true, name: true, sku: true },
     });

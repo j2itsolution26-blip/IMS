@@ -4,7 +4,7 @@ import type { Prisma, WalletTransactionType } from '@prisma/client';
 import { storeDb } from '@/lib/tenant/context';
 import { D, money, sum, toNum, type Numeric } from '@/lib/decimal';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
-import { normalizeGcashReference, GCASH_REFERENCE_HINT } from '@/lib/tender';
+import { optionalGcashReference } from '@/lib/tender';
 import { lastFourDigits, walletFigures, walletProblem, walletReference, WALLET_TYPE_LABEL } from '@/lib/wallet';
 import { shiftReference } from '@/lib/shift-review';
 import { recordAudit } from '@/server/services/audit-service';
@@ -19,8 +19,9 @@ import { readBranchIds, whereShiftBranch } from '@/server/analytics/branch-filte
  * drawer's expected cash, and is never a sale: sales, revenue and stock are
  * untouched; only the fee is income. The cashier is always the signed-in
  * user. Entries are append-only; a mistake is reversed once, with a reason,
- * while the shift is open. The database also refuses the same GCash
- * reference twice and a second submit of one attempt.
+ * while the shift is open. The GCash reference is optional; when one is
+ * typed, the database refuses it twice. A second submit of one attempt is
+ * refused by its request id.
  */
 
 export async function walletServicesEnabled(): Promise<boolean> {
@@ -37,7 +38,8 @@ export async function recordWalletTransaction(input: {
   type: WalletTransactionType;
   amount: number;
   fee: number;
-  gcashReference: string;
+  /** Optional: blank is stored as nothing. */
+  gcashReference?: string | null;
   customerMobile?: string;
   notes?: string;
   confirmed: boolean;
@@ -48,8 +50,8 @@ export async function recordWalletTransaction(input: {
   }
   const problem = walletProblem(input.type, input.amount, input.fee);
   if (problem) throw new ValidationError(problem);
-  const gcashReference = normalizeGcashReference(input.gcashReference);
-  if (!gcashReference) throw new ValidationError(GCASH_REFERENCE_HINT, { gcashReference: [GCASH_REFERENCE_HINT] });
+  const { reference: gcashReference, problem: referenceProblem } = optionalGcashReference(input.gcashReference);
+  if (referenceProblem) throw new ValidationError(referenceProblem, { gcashReference: [referenceProblem] });
   if (input.confirmed !== true) {
     throw new ValidationError(
       input.type === 'CASH_IN'
@@ -95,7 +97,7 @@ export async function recordWalletTransaction(input: {
           action: 'CASH_MOVEMENT',
           entity: 'WalletTransaction',
           entityId: row.id,
-          summary: `${reference} ${WALLET_TYPE_LABEL[input.type]} ₱${input.amount.toFixed(2)}, fee ₱${input.fee.toFixed(2)} (GCash ref ${gcashReference}) on ${shiftReference(shift.number)}`,
+          summary: `${reference} ${WALLET_TYPE_LABEL[input.type]} ₱${input.amount.toFixed(2)}, fee ₱${input.fee.toFixed(2)}${gcashReference ? ` (GCash ref ${gcashReference})` : ''} on ${shiftReference(shift.number)}`,
           changes: { type: input.type, amount: input.amount, fee: input.fee, drawerEffect: figures.drawerEffect, walletEffect: figures.walletEffect },
           userId: input.userId,
         },
@@ -160,7 +162,8 @@ export interface WalletRow {
   type: WalletTransactionType;
   amount: number;
   fee: number;
-  gcashReference: string;
+  /** Null when the cashier left it blank. */
+  gcashReference: string | null;
   customerMobileLast4: string | null;
   notes: string | null;
   createdAt: Date;

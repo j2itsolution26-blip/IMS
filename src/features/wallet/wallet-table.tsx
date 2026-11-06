@@ -73,7 +73,7 @@ export function WalletTable({
                   </span>
                   {row.reversed && <Badge variant="destructive" className="ml-2">Reversed</Badge>}
                 </TableCell>
-                <TableCell className="tabular px-4 py-3 text-sm">{row.gcashReference}</TableCell>
+                <TableCell className="tabular px-4 py-3 text-sm">{row.gcashReference ?? <span className="text-muted-foreground">—</span>}</TableCell>
                 <TableCell className="whitespace-nowrap px-4 py-3 text-sm">
                   {row.cashier.name}
                   <span className="block text-xs text-muted-foreground">{row.shift.reference}</span>
@@ -132,7 +132,7 @@ function WalletDetail({
           ['GCash amount', money(row.amount)],
           ['Service fee', money(row.fee)],
           [row.type === 'CASH_IN' ? 'Cash collected' : 'Cash given', money(row.type === 'CASH_IN' ? figures.collectCash : figures.giveCash)],
-          ['GCash reference', row.gcashReference],
+          ['GCash reference', row.gcashReference ?? 'Not entered'],
           ['Customer number', row.customerMobileLast4 ? `•••• ${row.customerMobileLast4}` : '—'],
           ['Date & time', formatDateTime(row.createdAt)],
           ['Cashier', row.cashier.name],
@@ -194,7 +194,7 @@ function WalletDetail({
             <p>GCash amount: {money(row.amount)}</p>
             <p>Service fee: {money(row.fee)}</p>
             <p>{row.type === 'CASH_IN' ? 'Cash received' : 'Cash given'}: {money(row.type === 'CASH_IN' ? figures.collectCash : figures.giveCash)}</p>
-            <p>GCash ref.: {row.gcashReference}</p>
+            {row.gcashReference && <p>GCash ref.: {row.gcashReference}</p>}
             <p>Cashier: {row.cashier.name}</p>
             {row.reversed && <p>REVERSED</p>}
           </div>

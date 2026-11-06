@@ -21,7 +21,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/format';
-import { formatUnits } from '@/lib/quantity';
+
+import { formatSaleQuantity } from '@/lib/quantity-presets';
 
 /**
  * Void and return controls for a completed sale.
@@ -203,7 +204,7 @@ export function SaleActions({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{item.name}</p>
                     <p className="tabular text-xs text-muted-foreground">
-                      {formatUnits(item.returnable, item.unit)} of {formatUnits(item.quantity, item.unit)} returnable ·{' '}
+                      {formatSaleQuantity(item.returnable, item.unit)} of {formatSaleQuantity(item.quantity, item.unit)} returnable ·{' '}
                       {formatCurrency(item.unitPrice, currency)}
                     </p>
                   </div>

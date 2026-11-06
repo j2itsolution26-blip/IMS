@@ -68,3 +68,19 @@ export function normalizeGcashReference(value: string | null | undefined): strin
 }
 
 export const GCASH_REFERENCE_HINT = 'Enter the reference number shown on the GCash receipt (at least 6 letters or digits).';
+
+/** Shown under the optional reference box. */
+export const GCASH_REFERENCE_OPTIONAL_HINT = 'Optional. If you type one, use the number on the GCash receipt (at least 6 letters or digits).';
+
+/**
+ * The cashier never has to type a GCash reference; it is optional on sales
+ * and on cash-in / cash-out. Left blank it is stored as nothing, never made
+ * up. Typed, it must still look like a reference, so a slip of the thumb is
+ * caught instead of saved. The payment is checked by the cashier confirming
+ * the money arrived, not by this number.
+ */
+export function optionalGcashReference(value: string | null | undefined): { reference: string | null; problem: string | null } {
+  if (!(value ?? '').trim()) return { reference: null, problem: null };
+  const reference = normalizeGcashReference(value);
+  return reference ? { reference, problem: null } : { reference: null, problem: GCASH_REFERENCE_HINT };
+}

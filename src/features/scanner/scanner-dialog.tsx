@@ -15,18 +15,24 @@ export function ScannerDialog({
   onOpenChange,
   title,
   description,
+  onCloseAutoFocus,
   ...panel
 }: Omit<ScannerPanelProps, 'title' | 'onDone'> & {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   description: string;
+  /**
+   * Runs once the dialog has fully closed, where focus would go back to the
+   * button that opened it; call `event.preventDefault()` to send it elsewhere.
+   */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const close = () => onOpenChange(false);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md gap-3 p-4 sm:p-6">
+      <DialogContent className="max-w-md gap-3 p-4 sm:p-6" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogDescription className="sr-only">{description}</DialogDescription>
         <ScannerPanel
           {...panel}
