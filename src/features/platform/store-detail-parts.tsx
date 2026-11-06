@@ -148,14 +148,13 @@ export function AdminPlanCards({
               plan={id}
               pricing={planPricing(prices, id)}
               interval={interval}
-              chip={inEffect ? (onTrial ? 'Trial plan' : 'Plan in effect') : id === 'BUSINESS' ? null : THEME[id].tag}
-              popular={badges.popular}
+              badge={inEffect ? (onTrial ? 'Trial plan' : 'Plan in effect') : badges.popular || id !== 'BUSINESS' ? THEME[id].tag : null}
               current={inEffect}
               action={
                 inEffect ? (
                   <PlanCardPill plan={id}>{onTrial ? 'Plan in effect (Trial)' : 'Plan in effect'}</PlanCardPill>
                 ) : (
-                  <p className="flex min-h-12 items-center justify-center rounded-xl border border-dashed bg-card/60 px-4 text-center text-xs text-muted-foreground">
+                  <p className="flex min-h-12 items-center justify-center rounded-xl border border-dashed border-white/15 px-4 text-center text-xs text-zinc-400">
                     {paidPlan === id ? 'Bought, not in effect' : 'Not this store’s plan'}
                   </p>
                 )

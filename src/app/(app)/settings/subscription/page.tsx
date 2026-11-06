@@ -310,6 +310,8 @@ export default async function SubscriptionPage() {
             }}
             openInvoiceNumber={openInvoice?.number ?? null}
             suspended={suspended}
+            locationsUsed={meters.find((meter) => meter.key === 'branches')?.used ?? null}
+            canAddBranch={userCan(user, 'branches.manage')}
             banner={
               <BillingBanner
                 kind={billingBannerKind({ accessState: access.state, billing: billing.billing, selfService })}

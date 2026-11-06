@@ -37,7 +37,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   BASIC: {
     id: 'BASIC',
     name: 'Basic',
-    description: 'For a single store getting started.',
+    description: 'For sari-sari stores and single-location businesses getting started with digital POS and inventory management.',
     limits: { branches: 1, staff: 3, products: 1500, backgroundRemovalsPerMonth: 0 },
     features: { reportExports: false, customRoles: false, backgroundRemoval: false },
     auditHistoryDays: 90,
@@ -47,7 +47,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   BUSINESS: {
     id: 'BUSINESS',
     name: 'Business',
-    description: 'For growing stores with a team.',
+    description: 'For growing stores that need more staff capacity and centralized monitoring across multiple physical locations.',
     limits: { branches: 3, staff: 10, products: 5000, backgroundRemovalsPerMonth: 100 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: 365,
@@ -56,7 +56,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   ENTERPRISE: {
     id: 'ENTERPRISE',
     name: 'Enterprise',
-    description: 'For busy stores with large catalogs and big teams.',
+    description: 'For larger retail operations that need more staff capacity, product capacity, and centralized oversight.',
     limits: { branches: 5, staff: null, products: null, backgroundRemovalsPerMonth: 1000 },
     features: { reportExports: true, customRoles: true, backgroundRemoval: true },
     auditHistoryDays: null,
