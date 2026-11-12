@@ -2,6 +2,7 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { CheckoutInput } from '@/features/pos/checkout-schema';
 import type { OfflineSale } from '@/lib/offline-sale';
 import type { ReceiptData } from '@/features/pos/receipt';
+import type { CatalogSnapshot } from '@/lib/offline-catalog';
 
 /**
  * The till's own database, in the browser's IndexedDB.
@@ -24,7 +25,11 @@ import type { ReceiptData } from '@/features/pos/receipt';
  */
 
 export const DB_NAME = 'tindahanpromax-pos';
-export const DB_VERSION = 1;
+/**
+ * 1: meta, outbox, syncLog (Phase 2)
+ * 2: catalog, the offline price list (Phase 3)
+ */
+export const DB_VERSION = 2;
 
 /**
  *   pending   waiting to be sent (or being retried after a passing failure)
@@ -106,6 +111,8 @@ interface PosSchema extends DBSchema {
     indexes: { byStatus: OutboxStatus; byStore: string; byCreatedAt: string };
   };
   syncLog: { key: number; value: SyncLogEntry; indexes: { byAt: string } };
+  /** One catalogue copy per store and cashier (key `${storeId}:${userId}`). */
+  catalog: { key: string; value: CatalogSnapshot };
 }
 
 export type PosDb = IDBPDatabase<PosSchema>;
@@ -134,6 +141,9 @@ export function openLocalDb(): Promise<PosDb> {
         outbox.createIndex('byCreatedAt', 'createdAt');
         const log = db.createObjectStore('syncLog', { keyPath: 'id', autoIncrement: true });
         log.createIndex('byAt', 'at');
+      }
+      if (oldVersion < 2) {
+        db.createObjectStore('catalog', { keyPath: 'key' });
       }
     },
     blocked() {

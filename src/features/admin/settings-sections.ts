@@ -98,6 +98,8 @@ export const SETTINGS_SECTIONS: SectionLayout[] = [
       { key: 'pos.suggestedOpeningCash', label: 'Suggested starting cash', width: 'short', prefix: 'currency' },
       { key: 'pos.receiptFooter', full: true, counter: true },
       { key: 'pos.gcashServices', full: true },
+      { key: 'pos.offlineMode', full: true },
+      { key: 'pos.offlineAccessHours', label: 'Offline access period', width: 'short', suffix: 'hours' },
     ],
   },
   {

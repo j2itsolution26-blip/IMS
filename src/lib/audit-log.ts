@@ -106,6 +106,8 @@ export const SENSITIVE_SETTING_KEYS = [
   'locale.currency',
   'company.gcashNumber',
   'pos.gcashServices',
+  'pos.offlineMode',
+  'pos.offlineAccessHours',
   'inventory.allowNegativeStock',
   'shifts.varianceTolerance',
   'security.autoLockMinutes',

@@ -20,6 +20,7 @@ import { addCashMovementAction, closeShiftAction, previewShiftCloseAction } from
 import { OpenShiftDialog } from '@/features/pos/open-shift-dialog';
 import { DrawerBreakdownTable } from '@/features/shifts/drawer-breakdown-table';
 import type { BreakdownParts } from '@/lib/shift-math';
+import { useSyncState } from '@/features/offline/sync-client';
 
 /** Shown instead of the till when the cashier has no open shift. */
 export function ShiftGate({ suggestedAmount, currency }: { suggestedAmount: number; currency: string }) {
@@ -293,6 +294,11 @@ function CloseShiftDialog({
   hasUnfinishedOrder: boolean;
 }) {
   const router = useRouter();
+  // Sales on this device the server has not got yet would be missing from the
+  // count, so the shift waits for them. Refused ones only warn: they will not
+  // reach this shift by waiting.
+  const sync = useSyncState();
+  const unsent = sync.pending;
   const [step, setStep] = React.useState<'count' | 'review' | 'done'>('count');
   const [counted, setCounted] = React.useState('');
   const [notes, setNotes] = React.useState('');
@@ -387,6 +393,21 @@ function CloseShiftDialog({
           </p>
         )}
 
+        {unsent > 0 && step !== 'done' && (
+          <p role="alert" className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning-text">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            {unsent} sale{unsent === 1 ? '' : 's'} on this device {unsent === 1 ? 'has' : 'have'} not reached the server yet. Send{' '}
+            {unsent === 1 ? 'it' : 'them'} first (Retry in the sync status at the top), so the count includes every sale.
+          </p>
+        )}
+        {sync.attention > 0 && step !== 'done' && (
+          <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive-text">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            {sync.attention} sale{sync.attention === 1 ? '' : 's'} on this device could not be sent and need{sync.attention === 1 ? 's' : ''} the owner&apos;s
+            attention. Their cash is in the drawer but not in the expected amount.
+          </p>
+        )}
+
         {error && (
           <p role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive-text">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {error}
@@ -450,7 +471,7 @@ function CloseShiftDialog({
               <Button type="button" variant="outline" className="h-11" onClick={() => onOpenChange(false)} disabled={busy}>
                 Cancel
               </Button>
-              <Button type="submit" form="count-form" className="h-11" loading={busy}>
+              <Button type="submit" form="count-form" className="h-11" loading={busy} disabled={unsent > 0}>
                 Review
               </Button>
             </>
@@ -460,7 +481,7 @@ function CloseShiftDialog({
               <Button type="button" variant="outline" className="h-11" onClick={() => setStep('count')} disabled={busy}>
                 Recount
               </Button>
-              <Button type="button" className="h-11" onClick={confirmClose} loading={busy}>
+              <Button type="button" className="h-11" onClick={confirmClose} loading={busy} disabled={unsent > 0}>
                 Close shift
               </Button>
             </>

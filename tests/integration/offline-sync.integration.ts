@@ -40,6 +40,14 @@ if (!URL_ENV || !APP) {
   const deviceId = randomUUID();
   let catalogFetchedAt = '';
 
+  /** Switches the store's offline selling on or off, as the owner does in Settings. */
+  const setOfflineMode = (storeId: string, on: boolean) =>
+    db.setting.upsert({
+      where: { storeId_key: { storeId, key: 'pos.offlineMode' } },
+      create: { storeId, key: 'pos.offlineMode', value: String(on), type: 'BOOLEAN', group: 'sales', label: 'Offline cash sales' },
+      update: { value: String(on) },
+    });
+
   const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
 
   async function call(path: string, init: { method?: string; body?: unknown; headers?: Record<string, string>; auth?: boolean } = {}) {
@@ -112,6 +120,7 @@ if (!URL_ENV || !APP) {
 
     const storeA = await newStore('a');
     Object.assign(a, { storeId: storeA.storeId, ownerId: storeA.ownerId, warehouseId: storeA.warehouseId, categoryId: storeA.categoryId });
+    await setOfflineMode(storeA.storeId, true);
     const storeB = await newStore('b');
     Object.assign(b, { storeId: storeB.storeId, ownerId: storeB.ownerId, warehouseId: storeB.warehouseId });
 
@@ -206,6 +215,22 @@ if (!URL_ENV || !APP) {
       assert.equal('costPrice' in rice, false, 'cost prices never leave the server');
       assert.equal(catalog.products.some((p: { id: string }) => p.id === b.productId), false, 'no other store’s products');
       assert.match(response.body && JSON.stringify(response.body), /fetchedAt/);
+    });
+
+    test('with offline selling switched off, no catalogue copy is handed out', async () => {
+      await setOfflineMode(a.storeId, false);
+      try {
+        const response = await call(`/api/pos/catalog?deviceId=${deviceId}`);
+        assert.equal(response.status, 403);
+        assert.equal(response.body.code, 'OFFLINE_DISABLED');
+      } finally {
+        await setOfflineMode(a.storeId, true);
+      }
+    });
+
+    test('the copy says how long the device may sell offline', async () => {
+      const response = await call(`/api/pos/catalog?deviceId=${deviceId}`);
+      assert.equal(response.body.catalog.offlineAccessHours, 72);
     });
 
     test('the catalogue is never cached', async () => {

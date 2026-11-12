@@ -4,11 +4,12 @@ How TindahanProMax keeps selling when the internet drops, and how those sales
 reach the database afterwards. This document is the policy; the code points
 here.
 
-Status: **Phases 1-2 of 6 are built**: the server side, and the till's own
-sale storage and sync engine. The till does not yet *start* a sale while
-offline (Phase 3), but no sale is lost or doubled when the connection drops
-or a response is lost mid-checkout. Later phases add offline checkout, the
-service worker, the owner's review screen and browser E2E tests.
+Status: **Phases 1-3 of 6 are built**: the server side, the till's own sale
+storage and sync engine, and offline cash selling on a prepared till.
+Offline selling works when the connection drops **while the till is open**.
+Opening the till with no connection at all (cold start) needs the service
+worker, which is Phase 4; until then a till must be opened online.
+Later phases add the owner's review screen and browser E2E tests.
 
 ## Principles
 
@@ -29,7 +30,7 @@ upload its sales. A URL stays the same.
 | Endpoint | Permission | Purpose |
 |---|---|---|
 | `POST /api/pos/devices` | `pos.create` | Register this browser for offline selling (device id = a UUID made on the device). |
-| `GET /api/pos/catalog?deviceId=` | `pos.create` | Download products, barcodes, selling prices, units, this branch's stock, the tax rate and the open shift. Never includes cost prices. `Cache-Control: no-store`. |
+| `GET /api/pos/catalog?deviceId=` | `pos.create` | Only while the owner has offline selling switched on (else 403 `OFFLINE_DISABLED`). Download products, barcodes, selling prices, units, this branch's stock, the tax rate and the open shift. Never includes cost prices. `Cache-Control: no-store`. |
 | `POST /api/pos/sync` | `pos.create` | Upload **one** offline sale. Safe to repeat. |
 | `POST /api/pos/checkout` | `pos.create` | A live checkout: exactly the `checkout` server action (server prices, stock check, GCash confirmation), at a stable URL. Safe to repeat with the same id. |
 
@@ -94,6 +95,70 @@ saving on device*. "Online" requires an answer from the server, not just
 the browser's network flag. Its dialog lists unsent sales with the reason,
 Retry, the last successful sync, and recently sent local → invoice numbers.
 
+## Offline selling (Phase 3)
+
+**Switched on by the owner:** Settings → Sales → *Offline cash sales*
+(`pos.offlineMode`, off by default), with *Offline access period*
+(`pos.offlineAccessHours`, 72 by default, 1-168).
+
+**Preparing a device:** a till opened online with offline sales switched on
+prepares itself:
+1. It registers its device id.
+2. It downloads the catalogue copy into IndexedDB (`catalog` store, one copy
+   per store and cashier).
+3. It refreshes the copy every 10 minutes and when the connection returns.
+
+The sync dialog shows the copy (product count, download time, *offline
+until*) with Prepare / Refresh. A refusal (switched off, device revoked,
+store read-only or suspended, account no longer allowed) **removes the copy**;
+a network failure keeps it. Removing the copy never touches saved sales.
+
+**A till may sell offline only when all of these hold** (`offlineReadiness`):
+- offline sales are switched on (as last seen online);
+- the copy is this store's and this cashier's;
+- the copy is within its access period (counted from the download);
+- the copy is for the branch of the open shift.
+
+Otherwise the chip reads **Offline setup required** and Charge stays disabled.
+
+**What works offline:**
+- Searching by name or SKU, and barcode lookup (camera, USB/Bluetooth scanner
+  or typed). Barcodes match with pack spacing ignored, as on the server.
+  Unknown codes say so.
+- Cash checkout. The sale is saved on the device and the receipt is marked
+  PENDING SYNC straight away.
+- Kilogram, gram, meter and piece quantities, as online.
+
+**What does not work offline:**
+- GCash: disabled offline, because it needs the store account checked.
+- Refunds, voids, cash in/out, GCash services, and opening or closing a
+  shift: these need the server.
+
+**Stock on the device** is an estimate: the copy's figure less the quantities
+this device sold since the copy was taken (declined sales excluded). When
+the connection returns and sales have reached the server, the grid shows the
+server's stock again.
+
+**Closing a shift** is held back while this cashier has unsent sales on the
+device, so the count includes them. Sales the server refused only warn: their
+cash is in the drawer but not in the expected amount, and they go to the owner.
+
+**Offline banner:** "Cash sales are saved on this device and sent when the
+connection returns" on a ready till; otherwise "Changes can't be saved until
+the connection returns". Both add the number waiting.
+
+Tested in a real browser on a phone-sized screen. The test:
+1. Prepared the till online.
+2. Dropped the network.
+3. Scanned a barcode and searched by name from the device copy.
+4. Charged cash, with GCash shown as disabled.
+5. Checked the receipt said PENDING SYNC, the stock estimate dropped, and
+   closing the shift was held back.
+6. Restored the network.
+
+Result: one OFFLINE sale recorded, filed at the time it was made, with stock
+deducted once.
+
 ## Recording rules (`recordOfflineSale`)
 
 Recorded, with a `sync_issues` row for the owner:
@@ -154,6 +219,10 @@ Instead:
   upload, flagged `DEVICE_REVOKED`, so the money taken stays on the books.
 
 ## Security notes and limitations
+
+- **Cold start offline is Phase 4.** Today the till must be open (loaded
+  online) when the connection drops; a reload while offline shows the
+  app's "You're offline" page. Sales already saved stay on the device.
 
 - **Totals with tax and an order discount (existing behaviour):** the till
   previews tax on the subtotal *after* the order discount; the server taxes

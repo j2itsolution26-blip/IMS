@@ -61,7 +61,10 @@ import type { OfflineSale } from '@/lib/offline-sale';
 import { openLocalDb, requestPersistentStorage, type StoredReceipt } from '@/features/offline/local-db';
 import { recordSale } from '@/features/offline/outbox';
 import { SyncEngine } from '@/features/offline/sync-engine';
-import { announceOutboxChange, getSyncEngine } from '@/features/offline/sync-client';
+import { announceOutboxChange, getSyncEngine, useSyncState } from '@/features/offline/sync-client';
+import { localFind, localSearch } from '@/features/offline/catalog';
+import { CATALOG_REFRESH_MS, loadCatalog, refreshCatalog, useOfflineCatalog } from '@/features/offline/catalog-client';
+import { READINESS_MESSAGE, offlineReadiness } from '@/lib/offline-catalog';
 import { formatCurrency, formatQuantity } from '@/lib/format';
 import { UNITS, type ProductUnit } from '@/lib/quantity';
 import { cn } from '@/lib/utils';
@@ -122,6 +125,8 @@ export interface PosTerminalProps {
   suggestedOpeningCash: number;
   /** GCash cash-in / cash-out services, turned on by the owner in Settings. */
   walletServices?: boolean;
+  /** Offline cash sales, turned on by the owner in Settings. */
+  offlineMode?: boolean;
 }
 
 interface BasketLine {
@@ -206,6 +211,7 @@ export function PosTerminal({
   openShift,
   suggestedOpeningCash,
   walletServices = false,
+  offlineMode = false,
 }: PosTerminalProps) {
   const router = useRouter();
 
@@ -237,8 +243,37 @@ export function PosTerminal({
   const [checkoutRequestId, setCheckoutRequestId] = React.useState('');
   const [copiedGcash, setCopiedGcash] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
-  // A sale needs the server; charging offline would only end in an error.
+  // Without a connection a sale can only be taken on a device prepared for
+  // offline selling (src/features/offline): cash only, saved on the device
+  // and sent when the connection returns.
   const online = useOnlineStatus();
+  const catalog = useOfflineCatalog();
+  const readiness = offlineReadiness(catalog.snapshot, {
+    storeId,
+    userId: cashierId,
+    branchId: openShift?.warehouseId ?? null,
+    offlineMode,
+    now: Date.now(),
+  });
+  const offlineBlocked = !online && !readiness.ready;
+
+  // Keeps this device's catalogue copy current while online.
+  React.useEffect(() => {
+    if (!storeId) return;
+    void loadCatalog(storeId, cashierId, offlineMode).then(() => {
+      if (offlineMode && navigator.onLine) void refreshCatalog(storeId, cashierId);
+    });
+    if (!offlineMode) return;
+    const refresh = () => {
+      if (navigator.onLine) void refreshCatalog(storeId, cashierId);
+    };
+    const timer = window.setInterval(refresh, CATALOG_REFRESH_MS);
+    window.addEventListener('online', refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('online', refresh);
+    };
+  }, [storeId, cashierId, offlineMode]);
 
   const [receipt, setReceipt] = React.useState<ReceiptData | null>(null);
   // The oldest moment the prices in the basket may date from: the page's own
@@ -251,16 +286,32 @@ export function PosTerminal({
 
   const runLookup = React.useCallback(
     async (value: string) => {
-      setSearching(true);
-      const result = await lookupProducts(value, {
+      const filters = {
         categoryId: categoryId ?? undefined,
         lowStockAtOrBelow: lowStockOnly ? lowStockLevel : undefined,
         sort,
-      });
-      setSearching(false);
-      if (result.ok) setProducts(result.data);
+      };
+      setSearching(true);
+      try {
+        if (navigator.onLine) {
+          try {
+            const result = await lookupProducts(value, filters);
+            if (result.ok) setProducts(result.data);
+            return;
+          } catch {
+            // The server cannot be reached: search the device's copy below.
+          }
+        }
+        // Stock here is an estimate: the copy's figure less this device's sales since.
+        const local = await openLocalDb()
+          .then((db) => localSearch(db, { storeId, userId: cashierId }, value, filters))
+          .catch(() => null);
+        if (local) setProducts(local);
+      } finally {
+        setSearching(false);
+      }
     },
-    [categoryId, lowStockOnly, lowStockLevel, sort],
+    [categoryId, lowStockOnly, lowStockLevel, sort, storeId, cashierId],
   );
 
   React.useEffect(() => {
@@ -412,11 +463,40 @@ export function PosTerminal({
       const onScreen = matchExact(products, value);
       if (onScreen) return accept(onScreen);
 
+      // The device's copy, offline or when the server cannot be reached.
+      // Null when this device holds no copy.
+      const fromDevice = async (): Promise<ScanOutcome | null> => {
+        const db = await openLocalDb().catch(() => null);
+        if (!db) return null;
+        const scope = { storeId, userId: cashierId };
+        const found = await localFind(db, scope, value).catch(() => undefined);
+        if (found === undefined) return null;
+        if (found) return accept(found);
+        if (fromCamera) return { kind: 'not-found' };
+        const matches = (await localSearch(db, scope, value).catch(() => null)) ?? [];
+        if (matches.length === 1) return accept(matches[0]);
+        if (matches.length === 0) return notFound();
+        setProducts(matches);
+        return { kind: 'not-found' };
+      };
+      const unreachable = (): ScanOutcome => {
+        const message = 'The server cannot be reached and this device has no product list. Connect to look this up.';
+        if (!fromCamera) toast.error(message);
+        return { kind: 'error', message };
+      };
+
       setSearching(true);
       try {
+        if (!navigator.onLine) return (await fromDevice()) ?? unreachable();
+
         // Barcode first, and tolerant of separators: a code typed into the
         // catalogue as it reads on the pack still matches what the scanner sends.
-        const byBarcode = await lookupBarcode(value);
+        let byBarcode: Awaited<ReturnType<typeof lookupBarcode>>;
+        try {
+          byBarcode = await lookupBarcode(value);
+        } catch {
+          return (await fromDevice()) ?? unreachable();
+        }
         if (byBarcode.ok) {
           const found = byBarcode.data;
           if (found.status === 'sellable') return accept(found.product);
@@ -429,7 +509,12 @@ export function PosTerminal({
           }
         }
 
-        const result = await lookupProducts(value);
+        let result: Awaited<ReturnType<typeof lookupProducts>>;
+        try {
+          result = await lookupProducts(value);
+        } catch {
+          return (await fromDevice()) ?? unreachable();
+        }
         if (!result.ok) {
           if (!fromCamera) toast.error(result.error);
           return { kind: 'error', message: result.error };
@@ -450,7 +535,7 @@ export function PosTerminal({
         setSearching(false);
       }
     },
-    [products, addScannedProduct, canCreateProducts, router],
+    [products, addScannedProduct, canCreateProducts, router, storeId, cashierId],
   );
 
   const onSearchSubmit = (event: React.FormEvent) => {
@@ -691,8 +776,14 @@ export function PosTerminal({
       );
       return;
     }
-    if (!navigator.onLine) {
-      toast.error('You are offline. Reconnect to complete this sale; nothing has been charged.');
+    // Decided once, here: an offline sale is saved on the device and sent later.
+    const offlineSale = !navigator.onLine;
+    if (offlineSale && !readiness.ready) {
+      toast.error(`You are offline. ${READINESS_MESSAGE[readiness.reason]} Nothing has been charged.`);
+      return;
+    }
+    if (offlineSale && method !== 'CASH') {
+      toast.error('GCash needs a connection to check the store account. Take cash, or wait for the connection.');
       return;
     }
 
@@ -795,15 +886,38 @@ export function PosTerminal({
     try {
       saved = await recordSale(
         await openLocalDb(),
-        { id, storeId, userId: cashierId, createdAt: now.toISOString(), method, route: 'checkout', checkout: request, offline: asCharged, receipt: localReceipt, status: 'pending' },
-        { holdUntil: SyncEngine.counterHold(Date.now()) },
+        {
+          id,
+          storeId,
+          userId: cashierId,
+          createdAt: now.toISOString(),
+          method,
+          route: offlineSale ? 'sync' : 'checkout',
+          checkout: request,
+          offline: asCharged,
+          receipt: localReceipt,
+          status: 'pending',
+        },
+        // Online, the counter sends it while the customer waits; background passes wait.
+        { holdUntil: offlineSale ? undefined : SyncEngine.counterHold(Date.now()) },
       );
       announceOutboxChange();
     } catch (error) {
       console.warn('[pos] could not save the sale on this device', error);
     }
 
-    if (!saved) {
+    if (!saved && offlineSale) {
+      setSubmitting(false);
+      toast.error('This device could not save the sale, so it was not completed. Nothing has been charged.', { duration: 10000 });
+      return;
+    }
+
+    if (saved && offlineSale) {
+      setSubmitting(false);
+      setReceipt({ ...saved.receipt, invoiceNumber: saved.localReceiptNumber, issuedAt: new Date(saved.receipt.issuedAt), pendingSync: true });
+      void getSyncEngine().run('sale');
+      void requestPersistentStorage();
+    } else if (!saved) {
       // No local safety net (private window, blocked or full storage): the
       // checkout goes straight to the server as it always did.
       toast.warning('This device could not keep a copy of the sale. It is being sent straight to the server.', { id: 'no-local-store' });
@@ -837,8 +951,18 @@ export function PosTerminal({
     setPayOpen(false);
     clearBasket();
     void runLookup(term);
-    router.refresh();
+    // Offline, a refresh would fail and could navigate away from the till.
+    if (navigator.onLine) router.refresh();
   };
+
+  // Going offline: show the device's stock estimate; back online: the server's,
+  // read again each time saved sales have reached the server.
+  const lastSyncAt = useSyncState().lastSyncAt;
+  React.useEffect(() => {
+    void runLookup(termRef.current);
+    // Only on a change of connection or a completed sync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, lastSyncAt]);
 
   // --- No open shift: block the till entirely -------------------------------
 
@@ -1124,7 +1248,7 @@ export function PosTerminal({
             // Clear of the sticky top bar and the phone's bottom edge when
             // scrolled to after the scanner closes.
             className="h-12 w-full scroll-mb-24 scroll-mt-24 rounded-xl bg-[#F5B70A] text-base font-semibold text-[#20160A] hover:bg-[#E0A609]"
-            disabled={basket.length === 0 || !online}
+            disabled={basket.length === 0 || offlineBlocked}
             onClick={openPayment}
           >
             Charge {formatCurrency(totals.total, currency)}
@@ -1166,6 +1290,14 @@ export function PosTerminal({
               </p>
             </div>
 
+            {!online && (
+              <p role="status" className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-text">
+                {readiness.ready
+                  ? 'Offline: cash only. The sale is saved on this device and sent when the connection returns.'
+                  : `Offline: ${READINESS_MESSAGE[readiness.reason]}`}
+              </p>
+            )}
+
             <div className="space-y-2">
               <Label>Payment Method</Label>
               <div className="grid grid-cols-2 gap-2">
@@ -1180,6 +1312,7 @@ export function PosTerminal({
                   icon={Smartphone}
                   label="GCash"
                   onClick={() => setMethod('GCASH')}
+                  disabled={!online}
                 />
               </div>
             </div>
@@ -1393,7 +1526,7 @@ export function PosTerminal({
             <Button variant="outline" onClick={() => setPayOpen(false)} disabled={submitting}>
               Cancel
             </Button>
-            <Button onClick={onCheckout} loading={submitting} disabled={!canComplete || !online}>
+            <Button onClick={onCheckout} loading={submitting} disabled={!canComplete || offlineBlocked || (!online && method !== 'CASH')}>
               Complete Sale
             </Button>
           </DialogFooter>
@@ -1448,19 +1581,22 @@ function MethodButton({
   icon: Icon,
   label,
   onClick,
+  disabled = false,
 }: {
   active: boolean;
   icon: typeof Banknote;
   label: string;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-pressed={active}
       className={cn(
-        'flex h-14 items-center justify-center gap-2 rounded-xl border-2 text-base font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'flex h-14 items-center justify-center gap-2 rounded-xl border-2 text-base font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
         active
           ? 'border-primary bg-primary/10 text-primary'
           : 'border-border text-muted-foreground hover:bg-accent',

@@ -16,6 +16,14 @@ test('the sync indicator names each state', () => {
   assert.equal(label({ available: false }), 'Not saving on device');
 });
 
+test('offline with offline selling on: available on a prepared device, setup required otherwise', () => {
+  const on = (ready: boolean, patch: Partial<SyncState> = {}) => describeSyncStatus({ ...base, ...patch }, false, { mode: true, ready }).label;
+  assert.equal(on(true), 'Offline · Sales available');
+  assert.equal(on(true, { pending: 2 }), 'Offline · Sales available · 2 pending');
+  assert.equal(on(false), 'Offline setup required');
+  assert.equal(describeSyncStatus(base, true, { mode: true, ready: false }).label, 'Online · Synced', 'online, setup does not matter');
+});
+
 test('before the device has been read, it never claims to be synced', () => {
   assert.equal(label({ available: null }), 'Checking…');
 });

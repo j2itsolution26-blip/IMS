@@ -36,7 +36,16 @@ export default async function PosPage({ searchParams }: { searchParams: Promise<
           month: 'short',
           timeZone: STORE_TIME_ZONE,
         })}`}
-        actions={user.store ? <SyncStatusButton storeId={user.store.id} userId={user.id} currency={company.currency} /> : undefined}
+        actions={
+          user.store ? (
+            <SyncStatusButton
+              storeId={user.store.id}
+              userId={user.id}
+              currency={company.currency}
+              offlineMode={readBoolean(settings, 'pos.offlineMode')}
+            />
+          ) : undefined
+        }
       />
 
       <PosTerminal
@@ -66,6 +75,7 @@ export default async function PosPage({ searchParams }: { searchParams: Promise<
         openShift={openShift ? { id: openShift.id, openedAt: openShift.openedAt.toISOString(), openingCash: openShift.openingCash, warehouseId: openShift.warehouseId } : null}
         suggestedOpeningCash={readNumber(settings, 'pos.suggestedOpeningCash')}
         walletServices={readBoolean(settings, 'pos.gcashServices')}
+        offlineMode={readBoolean(settings, 'pos.offlineMode')}
       />
     </>
   );

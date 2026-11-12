@@ -1,10 +1,11 @@
 import 'server-only';
 
-import type { ProductUnit } from '@prisma/client';
+import type { OfflineCatalog } from '@/lib/offline-catalog';
 import { getStoreContext } from '@/lib/tenant/context';
 import { toNum } from '@/lib/decimal';
 import { normalizeBarcode } from '@/lib/barcode';
-import { getCompanyProfile, getSettings, readNumber } from '@/server/services/settings-service';
+import { getCompanyProfile, getSettings, readBoolean, readNumber } from '@/server/services/settings-service';
+import { AppError } from '@/lib/errors';
 import { getOpenShift } from '@/server/services/shift-service';
 import { posBranchId } from '@/server/services/warehouse-service';
 
@@ -17,49 +18,27 @@ import { posBranchId } from '@/server/services/warehouse-service';
  * cashier sells at (their open shift's, else their operating branch).
  */
 
+export type { CatalogProduct, OfflineCatalog } from '@/lib/offline-catalog';
+
 /** A store with more active products than this gets the first N by name and a warning. */
 export const CATALOG_PRODUCT_LIMIT = 20_000;
 
-export interface CatalogProduct {
-  id: string;
-  name: string;
-  sku: string;
-  barcode: string | null;
-  /** The barcode as a scanner reads it (see normalizeBarcode), for exact lookups. */
-  barcodeKey: string | null;
-  categoryId: string;
-  categoryName: string;
-  imageUrl: string | null;
-  sellingPrice: number;
-  isTrackable: boolean;
-  unit: ProductUnit;
-  allowsDecimal: boolean;
-  quantityPresets: number[];
-  /** On hand minus reserved at this branch when the copy was taken. */
-  stock: number;
-  updatedAt: string;
-}
-
-export interface OfflineCatalog {
-  /** Server time the copy was taken: the device sends it back with each sale. */
-  fetchedAt: string;
-  store: { id: string; name: string; currency: string; taxRate: number };
-  branch: { id: string };
-  user: { id: string };
-  openShift: { id: string; number: number; openedAt: string; openingCash: number; warehouseId: string } | null;
-  categories: { id: string; name: string }[];
-  products: CatalogProduct[];
-  truncated: boolean;
+/** Offline selling is switched off for the store: no catalogue copy is handed out. */
+export class OfflineDisabledError extends AppError {
+  constructor() {
+    super('Offline cash sales are turned off for this store. The owner can turn them on in Settings.', 'OFFLINE_DISABLED', 403);
+  }
 }
 
 export async function getOfflineCatalog(userId: string): Promise<OfflineCatalog> {
   const { db, storeId } = await getStoreContext();
+  const settings = await getSettings();
+  if (!readBoolean(settings, 'pos.offlineMode')) throw new OfflineDisabledError();
   const fetchedAt = new Date();
   const warehouseId = await posBranchId();
 
-  const [company, settings, openShift, categories, products] = await Promise.all([
+  const [company, openShift, categories, products] = await Promise.all([
     getCompanyProfile(),
-    getSettings(),
     getOpenShift(userId),
     db.category.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
     db.product.findMany({
@@ -90,6 +69,7 @@ export async function getOfflineCatalog(userId: string): Promise<OfflineCatalog>
   return {
     fetchedAt: fetchedAt.toISOString(),
     store: { id: storeId, name: company.name, currency: company.currency, taxRate: readNumber(settings, 'sales.defaultTaxRate') },
+    offlineAccessHours: readNumber(settings, 'pos.offlineAccessHours'),
     branch: { id: warehouseId },
     user: { id: userId },
     openShift: openShift

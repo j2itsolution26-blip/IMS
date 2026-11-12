@@ -17,7 +17,14 @@ export interface SyncStatusView {
   detail: string;
 }
 
-export function describeSyncStatus(state: SyncState, browserOnline: boolean): SyncStatusView {
+export interface OfflineSelling {
+  /** The owner has offline selling switched on. */
+  mode: boolean;
+  /** This device holds a valid catalogue copy for this cashier. */
+  ready: boolean;
+}
+
+export function describeSyncStatus(state: SyncState, browserOnline: boolean, offlineSelling: OfflineSelling = { mode: false, ready: false }): SyncStatusView {
   const offline = !browserOnline || state.reachable === false;
   const pending = state.pending;
   const sales = (n: number) => `${n} sale${n === 1 ? '' : 's'}`;
@@ -38,6 +45,20 @@ export function describeSyncStatus(state: SyncState, browserOnline: boolean): Sy
       label: `Sync error · ${state.attention}`,
       detail: `${sales(state.attention)} need${state.attention === 1 ? 's' : ''} attention. They stay on this device until resolved.`,
     };
+  }
+  if (offline && offlineSelling.mode) {
+    const waiting = pending > 0 ? ` ${sales(pending)} saved on this device will be sent when the connection returns.` : '';
+    return offlineSelling.ready
+      ? {
+          tone: 'offline',
+          label: `Offline · Sales available${pending > 0 ? ` · ${pending} pending` : ''}`,
+          detail: `Cash sales are saved on this device.${waiting}`,
+        }
+      : {
+          tone: 'error',
+          label: 'Offline setup required',
+          detail: `This device is not prepared for offline sales, or its offline period has ended. Connect to the internet and open the till.${waiting}`,
+        };
   }
   if (offline) {
     return {
