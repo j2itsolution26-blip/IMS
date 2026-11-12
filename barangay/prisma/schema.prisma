@@ -1,0 +1,308 @@
+// Barangay management system — database schema.
+//
+// One database serves one barangay. Personal data here is covered by the
+// Data Privacy Act (RA 10173): never load real resident records into a
+// development or demo database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Accounts ────────────────────────────────────────────────────────────────
+
+enum Role {
+  CAPTAIN // Punong Barangay: everything, including accounts and settings
+  SECRETARY
+  TREASURER
+  KAGAWAD
+  LUPON
+  STAFF
+}
+
+model User {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  fullName     String
+  role         Role
+  passwordHash String
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+
+  certificatesIssued Certificate[] @relation("CertificateIssuer")
+  receiptsCollected  Receipt[]     @relation("ReceiptCollector")
+  casesRecorded      BlotterCase[] @relation("CaseRecorder")
+  auditLogs          AuditLog[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  // SHA-256 of the cookie token. The raw token is never stored.
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  username  String
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([username, createdAt])
+}
+
+// ─── Barangay profile ────────────────────────────────────────────────────────
+
+model BarangaySettings {
+  id            Int      @id @default(1)
+  barangayName  String
+  city          String
+  province      String
+  region        String   @default("")
+  hallAddress   String   @default("")
+  contactNumber String   @default("")
+  captainName   String
+  secretaryName String   @default("")
+  treasurerName String   @default("")
+  // Certificates stay valid this many days from issue.
+  validityDays  Int      @default(180)
+  updatedAt     DateTime @updatedAt
+}
+
+model Purok {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  createdAt  DateTime    @default(now())
+  households Household[]
+  residents  Resident[]
+}
+
+model Counter {
+  key   String @id
+  value Int
+}
+
+// ─── Residents (RBI) ─────────────────────────────────────────────────────────
+
+model Household {
+  id          String     @id @default(cuid())
+  householdNo String     @unique
+  purokId     String
+  purok       Purok      @relation(fields: [purokId], references: [id])
+  address     String
+  createdAt   DateTime   @default(now())
+  members     Resident[]
+}
+
+enum Sex {
+  MALE
+  FEMALE
+}
+
+enum CivilStatus {
+  SINGLE
+  MARRIED
+  WIDOWED
+  SEPARATED
+  LIVE_IN
+}
+
+enum ResidentStatus {
+  ACTIVE
+  MOVED_OUT
+  DECEASED
+}
+
+model Resident {
+  id                  String         @id @default(cuid())
+  lastName            String
+  firstName           String
+  middleName          String         @default("")
+  suffix              String         @default("")
+  sex                 Sex
+  birthDate           DateTime       @db.Date
+  birthPlace          String         @default("")
+  civilStatus         CivilStatus
+  citizenship         String         @default("Filipino")
+  occupation          String         @default("")
+  contactNumber       String         @default("")
+  address             String
+  purokId             String
+  purok               Purok          @relation(fields: [purokId], references: [id])
+  householdId         String?
+  household           Household?     @relation(fields: [householdId], references: [id], onDelete: SetNull)
+  relationshipToHead  String         @default("")
+  residentSince       Int?
+  isVoter             Boolean        @default(false)
+  isPwd               Boolean        @default(false)
+  is4Ps               Boolean        @default(false)
+  isSoloParent        Boolean        @default(false)
+  isIndigent          Boolean        @default(false)
+  status              ResidentStatus @default(ACTIVE)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  certificates        Certificate[]
+  receipts            Receipt[]
+
+  @@index([lastName, firstName])
+  @@index([purokId])
+  @@index([status])
+}
+
+// ─── Certificates ────────────────────────────────────────────────────────────
+
+enum CertificateTemplate {
+  CLEARANCE
+  RESIDENCY
+  INDIGENCY
+  BUSINESS
+  GENERIC
+}
+
+model DocumentType {
+  id           String              @id @default(cuid())
+  name         String              @unique
+  template     CertificateTemplate
+  fee          Decimal             @db.Decimal(12, 2)
+  active       Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  certificates Certificate[]
+}
+
+enum CertificateStatus {
+  ISSUED
+  REVOKED
+}
+
+model Certificate {
+  id              String            @id @default(cuid())
+  controlNo       String            @unique
+  // Random public code printed in the QR; the only key the public can use.
+  verifyCode      String            @unique
+  residentId      String
+  resident        Resident          @relation(fields: [residentId], references: [id])
+  documentTypeId  String
+  documentType    DocumentType      @relation(fields: [documentTypeId], references: [id])
+  purpose         String
+  businessName    String            @default("")
+  businessAddress String            @default("")
+  issuedAt        DateTime          @default(now())
+  validUntil      DateTime
+  issuedById      String
+  issuedBy        User              @relation("CertificateIssuer", fields: [issuedById], references: [id])
+  receiptId       String?           @unique
+  receipt         Receipt?          @relation(fields: [receiptId], references: [id])
+  status          CertificateStatus @default(ISSUED)
+  revokedReason   String            @default("")
+  revokedAt       DateTime?
+
+  @@index([issuedAt])
+  @@index([residentId])
+}
+
+// ─── Collections ─────────────────────────────────────────────────────────────
+
+enum ReceiptStatus {
+  PAID
+  CANCELLED
+}
+
+model Receipt {
+  id            String        @id @default(cuid())
+  // Number of the pre-printed accountable form (official receipt booklet).
+  orNumber      String        @unique
+  payorName     String
+  residentId    String?
+  resident      Resident?     @relation(fields: [residentId], references: [id], onDelete: SetNull)
+  description   String
+  amount        Decimal       @db.Decimal(12, 2)
+  paidAt        DateTime      @default(now())
+  collectedById String
+  collectedBy   User          @relation("ReceiptCollector", fields: [collectedById], references: [id])
+  status        ReceiptStatus @default(PAID)
+  cancelReason  String        @default("")
+  cancelledAt   DateTime?
+  certificate   Certificate?
+
+  @@index([paidAt])
+}
+
+// ─── Blotter and Katarungang Pambarangay ─────────────────────────────────────
+
+enum CaseKind {
+  BLOTTER // recorded for reference only
+  KP // Katarungang Pambarangay dispute for settlement
+}
+
+enum CaseStatus {
+  RECORDED
+  MEDIATION // before the Punong Barangay
+  CONCILIATION // before the Pangkat
+  ARBITRATION
+  SETTLED
+  CFA_ISSUED // Certificate to File Action
+  DISMISSED
+  WITHDRAWN
+}
+
+model BlotterCase {
+  id             String     @id @default(cuid())
+  caseNo         String     @unique
+  kind           CaseKind
+  complainant    String
+  respondent     String
+  natureOfCase   String
+  narrative      String
+  incidentAt     DateTime
+  incidentPlace  String
+  status         CaseStatus @default(RECORDED)
+  resolution     String     @default("")
+  filedAt        DateTime   @default(now())
+  closedAt       DateTime?
+  recordedById   String
+  recordedBy     User       @relation("CaseRecorder", fields: [recordedById], references: [id])
+  hearings       Hearing[]
+
+  @@index([status])
+  @@index([filedAt])
+}
+
+model Hearing {
+  id          String      @id @default(cuid())
+  caseId      String
+  case        BlotterCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  stage       CaseStatus
+  notes       String      @default("")
+  createdAt   DateTime    @default(now())
+
+  @@index([caseId])
+  @@index([scheduledAt])
+}
+
+// ─── Audit trail ─────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String   @default("")
+  summary   String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+}
