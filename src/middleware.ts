@@ -43,6 +43,16 @@ export function middleware(request: NextRequest) {
   const hasSession = SESSION_COOKIES.some((name) => Boolean(request.cookies.get(name)?.value));
   const isPublic = PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 
+  // The offline till talks to /api/pos with fetch. A redirect to the sign-in
+  // page would reach it as a 200 HTML page; it needs a 401 to know the
+  // session ended and to keep its unsent sales until the cashier signs in.
+  if (!hasSession && pathname.startsWith('/api/pos/')) {
+    return NextResponse.json(
+      { ok: false, code: 'UNAUTHORIZED', error: 'You need to sign in to continue.', retryable: false },
+      { status: 401, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
+
   if (!hasSession && !isPublic) {
     const url = new URL('/sign-in', request.url);
     // Preserve where they were heading so sign-in can send them back.

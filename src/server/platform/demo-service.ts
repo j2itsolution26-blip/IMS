@@ -105,6 +105,7 @@ export async function resetDemoStore(actor: Actor, input: { storeId: string; con
     await tx.payment.deleteMany({ where });
     await tx.returnItem.deleteMany({ where });
     await tx.return.deleteMany({ where });
+    await tx.syncIssue.deleteMany({ where });
     await tx.saleItem.deleteMany({ where });
     await tx.sale.deleteMany({ where });
     await tx.cashierShift.deleteMany({ where });

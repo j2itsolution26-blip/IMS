@@ -41,6 +41,12 @@ export interface StockMovementInput {
   referenceId?: string;
   note?: string;
   userId?: string | null;
+  /**
+   * Lets this movement take stock below zero whatever the store setting says.
+   * Only for an offline sale being uploaded: the goods have already left the
+   * shop, so refusing would lose a real sale. The caller flags the shortfall.
+   */
+  allowNegative?: boolean;
 }
 
 export interface StockMovementResult {
@@ -227,7 +233,7 @@ export async function applyStockMovement(
   const balanceBefore = D(row.quantity);
   const balanceAfter = balanceBefore.plus(delta);
 
-  if (balanceAfter.lessThan(0)) {
+  if (balanceAfter.lessThan(0) && !input.allowNegative) {
     const settings = await getSettings();
     if (!readBoolean(settings, 'inventory.allowNegativeStock')) {
       throw new InsufficientStockError(

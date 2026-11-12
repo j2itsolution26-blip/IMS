@@ -50,6 +50,9 @@ export const MODEL_SCOPES: Record<Prisma.ModelName, ModelScope> = {
   CashMovement: { kind: 'store' },
   WalletTransaction: { kind: 'store' },
   Sale: { kind: 'store' },
+  // Offline POS devices and the owner's review queue for their uploads.
+  PosDevice: { kind: 'store' },
+  SyncIssue: { kind: 'store' },
   SaleItem: { kind: 'store' },
   Payment: { kind: 'store' },
   Return: { kind: 'store' },

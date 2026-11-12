@@ -40,6 +40,8 @@ export const RATE_LIMITS = {
   mutation: { limit: 120, windowMs: 60_000 },
   export: { limit: 12, windowMs: 60_000 },
   read: { limit: 300, windowMs: 60_000 },
+  // A till catching up after a long outage uploads its backlog one sale per request.
+  sync: { limit: 600, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitOptions>;
 
 export function checkRateLimit(key: string, options: RateLimitOptions): void {

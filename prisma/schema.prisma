@@ -90,6 +90,8 @@ model Store {
   notifications         Notification[]
   cashMovements         CashMovement[]
   sales                 Sale[]
+  posDevices            PosDevice[]
+  syncIssues            SyncIssue[]
   saleItems             SaleItem[]
   payments              Payment[]
   returns               Return[]
@@ -614,6 +616,9 @@ model User {
   walletTransactions   WalletTransaction[]          @relation("WalletTransactionBy")
   reversedWallet       WalletTransaction[]          @relation("WalletTransactionReversedBy")
   shiftAdjustments     ShiftAdjustment[]
+  posDevicesRegistered PosDevice[]                  @relation("PosDeviceRegisteredBy")
+  posDevicesRevoked    PosDevice[]                  @relation("PosDeviceRevokedBy")
+  syncIssuesResolved   SyncIssue[]                  @relation("SyncIssueResolvedBy")
   readNotifications    Notification[]               @relation("NotificationReadBy")
   passkeys             Passkey[]
   recordedPayments     SubscriptionPayment[]        @relation("PaymentRecordedBy")
@@ -860,6 +865,7 @@ model Product {
   saleItems             SaleItem[]
   returnItems           ReturnItem[]
   priceHistory          PriceHistory[]
+  syncIssues            SyncIssue[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -947,6 +953,8 @@ model Warehouse {
   sales                 Sale[]
   shifts                CashierShift[]
   staff                 User[]
+  posDevices            PosDevice[]
+  syncIssues            SyncIssue[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1117,6 +1125,7 @@ model CashierShift {
   walletTransactions WalletTransaction[]
   adjustments   ShiftAdjustment[]
   notifications Notification[]
+  syncIssues    SyncIssue[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1382,6 +1391,19 @@ model Sale {
   // sales from before it, which never collide (NULLs are distinct).
   clientRequestId String?
 
+  // Offline-first POS (migration 20261120090000). ONLINE sales are priced by
+  // the server at checkout. OFFLINE sales were rung up on a device without a
+  // connection and sent later: they keep the price actually charged, and
+  // `createdAt` is when the sale happened (clamped to the shift's opening and
+  // the server's clock) while `receivedAt` is when the server recorded it.
+  origin             SaleOrigin  @default(ONLINE)
+  deviceId           String?
+  device             PosDevice?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  // The PENDING SYNC receipt number the customer was handed, e.g. OFF-3F2A-000012.
+  localReceiptNumber String?
+  receivedAt         DateTime    @default(now())
+  syncIssues         SyncIssue[]
+
   // Set together when the sale is voided (CHECK, migration 20261104090000).
   // The sale row itself is never deleted.
   voidedAt   DateTime?
@@ -1404,7 +1426,120 @@ model Sale {
   @@index([shiftId])
   @@index([storeId, createdAt])
   @@index([warehouseId, createdAt])
+  @@index([deviceId])
   @@map("sales")
+}
+
+enum SaleOrigin {
+  ONLINE
+  OFFLINE
+}
+
+/**
+ * A browser prepared to take sales without a connection. The id is made on
+ * the device (a UUID) and sent with every offline sale it uploads.
+ */
+model PosDevice {
+  id String @id
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId     String    @default(dbgenerated())
+  store       Store     @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  // The branch it was last prepared for. Informational: a sale is always
+  // filed under its shift's branch, never the device's.
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  label       String
+  userAgent   String?
+
+  registeredById String
+  registeredBy   User   @relation("PosDeviceRegisteredBy", fields: [registeredById], references: [id], onDelete: Restrict)
+
+  lastSeenAt DateTime?
+  lastSyncAt DateTime?
+
+  // Set together (CHECK). A revoked device may not be prepared again, and the
+  // sales it still uploads are recorded and flagged for the owner.
+  revokedAt   DateTime?
+  revokedById String?
+  revokedBy   User?     @relation("PosDeviceRevokedBy", fields: [revokedById], references: [id], onDelete: Restrict)
+
+  sales      Sale[]
+  syncIssues SyncIssue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([storeId])
+  @@index([warehouseId])
+  @@map("pos_devices")
+}
+
+enum SyncIssueKind {
+  // Recorded stock went below zero, or there was less than the sale took.
+  STOCK_SHORTFALL
+  // The price charged offline was not the product's price at the time.
+  PRICE_MISMATCH
+  // The device's tax rate differs from the store's current one.
+  TAX_RATE_MISMATCH
+  // The device's total differs from the server's arithmetic on the same lines.
+  TOTAL_MISMATCH
+  // The product was archived or deactivated before the sale arrived.
+  PRODUCT_UNAVAILABLE
+  // The shift was already closed when the sale arrived; its count is adjusted.
+  CLOSED_SHIFT
+  // The sale came from a device the owner had revoked.
+  DEVICE_REVOKED
+}
+
+enum SyncIssueStatus {
+  OPEN
+  RESOLVED
+}
+
+/**
+ * Something about an uploaded offline sale the owner should look at. The sale
+ * is always recorded; this is the review queue beside it.
+ */
+model SyncIssue {
+  id String @id @default(cuid())
+
+  // Owning store. Filled in by the store-scoped client (src/lib/tenant), never
+  // by hand; the column has no database default, so a row the client failed
+  // to tag is rejected rather than silently filed under some store.
+  storeId String          @default(dbgenerated())
+  store   Store           @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  kind    SyncIssueKind
+  status  SyncIssueStatus @default(OPEN)
+  message String
+  // Expected and actual figures, for the review screen.
+  details Json            @default("{}")
+
+  saleId      String
+  sale        Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  warehouseId String
+  warehouse   Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  productId   String?
+  product     Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  shiftId     String?
+  shift       CashierShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  deviceId    String?
+  device      PosDevice?    @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  // Set together with status RESOLVED (CHECK).
+  resolvedAt     DateTime?
+  resolvedById   String?
+  resolvedBy     User?     @relation("SyncIssueResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolutionNote String?
+
+  createdAt DateTime @default(now())
+
+  @@index([storeId, status, createdAt])
+  @@index([saleId])
+  @@index([warehouseId, status])
+  @@map("sync_issues")
 }
 
 enum SaleStatus {

@@ -134,7 +134,7 @@ async function priceBasket(
   });
 }
 
-function totalsFor(lines: PricedLine[], orderDiscount: Prisma.Decimal, taxRatePercent: Prisma.Decimal): SaleTotals {
+export function totalsFor(lines: Pick<PricedLine, 'total' | 'unitCost' | 'quantity'>[], orderDiscount: Prisma.Decimal, taxRatePercent: Prisma.Decimal): SaleTotals {
   const subtotal = money(sum(lines.map((l) => l.total)));
   const costOfGoods = money(sum(lines.map((l) => l.unitCost.times(l.quantity))));
   const taxAmount = money(subtotal.times(taxRatePercent).dividedBy(100));
@@ -205,14 +205,14 @@ function toCompletedSale(sale: CompletedSaleRow): CompletedSale {
 }
 
 /** The sale an earlier attempt with this id already recorded, if any. Only ever the same cashier's. */
-async function findRetriedSale(db: TxClient, clientRequestId: string, userId: string): Promise<CompletedSale | null> {
+export async function findRetriedSale(db: TxClient, clientRequestId: string, userId: string): Promise<CompletedSale | null> {
   const existing = await db.sale.findFirst({ where: { clientRequestId }, select: COMPLETED_SALE_SELECT });
   if (!existing) return null;
   if (existing.userId !== userId) throw new ConflictError('This checkout was already used. Start a new sale.');
   return toCompletedSale(existing);
 }
 
-function isClientRequestConflict(error: unknown): boolean {
+export function isClientRequestConflict(error: unknown): boolean {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === 'P2002' &&
