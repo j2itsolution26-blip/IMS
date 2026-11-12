@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { openDB } from 'idb';
 import { DB_NAME, closeLocalDb, openLocalDb } from '@/features/offline/local-db';
 import { getEntry, recordSale } from '@/features/offline/outbox';
-import { localFind, localSearch, loadSnapshot, prepareDevice } from '@/features/offline/catalog';
+import { forgetLastTill, lastTill, localFind, localSearch, loadSnapshot, prepareDevice } from '@/features/offline/catalog';
 import type { OfflineCatalog } from '@/lib/offline-catalog';
 import { draft } from './helpers/outbox-draft';
 
@@ -140,4 +140,22 @@ test('searching and scanning on the device use the copy and this device’s sale
   assert.equal(found?.id, 'p1');
   assert.equal(found?.available, 7, '10 in the copy, 3 sold on this device since');
   assert.equal(await localFind(db, scope, 'nope'), null);
+});
+
+test('the till opened with no connection is the one last prepared here, until sign-out or a refusal', async () => {
+  const db = await openLocalDb();
+  assert.equal(await lastTill(db), null, 'nothing prepared');
+  const ok = () => server({ devices: json(200, { ok: true }), catalog: json(200, { ok: true, catalog }) }).fetchImpl;
+  await prepareDevice(db, scope, ok());
+  assert.deepEqual((await lastTill(db))?.scope, scope);
+
+  const sale = await recordSale(db, draft());
+  await forgetLastTill(db);
+  assert.equal(await lastTill(db), null, 'signed out: no till opens offline');
+  assert.equal(await loadSnapshot(db, 'store_a', 'cashier_1'), null, 'and the price list is gone');
+  assert.ok(await getEntry(db, sale.id), 'unsent sales stay');
+
+  await prepareDevice(db, scope, ok());
+  await prepareDevice(db, scope, server({ devices: json(403, { ok: false, code: 'DEVICE_REVOKED', error: 'removed' }) }).fetchImpl);
+  assert.equal(await lastTill(db), null, 'a revoked device stops opening offline');
 });

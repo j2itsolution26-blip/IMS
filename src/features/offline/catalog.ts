@@ -1,4 +1,4 @@
-import { deviceRecord, type PosDb } from '@/features/offline/local-db';
+import { META, deviceRecord, type PosDb } from '@/features/offline/local-db';
 import { entriesForStore } from '@/features/offline/outbox';
 import {
   catalogKey,
@@ -67,7 +67,7 @@ function withdraws(status: number | null): boolean {
 
 async function failure(db: PosDb, key: string, answer: Answer): Promise<PrepareResult> {
   const withdrawn = withdraws(answer.status);
-  if (withdrawn) await db.delete('catalog', key);
+  if (withdrawn) await removeCopy(db, key);
   if (answer.status === null) return { ok: false, code: 'NETWORK', message: 'The server could not be reached.', withdrawn: false };
   return {
     ok: false,
@@ -97,8 +97,45 @@ export async function prepareDevice(
     return { ok: false, code: 'SESSION_CHANGED', message: 'Another account is signed in. Reload the page.', withdrawn: false };
   }
   const snapshot = toSnapshot(catalog, device.id);
-  await db.put('catalog', snapshot);
+  const tx = db.transaction(['catalog', 'meta'], 'readwrite');
+  await tx.objectStore('catalog').put(snapshot);
+  await tx.objectStore('meta').put({ storeId: scope.storeId, userId: scope.userId } satisfies TillScope, META.lastTill);
+  await tx.done;
   return { ok: true, snapshot };
+}
+
+/** Which till this device opens with no connection. */
+export interface TillScope {
+  storeId: string;
+  userId: string;
+}
+
+/** The till last prepared on this device, if its copy is still here. */
+export async function lastTill(db: PosDb): Promise<{ scope: TillScope; snapshot: CatalogSnapshot } | null> {
+  const scope = (await db.get('meta', META.lastTill)) as TillScope | undefined;
+  if (!scope?.storeId || !scope.userId) return null;
+  const snapshot = await loadSnapshot(db, scope.storeId, scope.userId);
+  return snapshot ? { scope, snapshot } : null;
+}
+
+/** Deletes a catalogue copy, and stops this device opening that till offline. Sales are kept. */
+async function removeCopy(db: PosDb, key: string): Promise<void> {
+  const tx = db.transaction(['catalog', 'meta'], 'readwrite');
+  await tx.objectStore('catalog').delete(key);
+  const last = (await tx.objectStore('meta').get(META.lastTill)) as TillScope | undefined;
+  if (last && catalogKey(last.storeId, last.userId) === key) await tx.objectStore('meta').delete(META.lastTill);
+  await tx.done;
+}
+
+/**
+ * On sign-out: the last till's price list leaves the device and no till opens
+ * offline until someone signs in and opens one again. Unsent sales stay and
+ * are sent at the next sign-in.
+ */
+export async function forgetLastTill(db: PosDb): Promise<void> {
+  const scope = (await db.get('meta', META.lastTill)) as TillScope | undefined;
+  if (scope?.storeId && scope.userId) await removeCopy(db, catalogKey(scope.storeId, scope.userId));
+  else await db.delete('meta', META.lastTill);
 }
 
 export async function loadSnapshot(db: PosDb, storeId: string, userId: string): Promise<CatalogSnapshot | null> {

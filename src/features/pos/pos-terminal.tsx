@@ -56,6 +56,7 @@ import { QuantityInput } from '@/features/pos/quantity-input';
 import { QuantityPresets } from '@/features/pos/quantity-presets';
 import { formatSaleQuantity, pricePer } from '@/lib/quantity-presets';
 import { useOnlineStatus } from '@/features/pwa/use-online-status';
+import { requestBackgroundSync } from '@/features/pwa/offline-till-cache';
 import type { CheckoutInput } from '@/features/pos/checkout-schema';
 import type { OfflineSale } from '@/lib/offline-sale';
 import { openLocalDb, requestPersistentStorage, type StoredReceipt } from '@/features/offline/local-db';
@@ -917,6 +918,8 @@ export function PosTerminal({
       setReceipt({ ...saved.receipt, invoiceNumber: saved.localReceiptNumber, issuedAt: new Date(saved.receipt.issuedAt), pendingSync: true });
       void getSyncEngine().run('sale');
       void requestPersistentStorage();
+      // Where supported, the browser wakes the app to send it when the connection returns.
+      requestBackgroundSync();
     } else if (!saved) {
       // No local safety net (private window, blocked or full storage): the
       // checkout goes straight to the server as it always did.

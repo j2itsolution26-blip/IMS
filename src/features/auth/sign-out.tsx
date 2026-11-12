@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { authClient } from '@/lib/auth-client';
 import { APP_NAME } from '@/lib/brand';
 import { performSignOut } from '@/features/auth/sign-out-flow';
+import { forgetOfflineTill } from '@/features/offline/catalog-client';
 
 /**
  * Sign out through Better Auth, which deletes the session row on the server.
@@ -21,7 +22,12 @@ export function useSignOut() {
     inFlight.current = true;
     setPending(true);
     const outcome = await performSignOut(
-      () => authClient.signOut(),
+      async () => {
+        const result = await authClient.signOut();
+        // Only once signed out: this device stops opening the till offline.
+        if (!result?.error) await forgetOfflineTill();
+        return result;
+      },
       // `replace` so Back does not return to a page of the signed-out account.
       (url) => window.location.replace(url),
     );

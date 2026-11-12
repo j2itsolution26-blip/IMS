@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const user = await authorize('pos.create');
     checkRateLimit(`pos-catalog:${user.id}`, RATE_LIMITS.read);
     await assertDeviceNotRevoked(deviceId);
-    const catalog = await getOfflineCatalog(user.id);
+    const catalog = await getOfflineCatalog({ id: user.id, name: user.name });
     await touchDevice(deviceId, 'lastSeenAt');
     return json({ ok: true, catalog });
   } catch (error) {

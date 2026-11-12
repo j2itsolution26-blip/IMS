@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import { openLocalDb } from '@/features/offline/local-db';
-import { loadSnapshot, prepareDevice } from '@/features/offline/catalog';
+import { forgetLastTill, loadSnapshot, prepareDevice } from '@/features/offline/catalog';
+import { cacheOfflineTill } from '@/features/pwa/offline-till-cache';
 import { catalogKey, type CatalogSnapshot } from '@/lib/offline-catalog';
 
 /**
@@ -71,6 +72,8 @@ export async function refreshCatalog(storeId: string, userId: string, { force = 
     if (state.key !== key) return false;
     if (result.ok) {
       set({ snapshot: result.snapshot, loaded: true, lastError: null });
+      // Keeps the till page itself on the device, so it opens with no connection.
+      cacheOfflineTill();
       return true;
     }
     set({ snapshot: result.withdrawn ? null : state.snapshot, lastError: result.message });
@@ -81,4 +84,17 @@ export async function refreshCatalog(storeId: string, userId: string, { force = 
   } finally {
     set({ preparing: false });
   }
+}
+
+/**
+ * Signing out: the price list leaves the device and the till no longer opens
+ * offline. Unsent sales are kept. Never throws, never delays sign-out long.
+ */
+export async function forgetOfflineTill(): Promise<void> {
+  try {
+    await Promise.race([openLocalDb().then(forgetLastTill), new Promise((resolve) => setTimeout(resolve, 1500))]);
+  } catch {
+    // Storage unavailable: there is no copy to forget.
+  }
+  set({ key: null, loaded: false, snapshot: null, lastError: null });
 }

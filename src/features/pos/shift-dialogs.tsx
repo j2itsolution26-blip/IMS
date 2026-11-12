@@ -21,20 +21,27 @@ import { OpenShiftDialog } from '@/features/pos/open-shift-dialog';
 import { DrawerBreakdownTable } from '@/features/shifts/drawer-breakdown-table';
 import type { BreakdownParts } from '@/lib/shift-math';
 import { useSyncState } from '@/features/offline/sync-client';
+import { useOnlineStatus } from '@/features/pwa/use-online-status';
 
 /** Shown instead of the till when the cashier has no open shift. */
 export function ShiftGate({ suggestedAmount, currency }: { suggestedAmount: number; currency: string }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(true);
+  // A shift is opened on the server: offline, the counted cash could not be recorded.
+  const online = useOnlineStatus();
 
   return (
     <>
       <Card className="mx-auto max-w-sm p-8 text-center">
         <Lock className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" aria-hidden="true" />
         <p className="font-medium">Open your shift to start selling</p>
-        <p className="mt-1 text-sm text-muted-foreground">Count the cash in the drawer first. Sales need an open shift.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {online
+            ? 'Count the cash in the drawer first. Sales need an open shift.'
+            : 'A shift can only be opened with a connection. Connect to the internet to open one.'}
+        </p>
         <div className="mt-5 grid gap-2">
-          <Button size="lg" className="h-11" onClick={() => setOpen(true)}>
+          <Button size="lg" className="h-11" onClick={() => setOpen(true)} disabled={!online}>
             <Wallet /> Open shift
           </Button>
           <Button asChild variant="ghost" className="h-10">
@@ -43,7 +50,7 @@ export function ShiftGate({ suggestedAmount, currency }: { suggestedAmount: numb
         </div>
       </Card>
       <OpenShiftDialog
-        open={open}
+        open={open && online}
         onOpenChange={setOpen}
         suggestedAmount={suggestedAmount}
         currency={currency}
@@ -74,6 +81,10 @@ export function ShiftBar({
   const [movement, setMovement] = React.useState<'CASH_IN' | 'CASH_OUT' | null>(null);
   const [closing, setClosing] = React.useState(false);
   const [walletOpen, setWalletOpen] = React.useState(false);
+  // Cash in/out, GCash services and closing a shift are recorded on the
+  // server only; offline they wait for the connection.
+  const online = useOnlineStatus();
+  const offlineHint = online ? undefined : 'Needs a connection';
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
@@ -82,18 +93,18 @@ export function ShiftBar({
         <span className="tabular font-medium text-foreground">{formatCurrency(openingCash, currency)}</span>
       </span>
       <div className="flex flex-wrap gap-1">
-        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setMovement('CASH_IN')}>
+        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setMovement('CASH_IN')} disabled={!online} title={offlineHint}>
           <ArrowDownToLine className="h-3.5 w-3.5" /> Cash in
         </Button>
-        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setMovement('CASH_OUT')}>
+        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setMovement('CASH_OUT')} disabled={!online} title={offlineHint}>
           <ArrowUpFromLine className="h-3.5 w-3.5" /> Cash out
         </Button>
         {walletServices && (
-          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setWalletOpen(true)}>
+          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setWalletOpen(true)} disabled={!online} title={offlineHint}>
             <Smartphone className="h-3.5 w-3.5" /> GCash in / out
           </Button>
         )}
-        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setClosing(true)}>
+        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setClosing(true)} disabled={!online} title={offlineHint}>
           <LogOut className="h-3.5 w-3.5" /> Close shift
         </Button>
       </div>

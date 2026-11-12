@@ -4,11 +4,12 @@ How TindahanProMax keeps selling when the internet drops, and how those sales
 reach the database afterwards. This document is the policy; the code points
 here.
 
-Status: **Phases 1-3 of 6 are built**: the server side, the till's own sale
-storage and sync engine, and offline cash selling on a prepared till.
-Offline selling works when the connection drops **while the till is open**.
-Opening the till with no connection at all (cold start) needs the service
-worker, which is Phase 4; until then a till must be opened online.
+Status: **Phases 1-4 of 6 are built**:
+1. The server side.
+2. The till's own sale storage and sync engine.
+3. Offline cash selling on a prepared till.
+4. Opening that till with no connection at all (the service worker).
+
 Later phases add the owner's review screen and browser E2E tests.
 
 ## Principles
@@ -159,6 +160,74 @@ Tested in a real browser on a phone-sized screen. The test:
 Result: one OFFLINE sale recorded, filed at the time it was made, with stock
 deducted once.
 
+## Opening the till with no connection (Phase 4)
+
+**The offline till** (`/pos-offline`, `src/features/offline/offline-till.tsx`)
+is a static page: the same HTML for everyone, with no account data in it. It
+opens the till **last prepared on this device** (`META.lastTill`, written
+when a preparation succeeds), from that cashier's catalogue copy. It uses the
+same rules as a till that lost its connection while open:
+- the offline access period;
+- the branch of the shift that was open at the last download;
+- cash only.
+
+It shows "Offline sales are not available here" with the reason when:
+- nothing is prepared;
+- the access period has ended;
+- no shift was open at the last download (a shift opens only online).
+
+When the connection returns, it offers *Open the full till*. It never
+switches by itself, since a browser can report a connection while the server
+is down.
+
+The receipt header, cashier name and low-stock level come with the catalogue
+copy, so a receipt printed from the offline till matches an online one.
+
+**Service worker** (`public/sw.js`, VERSION `v5`):
+- **What it keeps:** after each successful preparation the till asks the
+  worker to keep the offline till (`CACHE_OFFLINE_TILL`). The worker fetches
+  `/pos-offline`, reads the build files it needs from the HTML and the
+  page's inline data, and keeps them in `tpm-till-v5`. That cache is never
+  trimmed. Files of earlier builds are dropped once a newer till is kept, and
+  the page is stored last, so it is never served without its files.
+- **When it is used:** a page load that gets **no network at all** redirects
+  to the offline till on a device that has it, and gets the offline page
+  otherwise. A page the server answered, even with an error, is shown as it
+  is.
+- **What it never caches:** POST requests, `/api/*`, page data (RSC) and other
+  sites. A signed-out device is redirected to sign in when the worker asks for
+  the till, so it keeps nothing.
+- **Updates:** the new worker waits for *Reload* in the update toast, as
+  before. If the device had the offline till, the new worker fetches the new
+  version's till while it installs, so the till still opens offline after
+  the update.
+- **Background Sync** (Chromium): an offline sale registers the `tpm-outbox`
+  tag. When the connection returns, the browser wakes the worker, which tells
+  the open app to send. The app's own sync engine does all sending; the worker
+  never uploads a sale. With no window open, sales are sent the next time the
+  app opens.
+
+**Signing out** (menu or lock screen) deletes the last till's catalogue copy
+and `lastTill`, so the device no longer opens a till offline. Unsent sales
+stay on the device and are sent at the next sign-in.
+
+**Offline, the shift bar** disables Cash in, Cash out, GCash in/out and Close
+shift ("Needs a connection"), and a till with no open shift cannot open one.
+
+Tested in a real browser (production build, phone-sized screen):
+1. Prepared the till online; the worker kept the till (33 files, no `/api`
+   or RSC entries).
+2. Cut the network and opened `/pos`: it redirected to the offline till,
+   showing "Offline · Sales available".
+3. Scanned a barcode and confirmed the shift actions and GCash were disabled.
+4. Charged cash and got a PENDING SYNC receipt with the cashier's name.
+5. Reloaded while still offline: the sale was still pending.
+6. Opened another page offline: it also redirected to the till.
+7. Restored the network: the sale synced.
+
+Result: one OFFLINE sale and stock deducted once. The Phase 2 and Phase 3
+browser runs pass unchanged on the same build.
+
 ## Recording rules (`recordOfflineSale`)
 
 Recorded, with a `sync_issues` row for the owner:
@@ -220,9 +289,17 @@ Instead:
 
 ## Security notes and limitations
 
-- **Cold start offline is Phase 4.** Today the till must be open (loaded
-  online) when the connection drops; a reload while offline shows the
-  app's "You're offline" page. Sales already saved stay on the device.
+- **Who can open the offline till:** anyone holding the device can open it
+  until the cashier who last prepared it signs out, the access period ends,
+  or the owner revokes the device or turns offline sales off. Offline, the
+  screen lock cannot be checked: PINs are verified on the server and are never
+  stored on the device. Sign out at the end of a shift, and keep tills
+  physically secure.
+- **Not available on a cold start:** product photos (served through the image
+  optimiser, which is never cached) and anything other than the till.
+  The camera scanner's code ships with the till's files. A real camera scan
+  on a cold-started till has not been tested; typed and USB/Bluetooth scans
+  have.
 
 - **Totals with tax and an order discount (existing behaviour):** the till
   previews tax on the subtotal *after* the order discount; the server taxes

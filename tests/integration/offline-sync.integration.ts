@@ -215,6 +215,11 @@ if (!URL_ENV || !APP) {
       assert.equal('costPrice' in rice, false, 'cost prices never leave the server');
       assert.equal(catalog.products.some((p: { id: string }) => p.id === b.productId), false, 'no other store’s products');
       assert.match(response.body && JSON.stringify(response.body), /fetchedAt/);
+      // What a till opened with no connection prints and filters with.
+      assert.equal(typeof catalog.user.name, 'string');
+      assert.deepEqual(Object.keys(catalog.receipt).sort(), ['address', 'logoUrl', 'name', 'phone', 'receiptFooter']);
+      assert.equal(typeof catalog.lowStockLevel, 'number');
+      assert.doesNotMatch(JSON.stringify(catalog.receipt), /gcash/i, 'no wallet details');
     });
 
     test('with offline selling switched off, no catalogue copy is handed out', async () => {

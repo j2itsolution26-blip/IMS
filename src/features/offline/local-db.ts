@@ -121,6 +121,8 @@ export const META = {
   device: 'device',
   receiptSequence: 'receiptSequence',
   lastSyncAt: 'lastSyncAt',
+  /** `{ storeId, userId }` of the till last prepared here: what /pos-offline opens. */
+  lastTill: 'lastTill',
 } as const;
 
 let opening: Promise<PosDb> | null = null;

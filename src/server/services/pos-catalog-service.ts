@@ -30,7 +30,8 @@ export class OfflineDisabledError extends AppError {
   }
 }
 
-export async function getOfflineCatalog(userId: string): Promise<OfflineCatalog> {
+export async function getOfflineCatalog(user: { id: string; name: string }): Promise<OfflineCatalog> {
+  const userId = user.id;
   const { db, storeId } = await getStoreContext();
   const settings = await getSettings();
   if (!readBoolean(settings, 'pos.offlineMode')) throw new OfflineDisabledError();
@@ -71,7 +72,15 @@ export async function getOfflineCatalog(userId: string): Promise<OfflineCatalog>
     store: { id: storeId, name: company.name, currency: company.currency, taxRate: readNumber(settings, 'sales.defaultTaxRate') },
     offlineAccessHours: readNumber(settings, 'pos.offlineAccessHours'),
     branch: { id: warehouseId },
-    user: { id: userId },
+    user: { id: userId, name: user.name },
+    receipt: {
+      name: company.name,
+      address: company.address,
+      phone: company.phone,
+      receiptFooter: company.receiptFooter,
+      logoUrl: company.logoUrl,
+    },
+    lowStockLevel: readNumber(settings, 'inventory.defaultLowStockLevel'),
     openShift: openShift
       ? {
           id: openShift.id,

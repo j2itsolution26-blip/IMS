@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FormError } from '@/components/form';
 import { Avatar, AvatarFallback } from '@/components/ui/misc';
+import { forgetOfflineTill } from '@/features/offline/catalog-client';
 import { authClient } from '@/lib/auth-client';
 import { PIN_MAX_LENGTH, type UnlockMethod } from '@/lib/pos-pin';
 import { initials } from '@/lib/utils';
@@ -46,6 +47,7 @@ export function LockScreen({
   const signOut = async () => {
     setBusy(true);
     await authClient.signOut().catch(() => undefined);
+    await forgetOfflineTill();
     window.location.href = '/sign-in';
   };
 

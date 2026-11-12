@@ -9,12 +9,18 @@ import { OFFLINE_PAGE_URL, detectInstallPlatform } from '@/lib/pwa';
 const root = path.resolve(__dirname, '..');
 const ORIGIN = 'https://pos.example.com';
 
-/** Loads public/sw.js in a sandbox and returns its request classifier. */
-function loadStrategy(): (request: unknown, origin: string) => string {
+/** Loads public/sw.js in a sandbox and returns its top-level functions. */
+function loadWorker() {
   const context = vm.createContext({ self: { addEventListener: () => {} }, URL });
   vm.runInContext(readFileSync(path.join(root, 'public', 'sw.js'), 'utf8'), context);
-  return context.strategyFor as (request: unknown, origin: string) => string;
+  return context as unknown as {
+    strategyFor: (request: unknown, origin: string) => string;
+    offlineTarget: (pathname: string, hasTill: boolean) => string;
+    tillAssetUrls: (html: string) => string[];
+  };
 }
+
+const loadStrategy = () => loadWorker().strategyFor;
 
 function request(url: string, init: { method?: string; mode?: string; headers?: Record<string, string> } = {}) {
   const headers = new Headers(init.headers);
@@ -52,6 +58,44 @@ test('the offline fallback is precached and served from the shared constant', ()
   const page = readFileSync(path.join(root, 'public', OFFLINE_PAGE_URL), 'utf8');
   // Must not depend on build assets that may not be cached.
   assert.doesNotMatch(page, /_next\//);
+});
+
+test('a page that cannot load opens the offline till only on a device that keeps it', () => {
+  const { offlineTarget, strategyFor } = loadWorker();
+  assert.equal(strategyFor(request('/pos-offline', { mode: 'navigate' }), ORIGIN), 'navigate', 'live first, like any page');
+  assert.equal(offlineTarget('/pos', false), 'page');
+  assert.equal(offlineTarget('/dashboard', false), 'page');
+  assert.equal(offlineTarget('/pos', true), 'redirect');
+  assert.equal(offlineTarget('/sales/abc', true), 'redirect');
+  assert.equal(offlineTarget('/pos-offline', true), 'till');
+});
+
+test('the offline till keeps the build files named in its HTML and page data', () => {
+  const { tillAssetUrls } = loadWorker();
+  const html = [
+    '<link rel="stylesheet" href="/_next/static/css/app-1a2b.css" data-precedence="next"/>',
+    '<link rel="preload" href="/_next/static/media/poppins-latin.woff2" as="font"/>',
+    '<script src="/_next/static/chunks/webpack-9f8e.js" async=""></script>',
+    '<script src="/_next/static/chunks/main-app-77aa.js?dpl=dpl_123" async=""></script>',
+    '<script>self.__next_f.push([1,"3:I[\\"123\\",[\\"static/chunks/123-abc.js\\",\\"static/chunks/app/pos-offline/page-def.js\\"],\\"OfflineTill\\"]"])</script>',
+    '<img src="/_next/image?url=x&w=64"/><a href="/api/pos/catalog">x</a>',
+  ].join('');
+  assert.deepEqual([...tillAssetUrls(html)].sort(), [
+    '/_next/static/chunks/123-abc.js',
+    '/_next/static/chunks/app/pos-offline/page-def.js',
+    '/_next/static/chunks/main-app-77aa.js?dpl=dpl_123',
+    '/_next/static/chunks/webpack-9f8e.js',
+    '/_next/static/css/app-1a2b.css',
+    '/_next/static/media/poppins-latin.woff2',
+  ]);
+});
+
+test('the offline till page is static and carries no account data', () => {
+  const page = readFileSync(path.join(root, 'src', 'app', 'pos-offline', 'page.tsx'), 'utf8');
+  assert.match(page, /export const dynamic = 'force-static'/);
+  assert.doesNotMatch(page, /session|requireUser|requirePermission|getSettings|prisma/i);
+  const source = readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
+  assert.match(source, /const OFFLINE_TILL_URL = '\/pos-offline'/);
 });
 
 /** Width and height from a PNG's IHDR chunk. */

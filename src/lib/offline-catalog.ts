@@ -35,7 +35,12 @@ export interface OfflineCatalog {
   /** How long the device may sell offline after this copy, in hours. */
   offlineAccessHours: number;
   branch: { id: string };
-  user: { id: string };
+  /** `name` is printed on receipts; missing from copies made before it was added. */
+  user: { id: string; name?: string };
+  /** The receipt header and footer, for a till opened with no connection. */
+  receipt?: { name: string; address: string; phone: string; receiptFooter: string; logoUrl: string };
+  /** The store's low-stock level, for the till's "Low stock" filter. */
+  lowStockLevel?: number;
   openShift: { id: string; number: number; openedAt: string; openingCash: number; warehouseId: string } | null;
   categories: { id: string; name: string }[];
   products: CatalogProduct[];
