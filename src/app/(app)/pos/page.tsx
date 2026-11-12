@@ -6,6 +6,7 @@ import { getOpenShift } from '@/server/services/shift-service';
 import { PageHeader } from '@/components/page-header';
 import { PosTerminal } from '@/features/pos/pos-terminal';
 import { STORE_TIME_ZONE } from '@/lib/store-time';
+import { SyncStatusButton } from '@/features/offline/sync-status';
 
 export const metadata: Metadata = { title: 'Point of Sale' };
 export const dynamic = 'force-dynamic';
@@ -35,6 +36,7 @@ export default async function PosPage({ searchParams }: { searchParams: Promise<
           month: 'short',
           timeZone: STORE_TIME_ZONE,
         })}`}
+        actions={user.store ? <SyncStatusButton storeId={user.store.id} userId={user.id} currency={company.currency} /> : undefined}
       />
 
       <PosTerminal
@@ -43,6 +45,11 @@ export default async function PosPage({ searchParams }: { searchParams: Promise<
         currency={company.currency}
         taxRate={readNumber(settings, 'sales.defaultTaxRate')}
         cashierName={user.name}
+        cashierId={user.id}
+        storeId={user.store?.id ?? ''}
+        // When these prices were read: an upload of a sale whose live
+        // checkout went unanswered names it, so the server can check them.
+        pricedAt={new Date().toISOString()}
         company={{
           name: company.name,
           address: company.address,
@@ -56,7 +63,7 @@ export default async function PosPage({ searchParams }: { searchParams: Promise<
         canEditProduct={userCan(user, 'products.update')}
         categoryChips={categoryChips}
         lowStockLevel={lowStockLevel}
-        openShift={openShift ? { id: openShift.id, openedAt: openShift.openedAt.toISOString(), openingCash: openShift.openingCash } : null}
+        openShift={openShift ? { id: openShift.id, openedAt: openShift.openedAt.toISOString(), openingCash: openShift.openingCash, warehouseId: openShift.warehouseId } : null}
         suggestedOpeningCash={readNumber(settings, 'pos.suggestedOpeningCash')}
         walletServices={readBoolean(settings, 'pos.gcashServices')}
       />

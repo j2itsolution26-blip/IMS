@@ -4,9 +4,11 @@ How TindahanProMax keeps selling when the internet drops, and how those sales
 reach the database afterwards. This document is the policy; the code points
 here.
 
-Status: **Phase 1 of 6 (server side) is built.** The till does not yet sell
-offline. Later phases add the device storage, the offline checkout, the
-service worker, the owner's review screen and browser tests.
+Status: **Phases 1-2 of 6 are built**: the server side, and the till's own
+sale storage and sync engine. The till does not yet *start* a sale while
+offline (Phase 3), but no sale is lost or doubled when the connection drops
+or a response is lost mid-checkout. Later phases add offline checkout, the
+service worker, the owner's review screen and browser E2E tests.
 
 ## Principles
 
@@ -29,6 +31,7 @@ upload its sales. A URL stays the same.
 | `POST /api/pos/devices` | `pos.create` | Register this browser for offline selling (device id = a UUID made on the device). |
 | `GET /api/pos/catalog?deviceId=` | `pos.create` | Download products, barcodes, selling prices, units, this branch's stock, the tax rate and the open shift. Never includes cost prices. `Cache-Control: no-store`. |
 | `POST /api/pos/sync` | `pos.create` | Upload **one** offline sale. Safe to repeat. |
+| `POST /api/pos/checkout` | `pos.create` | A live checkout: exactly the `checkout` server action (server prices, stock check, GCash confirmation), at a stable URL. Safe to repeat with the same id. |
 
 Writes must be JSON and same-origin. Without a session cookie, the middleware
 answers `/api/pos/*` with a JSON 401, never a redirect to the sign-in page.
@@ -42,6 +45,54 @@ answers `/api/pos/*` with a JSON 401, never a redirect to the sign-in page.
 | 403 | Screen locked, another cashier's sale, store read-only, suspended | Keep; try again when that changes |
 | 409 / 422 | The sale itself was refused | Keep and show the reason; never delete |
 | 429 / 5xx / no answer | Temporary | Retry with backoff (2 s doubling to 5 min, 20% jitter) |
+
+## On the device (`src/features/offline`)
+
+IndexedDB database `tindahanpromax-pos` (via `idb`):
+
+| Store | Holds |
+|---|---|
+| `meta` | the device id (a UUID made on first use), the local receipt counter, the last successful sync |
+| `outbox` | every sale the till completes, keyed by its local id, with store, cashier, the live checkout request, the as-charged copy (cash only), the receipt, status, attempts and the server's answer |
+| `syncLog` | one line per send attempt and its outcome |
+
+**Every sale goes through the outbox, online too.** At checkout the till:
+
+1. Saves the sale on the device in one IndexedDB transaction (entry and local
+   receipt number `OFF-XXXX-000123` together, or nothing).
+2. Sends it to `/api/pos/checkout` with its local id, up to 3 times over about
+   5 seconds while the customer waits.
+3. Acts on the answer:
+   - **Confirmed:** shows the receipt with the server's invoice number, as before.
+   - **Clearly refused** (no stock, shift closed, etc.): the cashier sees why
+     and nothing is charged. The entry is kept as `declined` and never sent.
+   - **No answer** (lost response, dropped connection, server error): the sale
+     is kept as **PENDING SYNC**, the customer gets a receipt marked so, and
+     the sync engine sends it again with the same id until the server has it.
+     A cash sale goes up as charged through `/api/pos/sync`; GCash keeps
+     retrying the live checkout. The same id can never record two sales,
+     across both endpoints.
+
+If the browser cannot store anything (some private windows, blocked site
+data), the till says so and checks out straight against the server as it did
+before Phase 2.
+
+The **sync engine** sends unsent sales oldest first:
+- **When:** on app start, reconnection, return to the tab, after each sale,
+  on its own backoff timer, and from the Retry button.
+- **Who:** only the signed-in cashier's sales for their store. Another
+  cashier's sales on the same device wait for that cashier to sign in.
+- **One sender:** only one tab sends at a time (Web Locks).
+- **When the server is down:** a pass stops at the first unanswered request.
+- **When the session has expired:** the pass stops at the first 401.
+- **Nothing is deleted** because sending failed. Sent and declined entries are
+  pruned after 30 days; unsent and refused ones never are.
+
+**Status chip** (POS header): *Checking…*, *Online · Synced*, *Online · n
+pending*, *Synchronizing*, *Sync error · n*, *Offline (· n pending)*, *Not
+saving on device*. "Online" requires an answer from the server, not just
+the browser's network flag. Its dialog lists unsent sales with the reason,
+Retry, the last successful sync, and recently sent local → invoice numbers.
 
 ## Recording rules (`recordOfflineSale`)
 
@@ -103,6 +154,13 @@ Instead:
   upload, flagged `DEVICE_REVOKED`, so the money taken stays on the books.
 
 ## Security notes and limitations
+
+- **Totals with tax and an order discount (existing behaviour):** the till
+  previews tax on the subtotal *after* the order discount; the server taxes
+  the subtotal *before* it. Only when both a tax rate and an order discount
+  are used, the server's total differs from the preview (the live receipt
+  shows the server's). An as-charged upload of such a sale is flagged
+  `TOTAL_MISMATCH`. Aligning the two formulas is a separate decision.
 
 - Offline selling never bypasses sign-in: a device is prepared online by an
   authorised user. No passwords, tokens or PIN hashes are stored on the

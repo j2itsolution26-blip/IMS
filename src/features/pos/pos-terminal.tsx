@@ -56,6 +56,12 @@ import { QuantityInput } from '@/features/pos/quantity-input';
 import { QuantityPresets } from '@/features/pos/quantity-presets';
 import { formatSaleQuantity, pricePer } from '@/lib/quantity-presets';
 import { useOnlineStatus } from '@/features/pwa/use-online-status';
+import type { CheckoutInput } from '@/features/pos/checkout-schema';
+import type { OfflineSale } from '@/lib/offline-sale';
+import { openLocalDb, requestPersistentStorage, type StoredReceipt } from '@/features/offline/local-db';
+import { recordSale } from '@/features/offline/outbox';
+import { SyncEngine } from '@/features/offline/sync-engine';
+import { announceOutboxChange, getSyncEngine } from '@/features/offline/sync-client';
 import { formatCurrency, formatQuantity } from '@/lib/format';
 import { UNITS, type ProductUnit } from '@/lib/quantity';
 import { cn } from '@/lib/utils';
@@ -70,12 +76,20 @@ import { cn } from '@/lib/utils';
  *
  * Every sale is a walk-in sale — there is no customer to pick — and checkout
  * requires an open cashier shift.
+ *
+ * A completed sale is first saved on this device (src/features/offline), then
+ * sent to the server under the device's id for it. A clear answer completes or
+ * declines it as before. If the answer is lost (the connection drops mid-sale,
+ * the server errors), the sale stays on the device as PENDING SYNC and is sent
+ * again with the same id until the server has it — never twice.
  */
 
 export interface OpenShiftInfo {
   id: string;
   openedAt: string;
   openingCash: number;
+  /** The branch whose drawer this is: an uploaded sale is filed there. */
+  warehouseId: string;
 }
 
 export interface PosTerminalProps {
@@ -92,6 +106,10 @@ export interface PosTerminalProps {
     logoUrl?: string;
   };
   cashierName: string;
+  cashierId: string;
+  storeId: string;
+  /** When the server read the prices on this page (ISO). */
+  pricedAt: string;
   /** Read-only at the till — only an Owner can change these, from Settings. */
   gcash: { number: string; accountName: string };
   canEditStoreSettings: boolean;
@@ -176,6 +194,9 @@ export function PosTerminal({
   taxRate,
   company,
   cashierName,
+  cashierId,
+  storeId,
+  pricedAt,
   gcash,
   canEditStoreSettings,
   canCreateProducts,
@@ -220,6 +241,10 @@ export function PosTerminal({
   const online = useOnlineStatus();
 
   const [receipt, setReceipt] = React.useState<ReceiptData | null>(null);
+  // The oldest moment the prices in the basket may date from: the page's own
+  // read, or a held order's time if one was resumed. Sent with an upload so
+  // the server can tell an honest old price from a wrong one.
+  const pricedSinceRef = React.useRef(pricedAt);
 
 
   // --- Product lookup ------------------------------------------------------
@@ -574,6 +599,8 @@ export function PosTerminal({
     );
     setOrderDiscount(heldOrder.discount);
     setNotes(heldOrder.notes);
+    const heldAt = new Date(heldOrder.heldAt).toISOString();
+    if (heldAt < pricedSinceRef.current) pricedSinceRef.current = heldAt;
     try {
       window.localStorage.removeItem(HELD_ORDER_KEY);
     } catch {
@@ -671,61 +698,141 @@ export function PosTerminal({
 
     setSubmitting(true);
 
-    const result = await checkout({
+    const id = checkoutRequestId || crypto.randomUUID();
+    const now = new Date();
+    const payment = {
+      method,
+      amount: paid,
+      reference: method === 'GCASH' ? gcashReference.trim() || undefined : undefined,
+      confirmedReceived: method === 'GCASH' ? gcashConfirmed : undefined,
+    };
+    const request: CheckoutInput = {
       items: basket.map((line) => ({
         productId: line.productId,
         quantity: line.quantity,
         discount: line.discount,
       })),
       discount: Number(orderDiscount) || 0,
-      payments: [
-        {
-          method,
-          amount: paid,
-          reference: method === 'GCASH' ? gcashReference.trim() || undefined : undefined,
-          confirmedReceived: method === 'GCASH' ? gcashConfirmed : undefined,
-        },
-      ],
+      payments: [payment],
       notes: notes.trim() || undefined,
-      clientRequestId: checkoutRequestId || undefined,
-    });
-
-    setSubmitting(false);
-
-    if (!result.ok) {
-      toast.error(result.error, { duration: 8000 });
-      return;
-    }
-
-    // The receipt is built from the server's figures, not the local preview.
-    setReceipt({
-      invoiceNumber: result.data.invoiceNumber,
-      issuedAt: new Date(),
+      clientRequestId: id,
+    };
+    const receiptLines = basket.map((line) => ({
+      name: line.name,
+      quantity: line.quantity,
+      unit: line.unit ?? 'PIECE',
+      unitPrice: line.unitPrice,
+      discount: line.discount,
+      total: round(line.unitPrice * line.quantity - line.discount),
+    }));
+    const receiptPayments = [
+      {
+        method: METHOD_LABEL[method],
+        amount: paid,
+        reference: method === 'GCASH' ? optionalGcashReference(gcashReference).reference : null,
+      },
+    ];
+    // The receipt the customer gets if the server's answer never arrives.
+    const localReceipt: StoredReceipt = {
+      invoiceNumber: '',
+      issuedAt: now.toISOString(),
       cashierName,
-      lines: basket.map((line) => ({
-        name: line.name,
-        quantity: line.quantity,
-        unit: line.unit ?? 'PIECE',
-        unitPrice: line.unitPrice,
-        discount: line.discount,
-        total: round(line.unitPrice * line.quantity - line.discount),
-      })),
+      lines: receiptLines,
       subtotal: totals.subtotal,
       tax: totals.tax,
       discount: totals.discount,
-      total: result.data.total,
-      paid: result.data.paidAmount,
-      change: result.data.changeAmount,
-      payments: [
-        {
-          method: METHOD_LABEL[method],
-          amount: paid,
-          reference: method === 'GCASH' ? optionalGcashReference(gcashReference).reference : null,
-        },
-      ],
+      total: totals.total,
+      paid,
+      change,
+      payments: receiptPayments,
       company,
       currency,
-    });
+    };
+    // Cash only: the same sale as charged, for upload if the answer is lost.
+    const asCharged: OfflineSale | null =
+      method === 'CASH'
+        ? {
+            id,
+            localReceiptNumber: 'pending',
+            occurredAt: now.toISOString(),
+            catalogFetchedAt: pricedSinceRef.current,
+            userId: cashierId,
+            shiftId: openShift!.id,
+            warehouseId: openShift!.warehouseId,
+            taxRate,
+            items: basket.map((line) => ({
+              productId: line.productId,
+              quantity: line.quantity,
+              unitPrice: line.unitPrice,
+              discount: line.discount,
+            })),
+            discount: totals.discount,
+            cashTendered: paid,
+            total: totals.total,
+            notes: notes.trim() || undefined,
+          }
+        : null;
+
+    const showServerReceipt = (sale: { invoiceNumber: string; total: number; paidAmount: number; changeAmount: number }) =>
+      setReceipt({
+        // The receipt is built from the server's figures, not the local preview.
+        invoiceNumber: sale.invoiceNumber,
+        issuedAt: now,
+        cashierName,
+        lines: receiptLines,
+        subtotal: totals.subtotal,
+        tax: totals.tax,
+        discount: totals.discount,
+        total: sale.total,
+        paid: sale.paidAmount,
+        change: sale.changeAmount,
+        payments: receiptPayments,
+        company,
+        currency,
+      });
+
+    let saved: Awaited<ReturnType<typeof recordSale>> | null = null;
+    try {
+      saved = await recordSale(
+        await openLocalDb(),
+        { id, storeId, userId: cashierId, createdAt: now.toISOString(), method, route: 'checkout', checkout: request, offline: asCharged, receipt: localReceipt, status: 'pending' },
+        { holdUntil: SyncEngine.counterHold(Date.now()) },
+      );
+      announceOutboxChange();
+    } catch (error) {
+      console.warn('[pos] could not save the sale on this device', error);
+    }
+
+    if (!saved) {
+      // No local safety net (private window, blocked or full storage): the
+      // checkout goes straight to the server as it always did.
+      toast.warning('This device could not keep a copy of the sale. It is being sent straight to the server.', { id: 'no-local-store' });
+      const result = await checkout(request);
+      setSubmitting(false);
+      if (!result.ok) {
+        toast.error(result.error, { duration: 8000 });
+        return;
+      }
+      showServerReceipt(result.data);
+    } else {
+      const outcome = await getSyncEngine().submitAtCounter(saved.id);
+      setSubmitting(false);
+
+      if (outcome.kind === 'declined') {
+        // Nothing was charged. A changed basket gets a new id next time.
+        setCheckoutRequestId(crypto.randomUUID());
+        toast.error(outcome.error, { duration: 8000 });
+        return;
+      }
+      if (outcome.kind === 'synced' && outcome.entry.result) {
+        showServerReceipt(outcome.entry.result);
+      } else {
+        const entry = outcome.entry;
+        setReceipt({ ...entry.receipt, invoiceNumber: entry.localReceiptNumber, issuedAt: new Date(entry.receipt.issuedAt), pendingSync: true });
+        toast.warning('The server did not answer. The sale is saved on this device and will be sent automatically.', { duration: 10000 });
+      }
+      void requestPersistentStorage();
+    }
 
     setPayOpen(false);
     clearBasket();
@@ -1305,8 +1412,12 @@ export function PosTerminal({
       >
         <DialogContent className="max-w-sm">
           <DialogHeader className="no-print">
-            <DialogTitle>Sale complete</DialogTitle>
-            <DialogDescription>{receipt?.invoiceNumber}</DialogDescription>
+            <DialogTitle>{receipt?.pendingSync ? 'Sale saved — pending sync' : 'Sale complete'}</DialogTitle>
+            <DialogDescription>
+              {receipt?.pendingSync
+                ? `${receipt.invoiceNumber} is saved on this device and will be sent automatically. The official invoice number is assigned when it reaches the server.`
+                : receipt?.invoiceNumber}
+            </DialogDescription>
           </DialogHeader>
 
           {receipt && <Receipt data={receipt} />}

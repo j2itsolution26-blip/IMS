@@ -324,6 +324,60 @@ if (!URL_ENV || !APP) {
     });
   });
 
+  describe('live checkout at a stable URL (POST /api/pos/checkout)', () => {
+    const checkout = (body: Record<string, unknown>) => call('/api/pos/checkout', { body });
+    const basket = (id: string, extra: Record<string, unknown> = {}) => ({
+      items: [{ productId: product.candy, quantity: 2 }],
+      payments: [{ method: 'CASH', amount: 10 }],
+      clientRequestId: id,
+      ...extra,
+    });
+
+    test('a live sale is priced by the server and recorded once, however often it is sent', async () => {
+      const id = randomUUID();
+      const first = await checkout(basket(id));
+      assert.equal(first.status, 200, JSON.stringify(first.body));
+      assert.equal(first.body.status, 'recorded');
+      assert.equal(first.body.sale.total, 6, 'server price (3) × 2, not anything the till sent');
+      assert.equal('profit' in first.body.sale, false);
+      const again = await checkout(basket(id));
+      assert.equal(again.body.sale.invoiceNumber, first.body.sale.invoiceNumber);
+      assert.equal(await db.sale.count({ where: { clientRequestId: id } }), 1);
+      const sale = await db.sale.findFirstOrThrow({ where: { clientRequestId: id } });
+      assert.equal(sale.origin, 'ONLINE');
+    });
+
+    test('a live sale whose answer was lost, sent again as an offline upload, is still one sale', async () => {
+      const id = randomUUID();
+      const live = await checkout(basket(id));
+      assert.equal(live.status, 200);
+      const stockAfterLive = await stock(product.candy);
+      const upload = await sync(offlineSale({ id, items: [{ productId: product.candy, quantity: 2, unitPrice: 3 }], cashTendered: 10, total: 6 }));
+      assert.equal(upload.status, 200, JSON.stringify(upload.body));
+      assert.equal(upload.body.status, 'duplicate');
+      assert.equal(upload.body.sale.invoiceNumber, live.body.sale.invoiceNumber);
+      assert.equal(await db.sale.count({ where: { clientRequestId: id } }), 1);
+      assert.equal(await stock(product.candy), stockAfterLive, 'stock deducted once');
+    });
+
+    test('the live rules still hold: no stock, unconfirmed GCash and a missing id are refused for good', async () => {
+      const short = await checkout({ ...basket(randomUUID()), items: [{ productId: product.soap, quantity: 1 }], payments: [{ method: 'CASH', amount: 100 }] });
+      assert.equal(short.status, 409);
+      assert.equal(short.body.code, 'INSUFFICIENT_STOCK');
+      assert.equal(short.body.retryable, false);
+      const gcash = await checkout(basket(randomUUID(), { payments: [{ method: 'GCASH', amount: 6 }] }));
+      assert.equal(gcash.status, 422);
+      const noId = await checkout(basket(undefined as unknown as string));
+      assert.equal(noId.status, 422);
+    });
+
+    test('no session: a JSON 401, never a redirect', async () => {
+      const response = await call('/api/pos/checkout', { body: basket(randomUUID()), auth: false });
+      assert.equal(response.status, 401);
+      assert.equal(response.body.ok, false);
+    });
+  });
+
   describe('what is refused, and kept on the device', () => {
     test('another cashier’s sale waits for them: 403, nothing recorded', async () => {
       const sale = offlineSale({ userId: a.otherUserId, shiftId: a.otherShiftId });

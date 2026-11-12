@@ -11,6 +11,7 @@ import { countAwaitingAdmin } from '@/server/support/support-admin-service';
 import { pendingPaymentCount } from '@/server/platform/payment-review-queries';
 import { getBranchScope, seesAllBranches } from '@/lib/tenant/branch';
 import { BranchBar } from '@/features/branches/branch-bar';
+import { SyncAgent } from '@/features/offline/sync-agent';
 
 /**
  * Authenticated shell.
@@ -72,6 +73,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         />
       }
     >
+      {/* Sends sales saved on this device, from any page. A suspended store
+          is still asked: its sales stay on the device until it is restored. */}
+      {user.store && userCan(user, 'pos.create') && <SyncAgent storeId={user.store.id} userId={user.id} />}
       {user.store?.status === 'SUSPENDED' ? (
         // Every store query refuses a suspended store; say why instead of
         // failing each page. Support is the exception (it never uses the

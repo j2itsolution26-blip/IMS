@@ -71,7 +71,9 @@ test('the server refuses GCash overpayment, needs a confirmed payment (reference
   assert.match(wallet, /optionalGcashReference/);
   assert.match(wallet, /input\.confirmed !== true/);
   assert.match(service, /clientRequestId/);
-  const action = readFileSync('src/features/pos/actions.ts', 'utf8');
-  assert.match(action, /clientRequestId: z\.string\(\)\.uuid\(\)/);
-  assert.match(action, /confirmedReceived/);
+  // The checkout schema, shared by the server action and POST /api/pos/checkout.
+  const schema = readFileSync('src/features/pos/checkout-schema.ts', 'utf8');
+  assert.match(schema, /clientRequestId: z\.string\(\)\.uuid\(\)/);
+  assert.match(schema, /confirmedReceived/);
+  assert.match(readFileSync('src/features/pos/actions.ts', 'utf8'), /checkoutSchema/);
 });

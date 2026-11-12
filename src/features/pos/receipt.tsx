@@ -45,6 +45,11 @@ export interface ReceiptData {
     logoUrl?: string;
   };
   currency: string;
+  /**
+   * Saved on the device but not yet confirmed by the server: `invoiceNumber`
+   * is then the device's own receipt number, and the receipt says so.
+   */
+  pendingSync?: boolean;
 }
 
 export function Receipt({ data }: { data: ReceiptData }) {
@@ -65,8 +70,16 @@ export function Receipt({ data }: { data: ReceiptData }) {
 
       <Divider />
 
+      {data.pendingSync && (
+        <>
+          <p className="border border-black py-1 text-center text-xs font-bold tracking-widest">PENDING SYNC</p>
+          <p className="mt-1 text-center text-[10px]">Saved on this device. Official invoice no. is assigned when sent.</p>
+          <Divider />
+        </>
+      )}
+
       <div className="space-y-0.5">
-        <Line label="Receipt" value={data.invoiceNumber} />
+        <Line label={data.pendingSync ? 'Local receipt' : 'Receipt'} value={data.invoiceNumber} />
         <Line label="Date" value={formatDateTime(data.issuedAt)} />
         <Line label="Cashier" value={data.cashierName} />
       </div>
