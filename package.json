@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "cross-env TZ=UTC tsx --test \"tests/**/*.test.ts\"",
     "test:integration": "cross-env TZ=UTC NODE_OPTIONS=--require=./tests/integration/server-only-stub.cjs tsx --test \"tests/integration/*.integration.ts\"",
+    "test:e2e": "playwright test",
     "verify": "npm run typecheck && npm run lint",
     "postinstall": "prisma generate",
     "diagnose": "cross-env NODE_OPTIONS=--conditions=react-server tsx scripts/diagnose.ts",
@@ -71,6 +72,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.6",
+    "@playwright/test": "1.57.0",
     "@types/node": "^20.17.12",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

@@ -4,14 +4,17 @@ How TindahanProMax keeps selling when the internet drops, and how those sales
 reach the database afterwards. This document is the policy; the code points
 here.
 
-Status: **Phases 1-5 of 6 are built**:
+Status: **all six phases are built**:
 1. The server side.
 2. The till's own sale storage and sync engine.
 3. Offline cash selling on a prepared till.
 4. Opening that till with no connection at all (the service worker).
 5. The owner's review of offline sales and devices.
+6. Browser tests (`e2e/`).
 
-Phase 6 adds the committed browser E2E suite and the final report.
+The implementation report is in
+[offline-pos-report.md](offline-pos-report.md). Before go-live, apply the
+migration to production (see the report, "Deployment").
 
 ## Principles
 
@@ -344,6 +347,35 @@ In the database:
 - the device was revoked by the owner;
 - both actions were in the audit log;
 - the sale was recorded once, and stock went to −1, flagged as agreed.
+
+## Browser tests (`e2e/`, Phase 6)
+
+Playwright drives a real Chromium on a phone-sized screen against a running
+app. Each test seeds its own store through `e2e/support/db-cli.ts`.
+
+| Spec | What it proves |
+| --- | --- |
+| `online-retry.spec.ts` | A normal sale, a lost response and a full outage with a reload in the middle each end up recorded exactly once (3 sales, 3 distinct ids, stock 50 → 47). |
+| `offline-open-till.spec.ts` | With the connection cut while the till is open, the device can still: scan and search its copy, take cash only, show the stock estimate, and keep the drawer actions waiting. Reconnecting syncs one OFFLINE sale. |
+| `cold-start.spec.ts` | A prepared till opens with no connection. No API or page data is in any cache. A sale stays through an offline reload and syncs once. Skipped on a development server, which has no service worker. |
+| `owner-review.spec.ts` | A stock shortfall is flagged. It shows on the dashboard notice, the sales list, the review page, the sale page and the shift report. It is resolved with a note. Removing the device makes the catalogue answer 403 `DEVICE_REVOKED`. The audit log has both actions. |
+
+**Running them.** Use a local, throwaway database only. The tests refuse any
+database or app that is not on `localhost`.
+
+```bash
+npx playwright install chromium          # once per machine
+# A local Postgres with the migrations applied and bootstrapped, then the app
+# built and started against it (production build, for the cold-start test):
+DATABASE_URL=postgresql://postgres@localhost:54333/ims_test npm run build
+DATABASE_URL=postgresql://postgres@localhost:54333/ims_test npx next start -p 3107
+# In another terminal:
+E2E_DATABASE_URL=postgresql://postgres@localhost:54333/ims_test E2E_BASE_URL=http://localhost:3107 npm run test:e2e
+```
+
+The app also needs the usual auth variables (`BETTER_AUTH_SECRET`,
+`BETTER_AUTH_URL`, `NEXT_PUBLIC_APP_URL`) pointing at the local URL. Never
+point any of this at the production `.env`.
 
 ## Security notes and limitations
 
