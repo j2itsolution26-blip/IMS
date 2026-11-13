@@ -17,6 +17,7 @@ import { ProductImage } from '@/components/product-image';
 import { SaleActions } from '@/features/sales/sale-actions';
 import { ReceiptButton } from '@/features/sales/receipt-button';
 import { formatSaleQuantity } from '@/lib/quantity-presets';
+import { syncIssuesForSale } from '@/server/services/sync-review-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,7 +44,11 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
   // A cashier may open only the sales they rang up. Another cashier's sale
   // answers as missing, so its existence is not confirmed either.
   if (!sale || !canViewSaleRecord(user, sale.cashier.id)) notFound();
-  const receiptData = await getReceiptData(id);
+  const [receiptData, syncIssues] = await Promise.all([
+    getReceiptData(id),
+    // What the server flagged when an offline sale arrived: the owner's to review.
+    sale.offline && canViewCost ? syncIssuesForSale(id) : Promise.resolve([]),
+  ]);
 
   return (
     <>
@@ -193,6 +198,47 @@ export default async function SaleDetailPage({ params }: { params: Promise<{ id:
         </Card>
 
         <div className="space-y-4">
+          {sale.offline && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Offline sale</CardTitle>
+                <CardDescription>Made on a till with no connection and sent when it came back.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {sale.offline.localReceiptNumber && (
+                  <Row label="Customer’s receipt">
+                    <span className="font-mono text-xs">{sale.offline.localReceiptNumber}</span>
+                  </Row>
+                )}
+                <Row label="Sold">{formatDateTime(sale.createdAt)}</Row>
+                <Row label="Reached the server">{formatDateTime(sale.offline.receivedAt)}</Row>
+                {sale.offline.deviceCode && (
+                  <Row label="Device">
+                    <span className="font-mono text-xs">{sale.offline.deviceCode}</span>
+                  </Row>
+                )}
+                {syncIssues.length > 0 && (
+                  <ul className="space-y-2 border-t pt-2">
+                    {syncIssues.map((issue) => (
+                      <li key={issue.id} className="space-y-0.5">
+                        <Badge variant={issue.status === 'OPEN' ? 'warning' : 'success'}>
+                          {issue.label}
+                          {issue.status === 'RESOLVED' ? ' · resolved' : ''}
+                        </Badge>
+                        <p className="text-xs text-muted-foreground">{issue.message}</p>
+                      </li>
+                    ))}
+                    <li>
+                      <Link href="/sales/offline" className="text-xs font-medium text-primary hover:underline">
+                        Review offline sales
+                      </Link>
+                    </li>
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Summary</CardTitle>

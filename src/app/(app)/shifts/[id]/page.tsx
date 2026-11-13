@@ -65,6 +65,9 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
   const varianceKind = varianceKindOf(shift.difference);
   const tone = varianceTone(varianceKind);
   const now = new Date();
+  // Sales a till made with no connection; the late ones are already in the adjustments.
+  const offlineSales = shift.transactions.filter((t) => t.offline && t.status !== 'VOIDED');
+  const lateSales = offlineSales.filter((t) => t.arrivedAfterClose);
 
   const varianceHint =
     varianceKind == null
@@ -91,6 +94,7 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
         total: money(t.total),
         cashKept: t.cash ? money(t.cash) : null,
         nonCash: t.other ? money(t.other) : null,
+        offlineNote: t.offline ? (t.arrivedAfterClose ? 'Offline · arrived after close' : 'Offline sale') : null,
       }),
     ),
     ...shift.refundRows.map(
@@ -191,6 +195,26 @@ export default async function ShiftReportPage({ params }: { params: Promise<{ id
             hint={hasAdjustments ? `${varianceHint} · after adjustments: ${shift.adjustedDifference === 0 ? 'balanced' : signed(shift.adjustedDifference ?? 0)}` : varianceHint}
           />
         </div>
+
+        {offlineSales.length > 0 && (
+          <p role="note" className="mb-4 rounded-card border border-info/30 bg-info/5 px-4 py-3 text-sm">
+            <span className="font-medium">
+              {offlineSales.length} sale{offlineSales.length === 1 ? '' : 's'} on this shift ({money(offlineSales.reduce((sum, t) => sum + t.total, 0))}) {offlineSales.length === 1 ? 'was' : 'were'} made
+              offline
+            </span>{' '}
+            and {offlineSales.length === 1 ? 'is' : 'are'} included in the figures above.
+            {lateSales.length > 0 &&
+              ` ${lateSales.length} reached the server after the shift closed, so ${lateSales.length === 1 ? 'its' : 'their'} cash was not in the expected amount at close. Where the sale was made before the close, an adjustment below balances it; each is also listed for review.`}
+            {isOwner && (
+              <>
+                {' '}
+                <Link href="/sales/offline" className="font-medium text-primary hover:underline">
+                  Review offline sales
+                </Link>
+              </>
+            )}
+          </p>
+        )}
 
         {isOwner && shift.displayStatus === 'REQUIRES_REVIEW' && (
           <section aria-labelledby="discrepancy-title" className="mb-4 rounded-card border border-warning/40 bg-warning/5 p-4">

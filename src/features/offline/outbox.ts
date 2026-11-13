@@ -1,3 +1,4 @@
+import { deviceCode } from '@/lib/sync-review';
 import { META, type DeviceRecord, type OutboxEntry, type OutboxStatus, type PosDb, type SyncLogEntry } from '@/features/offline/local-db';
 
 /**
@@ -14,7 +15,7 @@ export const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export type NewOutboxEntry = Omit<OutboxEntry, 'deviceId' | 'localReceiptNumber' | 'updatedAt' | 'attempts' | 'nextAttemptAt' | 'lastError' | 'result'>;
 
 export function localReceiptNumber(deviceId: string, sequence: number): string {
-  return `OFF-${deviceId.replace(/-/g, '').slice(0, 4).toUpperCase()}-${String(sequence).padStart(6, '0')}`;
+  return `OFF-${deviceCode(deviceId)}-${String(sequence).padStart(6, '0')}`;
 }
 
 /**

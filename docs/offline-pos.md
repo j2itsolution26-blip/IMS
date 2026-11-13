@@ -4,13 +4,14 @@ How TindahanProMax keeps selling when the internet drops, and how those sales
 reach the database afterwards. This document is the policy; the code points
 here.
 
-Status: **Phases 1-4 of 6 are built**:
+Status: **Phases 1-5 of 6 are built**:
 1. The server side.
 2. The till's own sale storage and sync engine.
 3. Offline cash selling on a prepared till.
 4. Opening that till with no connection at all (the service worker).
+5. The owner's review of offline sales and devices.
 
-Later phases add the owner's review screen and browser E2E tests.
+Phase 6 adds the committed browser E2E suite and the final report.
 
 ## Principles
 
@@ -286,6 +287,63 @@ Instead:
 - **Revoking** a device stops catalogue downloads and re-registration, which ends
   its offline access once its cached copy expires. Sales it already took still
   upload, flagged `DEVICE_REVOKED`, so the money taken stays on the books.
+
+## Owner review (Phase 5)
+
+**Sales → Offline sync** (`/sales/offline`, owner only: the page and both
+actions require `FINANCIAL_PERMISSION`, and only the owner sees the tab):
+- **Summary:** sales waiting for review, offline sales in the last 30 days
+  (already counted in sales and reports), and devices.
+- **Sales to review:** each flagged offline sale shows:
+  - what was found;
+  - the invoice and the customer's local receipt number;
+  - when it was sold and when it reached the server;
+  - the cashier, branch, device and shift;
+  - what to check.
+
+  *Resolve* asks what was checked or done. That note, the owner and the time
+  are kept, and the change is audited. Resolving **never changes the sale,
+  stock or drawer**: corrections are a stock adjustment or a shift adjustment,
+  each with its own record. A second resolve of the same issue is refused.
+- **Devices:** each device shows:
+  - its label and the code it prints on offline receipts (`OFF-3F2A`), which
+    ties a paper receipt to the device;
+  - its browser, branch, who added it, when it was last seen and last
+    uploaded, and its count of offline sales and open issues;
+  - its state: active, not seen for 14 days, or removed.
+
+  *Remove* (audited) stops the device getting the catalogue (403
+  `DEVICE_REVOKED`). It can no longer sell offline once it next connects, and
+  at the latest when its access period ends. Sales it already took still
+  upload, flagged. *Allow* reverses a removal.
+
+**Where offline sales show elsewhere:**
+- **Sales list:** "Offline sale" under the invoice time.
+- **Sale page:** an *Offline sale* card. It shows the customer's receipt
+  number, when it was sold, when it reached the server and the device code.
+  For the owner, it also lists the flags raised on that sale.
+- **Shift report:** each offline sale is marked in the transactions,
+  "arrived after close" when it reached the server after the shift closed. A
+  note counts the shift's offline sales. It explains that a late sale's cash
+  was not in the expected amount at close, and that a sale made before the
+  close is balanced by the listed adjustment.
+- **Owner dashboard:** a notice when offline sales are waiting for review.
+
+Tested in a real browser (production build, phone-sized screen):
+1. Prepared the till, then set a product's stock to 0 on the server.
+2. Sold it offline and reconnected.
+3. Checked the dashboard notice and the sales-list marker.
+4. On the review page: the "Stock went below zero" flag and the device with
+   its receipt code.
+5. Resolved it with a note.
+6. Checked the sale page and the shift-report note.
+7. Removed the device. The catalogue then answered `403 DEVICE_REVOKED`.
+
+In the database:
+- the issue was resolved with the owner and the note;
+- the device was revoked by the owner;
+- both actions were in the audit log;
+- the sale was recorded once, and stock went to −1, flagged as agreed.
 
 ## Security notes and limitations
 

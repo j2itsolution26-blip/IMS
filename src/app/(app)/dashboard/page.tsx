@@ -22,6 +22,7 @@ import {
 import { CashierDashboardView } from '@/features/dashboard/cashier-dashboard-view';
 import { AccessDenied } from '@/features/dashboard/access-denied';
 import { staffAllowanceFor } from '@/server/services/plan-ui';
+import { countOpenSyncIssues } from '@/server/services/sync-review-service';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
@@ -116,7 +117,7 @@ async function renderOwnerSales(user: CurrentUser, params: SearchParams, currenc
 
   const now = new Date();
   const canViewDrawers = userCan(user, FINANCIAL_PERMISSION);
-  const [data, drawers, staffAllowance] = await Promise.all([
+  const [data, drawers, staffAllowance, syncIssues] = await Promise.all([
     getDashboardOverview({
       range,
       topLimit: query.top,
@@ -128,10 +129,24 @@ async function renderOwnerSales(user: CurrentUser, params: SearchParams, currenc
     canViewDrawers ? getShiftKpis(now) : Promise.resolve(null),
     // The plan's staff allowance, for whoever manages staff accounts.
     userCan(user, 'users.create') ? staffAllowanceFor() : Promise.resolve(null),
+    // Offline sales the server flagged: owner-only, like the drawers.
+    canViewDrawers ? countOpenSyncIssues().catch(() => 0) : Promise.resolve(0),
   ]);
 
   return (
-    <DashboardView
+    <>
+      {syncIssues > 0 && (
+        <p role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-card border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-text">
+          <span>
+            {syncIssues} offline sale{syncIssues === 1 ? ' needs' : 's need'} a look: stock, price or shift differences found when
+            {syncIssues === 1 ? ' it' : ' they'} reached the server. The sales are recorded.
+          </span>
+          <Link href="/sales/offline" className="font-semibold underline underline-offset-2">
+            Review
+          </Link>
+        </p>
+      )}
+      <DashboardView
       tabs={<OwnerTabs active="sales" />}
       storeName={storeName}
       query={query}
@@ -142,7 +157,8 @@ async function renderOwnerSales(user: CurrentUser, params: SearchParams, currenc
       data={data}
       drawers={drawers}
       staffAllowance={staffAllowance && staffAllowance.total.limit !== null ? staffAllowance : null}
-    />
+      />
+    </>
   );
 }
 

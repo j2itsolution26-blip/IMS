@@ -90,7 +90,7 @@ export default async function SalesPage({
 
   return (
     <>
-      <SalesTabs current="sales" />
+      <SalesTabs current="sales" showOffline={canViewProfit} />
       {/* Header */}
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">

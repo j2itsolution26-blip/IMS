@@ -914,6 +914,10 @@ export interface ShiftDetail extends ShiftHistoryRow {
     other: number;
     /** How the customer paid: one method, split, or none recorded. */
     payment: SalePaymentKind;
+    /** Made on a till with no connection and uploaded later. */
+    offline: boolean;
+    /** An offline sale that reached the server after this shift had closed. */
+    arrivedAfterClose: boolean;
   }[];
   refundRows: { id: string; returnId: string | null; returnNumber: string | null; method: PaymentMethod; amount: number; createdAt: Date }[];
   transactionsTruncated: boolean;
@@ -972,6 +976,8 @@ export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | nul
         status: true,
         total: true,
         changeAmount: true,
+        origin: true,
+        receivedAt: true,
         payments: { where: { direction: 'INBOUND' }, select: { method: true, amount: true } },
       },
     }),
@@ -1058,6 +1064,8 @@ export async function getShiftDetail(shiftId: string): Promise<ShiftDetail | nul
         cash: toNum(money(cashTendered.minus(D(sale.changeAmount)))),
         other: toNum(money(other)),
         payment: salePaymentKind(sale.payments.map((p) => p.method)),
+        offline: sale.origin === 'OFFLINE',
+        arrivedAfterClose: sale.origin === 'OFFLINE' && row.closedAt !== null && sale.receivedAt > row.closedAt,
       };
     }),
     refundRows: refundRows.map((p) => ({

@@ -1,4 +1,5 @@
 import 'server-only';
+import { deviceCode } from '@/lib/sync-review';
 
 import type { PaymentMethod, Prisma, SaleStatus } from '@prisma/client';
 import { storeDb } from '@/lib/tenant/context';
@@ -72,6 +73,8 @@ export async function listSales(query: SaleListQuery = {}) {
         taxAmount: true,
         costOfGoods: true,
         createdAt: true,
+        origin: true,
+        localReceiptNumber: true,
         user: { select: { name: true } },
         payments: { select: { method: true }, orderBy: { createdAt: 'asc' } },
         // Every line, because the list gives each product its own row.
@@ -115,6 +118,8 @@ export async function listSales(query: SaleListQuery = {}) {
       balance: Math.max(0, toNum(row.total) - toNum(row.paidAmount)),
       profit: query.includeCost ? toNum(row.total) - toNum(row.taxAmount) - toNum(row.costOfGoods) : 0,
       createdAt: row.createdAt,
+      // Made on a till with no connection and uploaded later.
+      offline: row.origin === 'OFFLINE' ? { localReceiptNumber: row.localReceiptNumber } : null,
       cashierName: row.user.name,
       paymentMethod: row.payments.length === 0 ? null : row.payments.length > 1 ? 'Split' : row.payments[0].method,
       itemCount: row.items.length,
@@ -178,6 +183,12 @@ export async function getSale(id: string, { includeCost = false }: { includeCost
     channel: sale.channel,
     createdAt: sale.createdAt,
     notes: sale.notes,
+    // Made on a till with no connection: the local receipt the customer holds,
+    // and when it reached the server (createdAt is when it was sold).
+    offline:
+      sale.origin === 'OFFLINE'
+        ? { localReceiptNumber: sale.localReceiptNumber, receivedAt: sale.receivedAt, deviceCode: sale.deviceId ? deviceCode(sale.deviceId) : null }
+        : null,
     // Who voided it, when and why; null unless VOIDED.
     voided:
       sale.status === 'VOIDED'

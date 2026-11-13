@@ -26,6 +26,8 @@ export interface ShiftTransactionRow {
   total: string;
   cashKept: string | null;
   nonCash: string | null;
+  /** Shown under the time: made offline, and whether it arrived after close. */
+  offlineNote?: string | null;
 }
 
 const FILTERS: { value: TransactionFilter; label: string }[] = [
@@ -139,7 +141,10 @@ export function ShiftTransactionsTable({ rows }: { rows: ShiftTransactionRow[] }
                       <span className="font-mono text-xs">{row.reference}</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-2.5">{row.time}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5">
+                    {row.time}
+                    {row.offlineNote && <p className="text-xs font-medium text-info-text">{row.offlineNote}</p>}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-2.5">{PAYMENT_KIND_LABEL[row.payment]}</td>
                   <td className="px-4 py-2.5">
                     <Badge variant={row.statusVariant}>{row.statusLabel}</Badge>

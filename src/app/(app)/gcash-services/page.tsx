@@ -58,7 +58,7 @@ export default async function GcashServicesPage({
 
   return (
     <>
-      <SalesTabs current="gcash" />
+      <SalesTabs current="gcash" showOffline={isOwner} />
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-title sm:text-title-lg">GCash Services</h1>

@@ -52,6 +52,14 @@ export function SaleInvoiceRows({ sale, currency }: { sale: SaleListRow; currenc
               <p className="mt-0.5 whitespace-nowrap text-xs text-muted-foreground">
                 {formatDateTime(sale.createdAt)}
               </p>
+              {sale.offline && (
+                <p
+                  className="mt-0.5 whitespace-nowrap text-xs font-medium text-info-text"
+                  title={sale.offline.localReceiptNumber ? `Offline receipt ${sale.offline.localReceiptNumber}` : 'Made offline'}
+                >
+                  Offline sale
+                </p>
+              )}
               {span > 1 && (
                 <p className="whitespace-nowrap text-xs text-muted-foreground">{span} items</p>
               )}
