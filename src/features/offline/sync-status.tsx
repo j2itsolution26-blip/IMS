@@ -13,6 +13,7 @@ import { describeEntry, describeSyncStatus, type SyncTone } from '@/features/off
 import { useOnlineStatus } from '@/features/pwa/use-online-status';
 import { refreshCatalog, useOfflineCatalog, type CatalogState } from '@/features/offline/catalog-client';
 import { READINESS_MESSAGE, offlineReadiness } from '@/lib/offline-catalog';
+import { OfflineUnlockSetup } from '@/features/offline/offline-unlock-setup';
 
 /** Offline selling for this cashier, from the catalogue copy the till keeps. */
 function useOfflineSelling(storeId: string, userId: string, offlineMode: boolean) {
@@ -38,11 +39,14 @@ export function SyncStatusButton({
   userId,
   currency,
   offlineMode,
+  manageOfflineAccess = true,
 }: {
   storeId: string;
   userId: string;
   currency: string;
   offlineMode: boolean;
+  /** Setting up and removing offline unlock: on the online till only. */
+  manageOfflineAccess?: boolean;
 }) {
   const state = useSyncState();
   const online = useOnlineStatus();
@@ -65,7 +69,15 @@ export function SyncStatusButton({
         <Icon className={cn('h-3.5 w-3.5 shrink-0', view.tone === 'busy' && 'animate-spin')} aria-hidden="true" />
         <span className="whitespace-nowrap">{view.label}</span>
       </button>
-      <PendingSalesDialog open={open} onOpenChange={setOpen} storeId={storeId} userId={userId} currency={currency} offlineMode={offlineMode} />
+      <PendingSalesDialog
+        open={open}
+        onOpenChange={setOpen}
+        storeId={storeId}
+        userId={userId}
+        currency={currency}
+        offlineMode={offlineMode}
+        manageOfflineAccess={manageOfflineAccess}
+      />
     </>
   );
 }
@@ -77,6 +89,7 @@ function PendingSalesDialog({
   userId,
   currency,
   offlineMode,
+  manageOfflineAccess,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -84,6 +97,7 @@ function PendingSalesDialog({
   userId: string;
   currency: string;
   offlineMode: boolean;
+  manageOfflineAccess: boolean;
 }) {
   const state = useSyncState();
   const online = useOnlineStatus();
@@ -136,6 +150,7 @@ function PendingSalesDialog({
             onPrepare={() => void refreshCatalog(storeId, userId, { force: true })}
           />
         )}
+        {offlineMode && manageOfflineAccess && <OfflineUnlockSetup storeId={storeId} userId={userId} online={online} />}
 
         {loadError && <p className="text-sm text-destructive-text">The sales saved on this device could not be read.</p>}
 

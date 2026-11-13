@@ -12,6 +12,8 @@ export interface Seed {
   storeId: string;
   username: string;
   password: string;
+  /** The owner's lock-screen PIN, which also unlocks offline. */
+  pin: string;
   soap: string;
   rice: string;
   soapBarcode: string;
@@ -44,6 +46,7 @@ function step<T>(...args: string[]): T {
 export const db = {
   /** A new store; `offline` switches offline cash sales on. */
   seed: (options: { offline?: boolean } = {}) => step<Seed>('seed', ...(options.offline ? ['offline'] : [])),
+  disableOwner: (storeId: string) => step<{ ok: true }>('disable-owner', storeId),
   zeroStock: (storeId: string, productId: string) => step<{ ok: true }>('zero-stock', storeId, productId),
   shiftId: (storeId: string) => step<{ id: string }>('shift', storeId).id,
   state: (storeId: string) => step<StoreState>('state', storeId),

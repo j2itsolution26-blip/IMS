@@ -8,7 +8,7 @@ import { auth } from '@/lib/auth';
 import type { StorePlan, StoreStatus } from '@prisma/client';
 import { platformPrisma } from '@/lib/prisma';
 import type { PermissionKey } from '@/lib/permissions';
-import { ForbiddenError, UnauthorizedError } from '@/lib/errors';
+import { ForbiddenError, SessionLockedError, UnauthorizedError } from '@/lib/errors';
 import { isSafeReturnPath } from '@/lib/safe-path';
 import { CHANGE_PASSWORD_PATH, MUST_CHANGE_PASSWORD_MESSAGE } from '@/lib/password-change';
 
@@ -193,7 +193,7 @@ export async function authorize(permission: PermissionKey): Promise<CurrentUser>
   const user = await getCurrentUser();
   if (!user) throw new UnauthorizedError();
   assertPasswordSettled(user);
-  if (user.isLocked) throw new ForbiddenError(LOCKED_MESSAGE);
+  if (user.isLocked) throw new SessionLockedError(LOCKED_MESSAGE);
   if (!user.permissions.has(permission)) {
     throw new ForbiddenError(`You do not have permission to ${permission.replace('.', ' ')}.`);
   }
@@ -208,7 +208,7 @@ export async function authenticate(): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user) throw new UnauthorizedError();
   assertPasswordSettled(user);
-  if (user.isLocked) throw new ForbiddenError(LOCKED_MESSAGE);
+  if (user.isLocked) throw new SessionLockedError(LOCKED_MESSAGE);
   return user;
 }
 

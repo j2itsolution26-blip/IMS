@@ -85,5 +85,5 @@ test('no screen still draws the old hand-made cart icon, and caches refresh for 
   assert.match(read('public/sw.js'), /PRECACHE_URLS = \[OFFLINE_URL, '\/brand\/icon-192\.png'\]/);
   // New artwork means new manifest URLs and a new worker cache.
   assert.ok(BRAND_ICON_VERSION >= 4);
-  assert.match(read('public/sw.js'), /const VERSION = 'v5';/);
+  assert.match(read('public/sw.js'), /const VERSION = 'v6';/);
 });

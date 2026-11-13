@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { openDB } from 'idb';
 import { DB_NAME, closeLocalDb, openLocalDb } from '@/features/offline/local-db';
 import { getEntry, recordSale } from '@/features/offline/outbox';
-import { forgetLastTill, lastTill, localFind, localSearch, loadSnapshot, prepareDevice } from '@/features/offline/catalog';
+import { lastTill, localFind, localSearch, loadSnapshot, prepareDevice } from '@/features/offline/catalog';
+import { removeOfflineAccess } from '@/features/offline/offline-unlock';
 import type { OfflineCatalog } from '@/lib/offline-catalog';
 import { draft } from './helpers/outbox-draft';
 
@@ -64,7 +65,7 @@ function server(answers: { devices?: Response | 'down'; catalog?: Response | 'do
 
 const scope = { storeId: 'store_a', userId: 'cashier_1' };
 
-test('upgrading the device database keeps every unsent sale (version 1 → 2)', async () => {
+test('upgrading the device database keeps every unsent sale (version 1 → 3)', async () => {
   // A till still on version 1, with a sale waiting.
   const v1 = await openDB(DB_NAME, 1, {
     upgrade(db) {
@@ -82,8 +83,9 @@ test('upgrading the device database keeps every unsent sale (version 1 → 2)', 
   v1.close();
 
   const db = await openLocalDb();
-  assert.equal(db.version, 2);
+  assert.equal(db.version, 3);
   assert.ok(db.objectStoreNames.contains('catalog'));
+  assert.ok(db.objectStoreNames.contains('unlock'));
   assert.equal((await getEntry(db, sale.id))?.localReceiptNumber, 'OFF-0000-000001');
 });
 
@@ -115,6 +117,26 @@ test('a refusal (offline selling off, device revoked) removes the copy; a networ
   assert.equal(await loadSnapshot(db, 'store_a', 'cashier_1'), null, 'offline selling ends on this device');
 });
 
+test('signed out (401) or a locked screen (403 SESSION_LOCKED) withdraws nothing', async () => {
+  const db = await openLocalDb();
+  await prepareDevice(db, scope, server({ devices: json(200, { ok: true }), catalog: json(200, { ok: true, catalog }) }).fetchImpl);
+
+  const signedOut = await prepareDevice(db, scope, server({ devices: json(401, { ok: false, code: 'UNAUTHORIZED', error: 'sign in' }) }).fetchImpl);
+  assert.deepEqual(signedOut.ok ? null : [signedOut.code, signedOut.withdrawn], ['UNAUTHORIZED', false]);
+  const locked = await prepareDevice(db, scope, server({ devices: json(403, { ok: false, code: 'SESSION_LOCKED', error: 'locked' }) }).fetchImpl);
+  assert.deepEqual(locked.ok ? null : [locked.code, locked.withdrawn], ['SESSION_LOCKED', false]);
+  assert.ok(await loadSnapshot(db, 'store_a', 'cashier_1'), 'the PIN-protected copy stays until it expires or is revoked');
+});
+
+test('the server caps the access period: a copy never outlives the subscription', async () => {
+  const db = await openLocalDb();
+  const fetchedAt = new Date(Date.now() - 60_000);
+  const cap = new Date(fetchedAt.getTime() + 3 * 3_600_000).toISOString();
+  const capped = { ...catalog, fetchedAt: fetchedAt.toISOString(), offlineAccessHours: 24, accessUntil: cap };
+  await prepareDevice(db, scope, server({ devices: json(200, { ok: true }), catalog: json(200, { ok: true, catalog: capped }) }).fetchImpl);
+  assert.equal((await loadSnapshot(db, 'store_a', 'cashier_1'))?.accessUntil, cap);
+});
+
 test('removing the copy never touches the sales on the device', async () => {
   const db = await openLocalDb();
   const sale = await recordSale(db, draft());
@@ -142,7 +164,7 @@ test('searching and scanning on the device use the copy and this device’s sale
   assert.equal(await localFind(db, scope, 'nope'), null);
 });
 
-test('the till opened with no connection is the one last prepared here, until sign-out or a refusal', async () => {
+test('the last prepared till is remembered until its offline access is removed or refused', async () => {
   const db = await openLocalDb();
   assert.equal(await lastTill(db), null, 'nothing prepared');
   const ok = () => server({ devices: json(200, { ok: true }), catalog: json(200, { ok: true, catalog }) }).fetchImpl;
@@ -150,8 +172,8 @@ test('the till opened with no connection is the one last prepared here, until si
   assert.deepEqual((await lastTill(db))?.scope, scope);
 
   const sale = await recordSale(db, draft());
-  await forgetLastTill(db);
-  assert.equal(await lastTill(db), null, 'signed out: no till opens offline');
+  await removeOfflineAccess(db, 'store_a:cashier_1');
+  assert.equal(await lastTill(db), null, 'removed: no till opens offline');
   assert.equal(await loadSnapshot(db, 'store_a', 'cashier_1'), null, 'and the price list is gone');
   assert.ok(await getEntry(db, sale.id), 'unsent sales stay');
 

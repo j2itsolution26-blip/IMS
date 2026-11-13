@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import { openLocalDb } from '@/features/offline/local-db';
-import { forgetLastTill, loadSnapshot, prepareDevice } from '@/features/offline/catalog';
+import { loadSnapshot, prepareDevice } from '@/features/offline/catalog';
+import { removeOfflineAccess, revalidateEnrollments } from '@/features/offline/offline-unlock';
 import { cacheOfflineTill } from '@/features/pwa/offline-till-cache';
 import { catalogKey, type CatalogSnapshot } from '@/lib/offline-catalog';
 
@@ -69,6 +70,9 @@ export async function refreshCatalog(storeId: string, userId: string, { force = 
   try {
     const db = await openLocalDb();
     const result = await prepareDevice(db, { storeId, userId });
+    // Online: also drop any cashier on this device the server no longer
+    // allows offline (disabled, PIN changed, moved branch...). Best effort.
+    void revalidateEnrollments(db).catch(() => undefined);
     if (state.key !== key) return false;
     if (result.ok) {
       set({ snapshot: result.snapshot, loaded: true, lastError: null });
@@ -87,14 +91,13 @@ export async function refreshCatalog(storeId: string, userId: string, { force = 
 }
 
 /**
- * Signing out: the price list leaves the device and the till no longer opens
- * offline. Unsent sales are kept. Never throws, never delays sign-out long.
+ * "Remove offline access from this device": this cashier's price list and
+ * offline unlock leave the device. Signing out no longer does this: the
+ * device stays PIN-protected so the cashier can work offline next time.
+ * Unsent sales are kept and sent at the cashier's next sign-in.
  */
-export async function forgetOfflineTill(): Promise<void> {
-  try {
-    await Promise.race([openLocalDb().then(forgetLastTill), new Promise((resolve) => setTimeout(resolve, 1500))]);
-  } catch {
-    // Storage unavailable: there is no copy to forget.
-  }
-  set({ key: null, loaded: false, snapshot: null, lastError: null });
+export async function removeOfflineAccessHere(storeId: string, userId: string): Promise<void> {
+  const key = catalogKey(storeId, userId);
+  await removeOfflineAccess(await openLocalDb(), key);
+  if (state.key === key) set({ snapshot: null, loaded: true, lastError: null });
 }

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { db } from './support/db';
-import { closeReceipt, expectChip, expectPrepared, hasServiceWorker, openTill, pendingReceipt, sellCash, signIn } from './support/till';
+import { allowOfflineUnlock, closeReceipt, expectChip, expectPrepared, hasServiceWorker, openTill, pendingReceipt, sellCash, signIn, unlockOffline } from './support/till';
 
 /**
  * A prepared till opens with no connection at all. Needs the service worker,
@@ -12,10 +12,11 @@ test('a prepared till opens with no connection, sells, and syncs once', async ({
   await openTill(page);
   test.skip(!(await hasServiceWorker(page)), 'Cold start needs a production build: the service worker is not registered in development.');
   await expectPrepared(page);
+  await allowOfflineUnlock(page, seed.pin);
 
   // The till asks the worker to keep the offline till once prepared.
   await expect
-    .poll(() => page.evaluate(async () => Boolean(await (await caches.open('tpm-till-v5')).match('/pos-offline'))), { timeout: 60_000 })
+    .poll(() => page.evaluate(async () => Boolean(await (await caches.open('tpm-till-v6')).match('/pos-offline'))), { timeout: 60_000 })
     .toBe(true);
   const leaked = await page.evaluate(async () => {
     const urls: string[] = [];
@@ -29,6 +30,7 @@ test('a prepared till opens with no connection, sells, and syncs once', async ({
   const cold = await context.newPage();
   await cold.goto('/pos').catch(() => undefined);
   await cold.waitForURL(/\/pos-offline$/, { timeout: 30_000 });
+  await unlockOffline(cold, seed.username, seed.pin);
   await expect(cold.getByText('Bath Soap', { exact: true }).first()).toBeVisible({ timeout: 30_000 });
   await expectChip(cold, 'Offline · Sales available');
 
@@ -38,6 +40,8 @@ test('a prepared till opens with no connection, sells, and syncs once', async ({
   await closeReceipt(cold);
 
   await cold.reload().catch(() => undefined);
+  // A reload ends the offline session: the PIN is asked again.
+  await unlockOffline(cold, seed.username, seed.pin);
   await expectChip(cold, /1 pending/, 30_000);
 
   await context.setOffline(false);

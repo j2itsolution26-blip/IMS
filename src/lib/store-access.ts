@@ -88,3 +88,16 @@ export function storedLimits(subscription: Pick<StoreSubscription, 'plan' | 'sta
     branchLimit: plan.limits.branches,
   };
 }
+
+/**
+ * When a store stops being allowed to sell: the moment it becomes read-only
+ * (null: no end date). A till's offline access never runs past it, so a
+ * device cut off from the server cannot keep selling for a store whose
+ * subscription and grace period ran out meanwhile.
+ */
+export function sellingEndsAt(access: StoreAccess, now: Date = new Date()): Date | null {
+  if (!access.writable) return now;
+  if (access.graceEndsAt) return access.graceEndsAt;
+  if (access.endsAt) return new Date(access.endsAt.getTime() + GRACE_DAYS * DAY);
+  return null;
+}

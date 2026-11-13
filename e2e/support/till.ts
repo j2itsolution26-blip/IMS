@@ -6,11 +6,21 @@ export const CHIP = 'button[aria-label*="Show sales on this device"]';
 export const LOCAL_RECEIPT = /^OFF-[0-9A-F]{4}-\d{6}$/;
 
 export async function signIn(page: Page, seed: Seed): Promise<void> {
-  await page.goto('/sign-in');
-  await page.locator('#identifier').fill(seed.username);
-  await page.locator('#password').fill(seed.password);
-  await page.locator('button[type="submit"]').click();
-  await page.waitForURL(/\/(dashboard|pos)/, { timeout: 90_000 });
+  // The whole suite signs in from one address; Better Auth's sign-in rate
+  // limit (HTTP 429) is waited out rather than counted as a failure.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await page.goto('/sign-in');
+    await page.locator('#identifier').fill(seed.username);
+    await page.locator('#password').fill(seed.password);
+    await page.locator('button[type="submit"]').click();
+    const outcome = await Promise.race([
+      page.waitForURL(/\/(dashboard|pos)/, { timeout: 90_000 }).then(() => 'in' as const),
+      page.getByText('(HTTP 429)').waitFor({ timeout: 90_000 }).then(() => 'limited' as const),
+    ]);
+    if (outcome === 'in') return;
+    await page.waitForTimeout(15_000);
+  }
+  throw new Error('Sign-in stayed rate limited.');
 }
 
 export async function openTill(page: Page): Promise<void> {
@@ -63,4 +73,36 @@ export async function hasServiceWorker(page: Page): Promise<boolean> {
     const timeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 15_000));
     return Promise.race([ready, timeout]);
   });
+}
+
+/** Allows offline unlock on this prepared device with the cashier's PIN (sync dialog). */
+export async function allowOfflineUnlock(page: Page, pin: string): Promise<void> {
+  await page.locator(CHIP).click();
+  await page.locator('#offline-unlock-pin').fill(pin);
+  await page.getByRole('button', { name: 'Allow', exact: true }).click();
+  await expect(page.getByText('Ready: with no connection, you can open this till')).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.press('Escape');
+}
+
+/** Signs this browser out through the auth API (the device keeps its offline access). */
+export async function signOutOnline(page: Page): Promise<void> {
+  const status = await page.evaluate(async () => {
+    const response = await fetch('/api/auth/sign-out', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    return response.status;
+  });
+  expect(status).toBe(200);
+}
+
+/** Waits for the service worker to keep the offline till. */
+export async function expectTillKept(page: Page): Promise<void> {
+  await expect
+    .poll(() => page.evaluate(async () => Boolean(await (await caches.open('tpm-till-v6')).match('/pos-offline'))), { timeout: 60_000 })
+    .toBe(true);
+}
+
+/** The offline sign-in form on /pos-offline. */
+export async function unlockOffline(page: Page, username: string, pin: string): Promise<void> {
+  await page.locator('#offline-username').fill(username);
+  await page.locator('#offline-pin').fill(pin);
+  await page.getByRole('button', { name: 'Unlock till' }).click();
 }

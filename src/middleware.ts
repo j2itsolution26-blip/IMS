@@ -38,6 +38,8 @@ const SESSION_COOKIES = ['better-auth.session_token', '__Secure-better-auth.sess
 // only create a ticket (throttled, with abuse checks); it reads none.
 const PUBLIC_PATHS = ['/sign-in', '/sign-up', '/setup', '/help', '/api/auth', '/api/health', '/api/session', '/api/cron'];
 
+const OFFLINE_UNLOCK_STATUS = '/api/pos/offline-unlock/status';
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSession = SESSION_COOKIES.some((name) => Boolean(request.cookies.get(name)?.value));
@@ -46,14 +48,17 @@ export function middleware(request: NextRequest) {
   // The offline till talks to /api/pos with fetch. A redirect to the sign-in
   // page would reach it as a 200 HTML page; it needs a 401 to know the
   // session ended and to keep its unsent sales until the cashier signs in.
-  if (!hasSession && pathname.startsWith('/api/pos/')) {
+  //
+  // The one exception is the offline-unlock status check, which a device
+  // makes for cashiers who may have signed out; it can only remove access.
+  if (!hasSession && pathname.startsWith('/api/pos/') && pathname !== OFFLINE_UNLOCK_STATUS) {
     return NextResponse.json(
       { ok: false, code: 'UNAUTHORIZED', error: 'You need to sign in to continue.', retryable: false },
       { status: 401, headers: { 'Cache-Control': 'no-store' } },
     );
   }
 
-  if (!hasSession && !isPublic) {
+  if (!hasSession && !isPublic && pathname !== OFFLINE_UNLOCK_STATUS) {
     const url = new URL('/sign-in', request.url);
     // Preserve where they were heading so sign-in can send them back.
     if (pathname !== '/') url.searchParams.set('next', pathname + request.nextUrl.search);

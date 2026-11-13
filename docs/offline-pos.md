@@ -4,13 +4,15 @@ How TindahanProMax keeps selling when the internet drops, and how those sales
 reach the database afterwards. This document is the policy; the code points
 here.
 
-Status: **all six phases are built**:
+Status: **all seven phases are built** (the seventh, offline sign-in on a
+trusted device, is reported in [offline-login-report.md](offline-login-report.md)):
 1. The server side.
 2. The till's own sale storage and sync engine.
 3. Offline cash selling on a prepared till.
 4. Opening that till with no connection at all (the service worker).
 5. The owner's review of offline sales and devices.
 6. Browser tests (`e2e/`).
+7. Offline sign-in with the cashier's PIN on a trusted device.
 
 The implementation report is in
 [offline-pos-report.md](offline-pos-report.md). Before go-live, apply the
@@ -104,7 +106,8 @@ Retry, the last successful sync, and recently sent local → invoice numbers.
 
 **Switched on by the owner:** Settings → Sales → *Offline cash sales*
 (`pos.offlineMode`, off by default), with *Offline access period*
-(`pos.offlineAccessHours`, 72 by default, 1-168).
+(`pos.offlineAccessHours`, 24 by default since Phase 7 (it was 72), 1-168).
+Stores that saved their own value keep it.
 
 **Preparing a device:** a till opened online with offline sales switched on
 prepares itself:
@@ -114,9 +117,12 @@ prepares itself:
 3. It refreshes the copy every 10 minutes and when the connection returns.
 
 The sync dialog shows the copy (product count, download time, *offline
-until*) with Prepare / Refresh. A refusal (switched off, device revoked,
-store read-only or suspended, account no longer allowed) **removes the copy**;
-a network failure keeps it. Removing the copy never touches saved sales.
+until*) with Prepare / Refresh. A 403 refusal (switched off, device revoked,
+store read-only or suspended, account no longer allowed) **removes the copy**
+and the cashier's offline unlock. A network failure keeps both, and so do a
+401 (this browser is signed out, which says nothing about the cashier whose
+copy it is) and a 403 `SESSION_LOCKED` (the screen is locked). Removing the
+copy never touches saved sales.
 
 **A till may sell offline only when all of these hold** (`offlineReadiness`):
 - offline sales are switched on (as last seen online);
@@ -167,10 +173,11 @@ deducted once.
 ## Opening the till with no connection (Phase 4)
 
 **The offline till** (`/pos-offline`, `src/features/offline/offline-till.tsx`)
-is a static page: the same HTML for everyone, with no account data in it. It
-opens the till **last prepared on this device** (`META.lastTill`, written
-when a preparation succeeds), from that cashier's catalogue copy. It uses the
-same rules as a till that lost its connection while open:
+is a static page: the same HTML for everyone, with no account data in it.
+Since Phase 7 it shows nothing of any till until a cashier signs in with
+their username and PIN (see "Offline sign-in" below), and then opens **that
+cashier's** catalogue copy. It uses the same rules as a till that lost its
+connection while open:
 - the offline access period;
 - the branch of the shift that was open at the last download;
 - cash only.
@@ -182,7 +189,9 @@ It shows "Offline sales are not available here" with the reason when:
 
 When the connection returns, it offers *Open the full till*. It never
 switches by itself, since a browser can report a connection while the server
-is down.
+is down. Before switching it asks `GET /api/pos/session` who this browser is
+signed in as: the same cashier goes to `/pos`; nobody goes to sign in;
+anyone else is signed out first, then the cashier signs in.
 
 The receipt header, cashier name and low-stock level come with the catalogue
 copy, so a receipt printed from the offline till matches an online one.
@@ -211,8 +220,10 @@ copy, so a receipt printed from the offline till matches an online one.
   never uploads a sale. With no window open, sales are sent the next time the
   app opens.
 
-**Signing out** (menu or lock screen) deletes the last till's catalogue copy
-and `lastTill`, so the device no longer opens a till offline. Unsent sales
+**Signing out** (menu or lock screen) keeps the cashier's PIN-protected
+offline access (Phase 7), so they can still work offline the next morning.
+It ends with the access period, on *Remove offline access from this device*
+in the sync dialog, or when the server withdraws it. Unsent sales always
 stay on the device and are sent at the next sign-in.
 
 **Offline, the shift bar** disables Cash in, Cash out, GCash in/out and Close
@@ -357,8 +368,9 @@ app. Each test seeds its own store through `e2e/support/db-cli.ts`.
 | --- | --- |
 | `online-retry.spec.ts` | A normal sale, a lost response and a full outage with a reload in the middle each end up recorded exactly once (3 sales, 3 distinct ids, stock 50 → 47). |
 | `offline-open-till.spec.ts` | With the connection cut while the till is open, the device can still: scan and search its copy, take cash only, show the stock estimate, and keep the drawer actions waiting. Reconnecting syncs one OFFLINE sale. |
-| `cold-start.spec.ts` | A prepared till opens with no connection. No API or page data is in any cache. A sale stays through an offline reload and syncs once. Skipped on a development server, which has no service worker. |
+| `cold-start.spec.ts` | A prepared till opens with no connection, after offline sign-in. No API or page data is in any cache. A sale stays through an offline reload and syncs once. Skipped on a development server, which has no service worker. |
 | `owner-review.spec.ts` | A stock shortfall is flagged. It shows on the dashboard notice, the sales list, the review page, the sale page and the shift report. It is resolved with a note. Removing the device makes the catalogue answer 403 `DEVICE_REVOKED`. The audit log has both actions. |
+| `offline-unlock.spec.ts` | Offline sign-in: refused on a device never set up (also by direct URL); a signed-out cashier unlocks with their PIN, sells, locks, reloads and syncs exactly once after signing in; wrong PINs pause; expired access refuses the right PIN; a disabled account is dropped on reconnection. |
 
 **Running them.** Use a local, throwaway database only. The tests refuse any
 database or app that is not on `localhost`.
@@ -379,12 +391,11 @@ point any of this at the production `.env`.
 
 ## Security notes and limitations
 
-- **Who can open the offline till:** anyone holding the device can open it
-  until the cashier who last prepared it signs out, the access period ends,
-  or the owner revokes the device or turns offline sales off. Offline, the
-  screen lock cannot be checked: PINs are verified on the server and are never
-  stored on the device. Sign out at the end of a shift, and keep tills
-  physically secure.
+- **Who can open the offline till:** only a cashier who allowed offline
+  unlock on this device while online, with their username and PIN, until
+  their access period ends or the server withdraws it. The PIN check runs in
+  the browser; see "Offline sign-in" for what that does and does not protect
+  against. Keep tills physically secure.
 - **Not available on a cold start:** product photos (served through the image
   optimiser, which is never cached) and anything other than the till.
   The camera scanner's code ships with the till's files. A real camera scan
@@ -399,11 +410,86 @@ point any of this at the production `.env`.
   `TOTAL_MISMATCH`. Aligning the two formulas is a separate decision.
 
 - Offline selling never bypasses sign-in: a device is prepared online by an
-  authorised user. No passwords, tokens or PIN hashes are stored on the
-  device.
+  authorised user. No passwords, tokens, PINs or server PIN hashes are stored
+  on the device; offline unlock keeps only its own salted PBKDF2 verifier.
 - Browser storage is not protected against someone with access to an unlocked
   device. Use a device passcode and do not share till accounts.
 - Browsers may clear site storage (notably iOS Safari after weeks unused, or
   under storage pressure). Local storage is not a backup; sales are only safe
   once synced.
 - The rate limiter is per server instance (see `src/lib/rate-limit.ts`).
+
+## Offline sign-in on a trusted device (Phase 7)
+
+Rules: `src/lib/offline-unlock.ts`. Device: `src/features/offline/offline-unlock.ts`.
+Server: `src/server/services/offline-unlock-service.ts` and `pin-fingerprint.ts`.
+
+**Allowing it (online only).** On a prepared till, *Sales on this device →
+Unlock without internet* asks for the cashier's own screen-lock PIN.
+`POST /api/pos/offline-unlock` checks it against the stored scrypt hash. It
+requires a session, `pos.create`, offline sales switched on, a writable
+store, and this device registered to the store and not removed. It answers
+with a **PIN fingerprint**: an HMAC of that hash under `BETTER_AUTH_SECRET`.
+The device then makes a random 16-byte salt and keeps a PBKDF2-SHA-256
+verifier (600,000 iterations, WebCrypto) in the `unlock` store (IndexedDB
+version 3). Allowing it is recorded in the audit log against the device. A
+cashier with no PIN is told to set one in their profile.
+
+**Signing in offline** (`/pos-offline`). Username and PIN. Nothing of any till
+shows before that. The device opens the cashier's own copy only if:
+- it is unexpired (unlocking never extends it);
+- it lists `pos.create`;
+- it has an open shift;
+- it is for that shift's branch.
+
+A wrong PIN and an unknown username get the same message ("Username or PIN
+is incorrect.") and take the same time to check.
+
+| Wrong PINs in a row (whole device) | Effect |
+| --- | --- |
+| 1-4 | Try again |
+| 5 | 1-minute pause, doubling with each further miss, up to 30 minutes |
+| 15 | Every offline unlock on the device is erased; an online sign-in is needed. Sales and price lists stay. |
+
+Wrong PINs are counted for the whole device, not per cashier, so the
+lockout reveals no usernames. If the device clock is more than 5 minutes
+behind the latest time it has seen, unlock is refused. The session lives
+only in page memory: Lock, a reload or idle auto-lock (the store's setting,
+cached) asks for the PIN again.
+
+**The online lock screen with no connection** checks the PIN against the same
+offline unlock. Only the overlay clears; the server still has the session
+locked, so the lock returns when the connection does.
+
+**Withdrawn when online.**
+- Each catalogue download carries the cashier's current fingerprint. If it
+  differs, the device drops that cashier's unlock.
+- When the device is online, it asks `POST /api/pos/offline-unlock/status`
+  about every cashier set up on it. This happens when the offline till sees
+  the connection return, and on every online catalogue refresh. No session
+  is needed; each cashier is named by store, id, fingerprint and branch.
+- A cashier is removed from the device (copy and unlock; sales stay) if any
+  of these is true:
+  - the account is disabled, or must change a password an administrator set;
+  - the PIN was changed or removed;
+  - they moved branch or lost `pos.create`;
+  - the device was removed;
+  - the store is suspended or read-only, or has offline sales switched off.
+- The status endpoint can only take access away. It answers yes or no for
+  each cashier named, and is rate-limited per address.
+
+**Subscription.** The server caps the access period at the moment the store
+would become read-only (the end of the grace period), so a device cannot
+keep selling for a lapsed store.
+
+**What it does not protect against.**
+- The check runs in the browser. Someone who copies the browser's storage
+  can try every 4-6 digit PIN against the verifier on their own computer
+  within minutes.
+- Someone with developer tools on the device can get around the checks
+  altogether.
+- Browser storage is not hardware-backed.
+- Revocation cannot reach a disconnected device: the access period (24 hours
+  by default) is the limit.
+
+A device passcode, personal PINs and removing lost devices remain essential.

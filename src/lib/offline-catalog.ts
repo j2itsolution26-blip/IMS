@@ -34,6 +34,21 @@ export interface OfflineCatalog {
   store: { id: string; name: string; currency: string; taxRate: number };
   /** How long the device may sell offline after this copy, in hours. */
   offlineAccessHours: number;
+  /**
+   * The latest moment the server allows offline selling on this copy: the
+   * access period, cut short when the store's subscription and grace period
+   * end first. Missing from copies made before it was added.
+   */
+  accessUntil?: string;
+  /** The cashier's permissions when the copy was taken. Offline never grants more. */
+  permissions?: string[];
+  /** The store's idle auto-lock (minutes, 0 = off), applied to the offline till too. */
+  autoLockMinutes?: number;
+  /**
+   * The server's fingerprint of the cashier's current PIN (null: no PIN). A
+   * device whose offline unlock was set up with another PIN drops it.
+   */
+  pinFingerprint?: string | null;
   branch: { id: string };
   /** `name` is printed on receipts; missing from copies made before it was added. */
   user: { id: string; name?: string };
@@ -48,7 +63,7 @@ export interface OfflineCatalog {
 }
 
 /** The copy as the device stores it. */
-export interface CatalogSnapshot extends OfflineCatalog {
+export interface CatalogSnapshot extends Omit<OfflineCatalog, 'accessUntil'> {
   /** `${storeId}:${userId}`: one copy per cashier per store on a device. */
   key: string;
   deviceId: string;
@@ -62,11 +77,13 @@ export function catalogKey(storeId: string, userId: string): string {
 
 export function toSnapshot(catalog: OfflineCatalog, deviceId: string): CatalogSnapshot {
   const fetched = Date.parse(catalog.fetchedAt);
+  const byPeriod = fetched + catalog.offlineAccessHours * 3_600_000;
+  const capped = catalog.accessUntil ? Date.parse(catalog.accessUntil) : NaN;
   return {
     ...catalog,
     key: catalogKey(catalog.store.id, catalog.user.id),
     deviceId,
-    accessUntil: new Date(fetched + catalog.offlineAccessHours * 3_600_000).toISOString(),
+    accessUntil: new Date(Number.isFinite(capped) ? Math.min(byPeriod, capped) : byPeriod).toISOString(),
   };
 }
 

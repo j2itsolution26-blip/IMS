@@ -26,6 +26,17 @@ export class ForbiddenError extends AppError {
   }
 }
 
+/**
+ * The session is signed in but its screen is locked. A 403 like any other
+ * refusal, with its own code so the offline till treats it as "wait", never
+ * as access withdrawn.
+ */
+export class SessionLockedError extends AppError {
+  constructor(message = 'The screen is locked. Unlock it to continue.') {
+    super(message, 'SESSION_LOCKED', 403);
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(entity = 'Record') {
     super(`${entity} not found.`, 'NOT_FOUND', 404);

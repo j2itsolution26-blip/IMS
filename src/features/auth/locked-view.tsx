@@ -22,9 +22,11 @@ export function LockedView({
         name={name}
         username={username}
         initialMethods={initialMethods}
-        // Full navigation so every server component re-reads the now-unlocked session.
-        onUnlocked={() => {
-          window.location.href = destination;
+        // Full navigation so every server component re-reads the now-unlocked
+        // session. Unlocked on the device with no connection, the server pages
+        // cannot load: the offline till opens instead, and asks for the PIN there.
+        onUnlocked={(by) => {
+          window.location.href = by === 'device' ? '/pos-offline' : destination;
         }}
       />
     </main>

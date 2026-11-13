@@ -82,6 +82,10 @@ const config = [
       'src/app/locked/**',
       'src/app/api/health/**',
       'src/app/(app)/settings/profile/**',
+      // Offline unlock: the PIN fingerprint (account security) and the status
+      // check a device makes without a session, for cashiers who signed out.
+      'src/server/services/pin-fingerprint.ts',
+      'src/server/services/offline-unlock-service.ts',
     ],
     rules: { 'no-restricted-imports': 'off' },
   },

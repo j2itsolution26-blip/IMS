@@ -2,7 +2,8 @@
  * Database steps for the browser tests (e2e/). Run by e2e/support/db.ts with
  * tsx; never imported by the app.
  *
- *   seed [offline]            a new store with an owner, two products and an open shift
+ *   seed [offline]            a new store with an owner (lock-screen PIN 4826), two products and an open shift
+ *   disable-owner <store>     the store owner's account is deactivated
  *   zero-stock <store> <prod> the shelf count changes on the server
  *   shift <store>             the store's shift id
  *   state <store>             sales, stock, sync issues, devices, audit entries
@@ -34,7 +35,10 @@ async function main() {
       owner: { name: 'Till Owner', username, email: `${username}@e2e.test`, password },
       allowSimilar: true,
     });
-    await db.user.update({ where: { id: created.ownerId }, data: { mustChangePassword: false } });
+    // The same hasher the app uses for PINs (Better Auth's scrypt).
+    const { hashPassword } = await import('better-auth/crypto');
+    const pin = '4826';
+    await db.user.update({ where: { id: created.ownerId }, data: { mustChangePassword: false, posPinHash: await hashPassword(pin) } });
     const warehouse = await db.warehouse.findFirstOrThrow({ where: { storeId: created.storeId, isDefault: true } });
     const category = await db.category.create({ data: { storeId: created.storeId, name: 'General', slug: `general-${run}` } });
     const soap = await db.product.create({
@@ -49,7 +53,11 @@ async function main() {
       await db.setting.update({ where: { storeId_key: { storeId: created.storeId, key: 'pos.offlineMode' } }, data: { value: 'true' } });
     }
     await db.cashierShift.create({ data: { storeId: created.storeId, userId: created.ownerId, warehouseId: warehouse.id, openingCash: 1000 } });
-    console.log(JSON.stringify({ storeId: created.storeId, username, password, soap: soap.id, rice: rice.id, soapBarcode: soap.barcode }));
+    console.log(JSON.stringify({ storeId: created.storeId, username, password, pin, soap: soap.id, rice: rice.id, soapBarcode: soap.barcode }));
+  } else if (command === 'disable-owner') {
+    const store = await db.store.findUniqueOrThrow({ where: { id: storeId }, select: { ownerId: true } });
+    await db.user.update({ where: { id: store.ownerId as string }, data: { isActive: false } });
+    console.log(JSON.stringify({ ok: true }));
   } else if (command === 'zero-stock') {
     await db.inventory.updateMany({ where: { storeId, productId }, data: { quantity: 0 } });
     console.log(JSON.stringify({ ok: true }));

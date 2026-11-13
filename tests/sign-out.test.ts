@@ -45,7 +45,9 @@ test('a network failure is reported and does not navigate', async () => {
 test('every sign-out goes through the shared, confirmed flow', () => {
   // The lock screen's "Switch user" is the one deliberate exception: it runs
   // with the app already covered and always lands on sign-in.
-  const allowed = new Set(['src/features/auth/sign-out.tsx', 'src/features/auth/lock-screen.tsx']);
+  // The offline till signs out a *different* account's session at handover,
+  // so the cashier unlocked offline never carries on as them.
+  const allowed = new Set(['src/features/auth/sign-out.tsx', 'src/features/auth/lock-screen.tsx', 'src/features/offline/offline-till.tsx']);
   const offenders = sourceFiles('src')
     .map((file) => file.split(path.sep).join('/'))
     .filter((file) => !allowed.has(file) && /\bauthClient\.signOut\(|\bsignOut\(\)/.test(read(file)) && !file.endsWith('sign-out-flow.ts'));

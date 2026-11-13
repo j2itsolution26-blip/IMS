@@ -235,7 +235,8 @@ if (!URL_ENV || !APP) {
 
     test('the copy says how long the device may sell offline', async () => {
       const response = await call(`/api/pos/catalog?deviceId=${deviceId}`);
-      assert.equal(response.body.catalog.offlineAccessHours, 72);
+      // 24 hours by default (it was 72 before offline sign-in), and never past the subscription grace period.
+      assert.equal(response.body.catalog.offlineAccessHours, 24);
     });
 
     test('the catalogue is never cached', async () => {

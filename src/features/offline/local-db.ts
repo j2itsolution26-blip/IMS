@@ -3,6 +3,7 @@ import type { CheckoutInput } from '@/features/pos/checkout-schema';
 import type { OfflineSale } from '@/lib/offline-sale';
 import type { ReceiptData } from '@/features/pos/receipt';
 import type { CatalogSnapshot } from '@/lib/offline-catalog';
+import type { UnlockEnrollment } from '@/lib/offline-unlock';
 
 /**
  * The till's own database, in the browser's IndexedDB.
@@ -18,7 +19,9 @@ import type { CatalogSnapshot } from '@/lib/offline-catalog';
  *     entries older than the retention period are pruned.
  *   - Every entry names its store and cashier, and the till only ever shows
  *     or uploads the signed-in cashier's own store's entries.
- *   - No passwords, tokens or PIN hashes are ever stored here.
+ *   - No passwords, tokens, PINs or server PIN hashes are ever stored here.
+ *     Offline unlock keeps only its own salted PBKDF2 verifier of a PIN
+ *     (src/lib/offline-unlock.ts).
  *
  * Upgrades only add: bump DB_VERSION and add a branch to `upgrade` that
  * creates the new stores or indexes. Never delete or clear `outbox` there.
@@ -28,8 +31,9 @@ export const DB_NAME = 'tindahanpromax-pos';
 /**
  * 1: meta, outbox, syncLog (Phase 2)
  * 2: catalog, the offline price list (Phase 3)
+ * 3: unlock, the cashiers who may unlock this device offline with their PIN
  */
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 
 /**
  *   pending   waiting to be sent (or being retried after a passing failure)
@@ -113,6 +117,8 @@ interface PosSchema extends DBSchema {
   syncLog: { key: number; value: SyncLogEntry; indexes: { byAt: string } };
   /** One catalogue copy per store and cashier (key `${storeId}:${userId}`). */
   catalog: { key: string; value: CatalogSnapshot };
+  /** One per cashier (key `${storeId}:${userId}`, the catalogue copy's key). */
+  unlock: { key: string; value: UnlockEnrollment; indexes: { byUsername: string } };
 }
 
 export type PosDb = IDBPDatabase<PosSchema>;
@@ -123,6 +129,8 @@ export const META = {
   lastSyncAt: 'lastSyncAt',
   /** `{ storeId, userId }` of the till last prepared here: what /pos-offline opens. */
   lastTill: 'lastTill',
+  /** Device-wide wrong-PIN count, lockout and clock high-water mark (UnlockGuard). */
+  unlockGuard: 'unlockGuard',
 } as const;
 
 let opening: Promise<PosDb> | null = null;
@@ -146,6 +154,10 @@ export function openLocalDb(): Promise<PosDb> {
       }
       if (oldVersion < 2) {
         db.createObjectStore('catalog', { keyPath: 'key' });
+      }
+      if (oldVersion < 3) {
+        const unlock = db.createObjectStore('unlock', { keyPath: 'key' });
+        unlock.createIndex('byUsername', 'username');
       }
     },
     blocked() {

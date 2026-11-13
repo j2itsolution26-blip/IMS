@@ -8,6 +8,8 @@ import { getCompanyProfile, getSettings, readBoolean, readNumber } from '@/serve
 import { AppError } from '@/lib/errors';
 import { getOpenShift } from '@/server/services/shift-service';
 import { posBranchId } from '@/server/services/warehouse-service';
+import { sellingEndsAt } from '@/lib/store-access';
+import { currentPinFingerprint } from '@/server/services/pin-fingerprint';
 
 /**
  * The catalogue copy a till keeps for offline selling (GET /api/pos/catalog).
@@ -30,15 +32,20 @@ export class OfflineDisabledError extends AppError {
   }
 }
 
-export async function getOfflineCatalog(user: { id: string; name: string }): Promise<OfflineCatalog> {
+export async function getOfflineCatalog(user: { id: string; name: string; permissions: Iterable<string> }): Promise<OfflineCatalog> {
   const userId = user.id;
-  const { db, storeId } = await getStoreContext();
+  const { db, storeId, access } = await getStoreContext();
   const settings = await getSettings();
   if (!readBoolean(settings, 'pos.offlineMode')) throw new OfflineDisabledError();
   const fetchedAt = new Date();
   const warehouseId = await posBranchId();
 
-  const [company, openShift, categories, products] = await Promise.all([
+  const accessHours = readNumber(settings, 'pos.offlineAccessHours');
+  const sellingEnds = sellingEndsAt(access, fetchedAt);
+  const byPeriod = new Date(fetchedAt.getTime() + accessHours * 3_600_000);
+  const accessUntil = sellingEnds && sellingEnds < byPeriod ? sellingEnds : byPeriod;
+
+  const [company, openShift, categories, products, fingerprint] = await Promise.all([
     getCompanyProfile(),
     getOpenShift(userId),
     db.category.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
@@ -63,6 +70,7 @@ export async function getOfflineCatalog(user: { id: string; name: string }): Pro
         inventory: { where: { warehouseId }, select: { quantity: true, reserved: true } },
       },
     }),
+    currentPinFingerprint(userId),
   ]);
 
   const truncated = products.length > CATALOG_PRODUCT_LIMIT;
@@ -70,7 +78,11 @@ export async function getOfflineCatalog(user: { id: string; name: string }): Pro
   return {
     fetchedAt: fetchedAt.toISOString(),
     store: { id: storeId, name: company.name, currency: company.currency, taxRate: readNumber(settings, 'sales.defaultTaxRate') },
-    offlineAccessHours: readNumber(settings, 'pos.offlineAccessHours'),
+    offlineAccessHours: accessHours,
+    accessUntil: accessUntil.toISOString(),
+    permissions: [...user.permissions].filter((key) => key.startsWith('pos.') || key.startsWith('sales.')).sort(),
+    autoLockMinutes: readNumber(settings, 'security.autoLockMinutes'),
+    pinFingerprint: fingerprint,
     branch: { id: warehouseId },
     user: { id: userId, name: user.name },
     receipt: {

@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { allowedUnlockMethods } from '@/lib/pos-pin';
 import { lockSession } from '@/features/auth/lock-actions';
-import { LockScreen } from '@/features/auth/lock-screen';
+import { LockScreen, type UnlockedBy } from '@/features/auth/lock-screen';
 
 interface ScreenLockContextValue {
   lock: () => void;
@@ -93,9 +93,26 @@ export function ScreenLockProvider({
     };
   }, [autoLockMinutes, locked, lock]);
 
-  const onUnlocked = React.useCallback(() => {
+  // Unlocked on the device with no connection: the server still has this
+  // session locked, so the lock comes back as soon as the connection does and
+  // the cashier unlocks against the server.
+  const unlockedOffline = React.useRef(false);
+  React.useEffect(() => {
+    const onOnline = () => {
+      if (!unlockedOffline.current) return;
+      unlockedOffline.current = false;
+      showLock();
+      toast.info('The connection is back. Unlock again to continue.');
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [showLock]);
+
+  const onUnlocked = React.useCallback((by: UnlockedBy) => {
     setLocked(false);
-    channelRef.current?.postMessage('unlock');
+    unlockedOffline.current = by === 'device';
+    // Other tabs unlock only when the server has the session unlocked.
+    if (by === 'server') channelRef.current?.postMessage('unlock');
   }, []);
 
   const value = React.useMemo(() => ({ lock }), [lock]);

@@ -29,7 +29,7 @@
  * still opens offline after the update.
  */
 
-const VERSION = 'v5';
+const VERSION = 'v6';
 const STATIC_CACHE = `tpm-static-${VERSION}`;
 const SHELL_CACHE = `tpm-shell-${VERSION}`;
 const TILL_CACHE = `tpm-till-${VERSION}`;

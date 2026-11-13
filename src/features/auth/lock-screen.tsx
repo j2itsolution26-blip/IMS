@@ -7,11 +7,44 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FormError } from '@/components/form';
 import { Avatar, AvatarFallback } from '@/components/ui/misc';
-import { forgetOfflineTill } from '@/features/offline/catalog-client';
 import { authClient } from '@/lib/auth-client';
 import { PIN_MAX_LENGTH, type UnlockMethod } from '@/lib/pos-pin';
 import { initials } from '@/lib/utils';
-import { unlockSession } from '@/features/auth/lock-actions';
+import { unlockSession, type UnlockResult } from '@/features/auth/lock-actions';
+import type { ActionResult } from '@/lib/action';
+import { openLocalDb } from '@/features/offline/local-db';
+import { unlockKnownCashier } from '@/features/offline/offline-unlock';
+
+/** How the lock screen was cleared: by the server, or on this device with no connection. */
+export type UnlockedBy = 'server' | 'device';
+
+/**
+ * With no connection, the PIN is checked against this device's offline
+ * unlock for the cashier (src/lib/offline-unlock.ts). Only the overlay
+ * clears: the server still has the session locked, so the next page load
+ * online asks again.
+ */
+async function unlockOnDevice(username: string, pin: string): Promise<{ unlocked: boolean; message?: string }> {
+  try {
+    const result = await unlockKnownCashier(await openLocalDb(), username, pin);
+    switch (result.kind) {
+      case 'ok':
+        return { unlocked: true };
+      case 'unavailable':
+        return { unlocked: false, message: 'The server cannot be reached, and offline unlock is not set up for you on this device.' };
+      case 'wrong':
+        return { unlocked: false, message: result.waitUntil ? 'Incorrect PIN. Too many attempts: wait a few minutes.' : 'Incorrect PIN.' };
+      case 'wait':
+        return { unlocked: false, message: 'Too many attempts. Wait a few minutes and try again.' };
+      case 'clock':
+        return { unlocked: false, message: 'This device’s clock has been changed. Connect to the internet to unlock.' };
+      case 'erased':
+        return { unlocked: false, message: 'Too many incorrect attempts. Offline unlock was turned off on this device; connect to the internet to unlock.' };
+    }
+  } catch {
+    return { unlocked: false, message: 'The server cannot be reached and this browser cannot check the PIN offline.' };
+  }
+}
 
 /**
  * The lock screen card: unlock with the PIN (or the password), or sign out so
@@ -30,7 +63,7 @@ export function LockScreen({
   name: string;
   username: string;
   initialMethods: UnlockMethod[];
-  onUnlocked: () => void;
+  onUnlocked: (by: UnlockedBy) => void;
 }) {
   const [methods, setMethods] = React.useState<UnlockMethod[]>(initialMethods);
   const [method, setMethod] = React.useState<UnlockMethod>(initialMethods[0] ?? 'password');
@@ -47,7 +80,6 @@ export function LockScreen({
   const signOut = async () => {
     setBusy(true);
     await authClient.signOut().catch(() => undefined);
-    await forgetOfflineTill();
     window.location.href = '/sign-in';
   };
 
@@ -57,7 +89,27 @@ export function LockScreen({
     setBusy(true);
     setError(null);
 
-    const result = await unlockSession({ method, secret });
+    let result: ActionResult<UnlockResult> | null = null;
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      try {
+        result = await unlockSession({ method, secret });
+      } catch {
+        // The request never got an answer: treat it as offline below.
+        result = null;
+      }
+    }
+    if (result === null) {
+      const offline = method === 'pin' ? await unlockOnDevice(username, secret) : { unlocked: false, message: 'The server cannot be reached. Use your PIN to unlock offline.' };
+      setBusy(false);
+      setSecret('');
+      if (offline.unlocked) {
+        onUnlocked('device');
+        return;
+      }
+      setError(offline.message ?? 'That did not work.');
+      inputRef.current?.focus();
+      return;
+    }
     setBusy(false);
     setSecret('');
 
@@ -66,7 +118,7 @@ export function LockScreen({
       return;
     }
     if (result.data.unlocked) {
-      onUnlocked();
+      onUnlocked('server');
       return;
     }
 

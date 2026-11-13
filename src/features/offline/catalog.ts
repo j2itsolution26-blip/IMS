@@ -1,5 +1,6 @@
 import { META, deviceRecord, type PosDb } from '@/features/offline/local-db';
 import { entriesForStore } from '@/features/offline/outbox';
+import { applyPinFingerprint, removeOfflineAccess } from '@/features/offline/offline-unlock';
 import {
   catalogKey,
   findByCode,
@@ -20,8 +21,14 @@ import {
  * downloading the catalogue copy (GET /api/pos/catalog) and keeping it in
  * IndexedDB. It is refreshed while the till is online. A refusal from the
  * server (offline selling switched off, device revoked, store read-only or
- * suspended, staff no longer allowed to sell) removes the copy, which ends
- * offline selling on this device; a network failure keeps it.
+ * suspended, staff no longer allowed to sell) removes the copy and the
+ * cashier's offline unlock, which ends offline selling for them on this
+ * device. A network failure keeps both, and so do:
+ *   - 401: this browser is not signed in, which says nothing about the
+ *     cashier whose copy it is (they may have signed out and still unlock
+ *     with their PIN). Their access is rechecked without a session
+ *     (revalidateEnrollments) and in any case ends with its access period.
+ *   - 403 SESSION_LOCKED: the screen is locked, nothing was withdrawn.
  */
 
 export type PrepareResult =
@@ -61,13 +68,13 @@ async function call(fetchImpl: typeof fetch, url: string, body?: unknown): Promi
 }
 
 /** A refusal about this account, device or store, as opposed to a passing failure. */
-function withdraws(status: number | null): boolean {
-  return status === 401 || status === 403;
+export function withdraws(status: number | null, code: unknown): boolean {
+  return status === 403 && code !== 'SESSION_LOCKED' && code !== 'CROSS_ORIGIN';
 }
 
 async function failure(db: PosDb, key: string, answer: Answer): Promise<PrepareResult> {
-  const withdrawn = withdraws(answer.status);
-  if (withdrawn) await removeCopy(db, key);
+  const withdrawn = withdraws(answer.status, answer.body?.code);
+  if (withdrawn) await removeOfflineAccess(db, key);
   if (answer.status === null) return { ok: false, code: 'NETWORK', message: 'The server could not be reached.', withdrawn: false };
   return {
     ok: false,
@@ -101,6 +108,8 @@ export async function prepareDevice(
   await tx.objectStore('catalog').put(snapshot);
   await tx.objectStore('meta').put({ storeId: scope.storeId, userId: scope.userId } satisfies TillScope, META.lastTill);
   await tx.done;
+  // The PIN was changed or removed since this cashier allowed offline unlock here.
+  await applyPinFingerprint(db, key, catalog.pinFingerprint);
   return { ok: true, snapshot };
 }
 
@@ -116,26 +125,6 @@ export async function lastTill(db: PosDb): Promise<{ scope: TillScope; snapshot:
   if (!scope?.storeId || !scope.userId) return null;
   const snapshot = await loadSnapshot(db, scope.storeId, scope.userId);
   return snapshot ? { scope, snapshot } : null;
-}
-
-/** Deletes a catalogue copy, and stops this device opening that till offline. Sales are kept. */
-async function removeCopy(db: PosDb, key: string): Promise<void> {
-  const tx = db.transaction(['catalog', 'meta'], 'readwrite');
-  await tx.objectStore('catalog').delete(key);
-  const last = (await tx.objectStore('meta').get(META.lastTill)) as TillScope | undefined;
-  if (last && catalogKey(last.storeId, last.userId) === key) await tx.objectStore('meta').delete(META.lastTill);
-  await tx.done;
-}
-
-/**
- * On sign-out: the last till's price list leaves the device and no till opens
- * offline until someone signs in and opens one again. Unsent sales stay and
- * are sent at the next sign-in.
- */
-export async function forgetLastTill(db: PosDb): Promise<void> {
-  const scope = (await db.get('meta', META.lastTill)) as TillScope | undefined;
-  if (scope?.storeId && scope.userId) await removeCopy(db, catalogKey(scope.storeId, scope.userId));
-  else await db.delete('meta', META.lastTill);
 }
 
 export async function loadSnapshot(db: PosDb, storeId: string, userId: string): Promise<CatalogSnapshot | null> {
